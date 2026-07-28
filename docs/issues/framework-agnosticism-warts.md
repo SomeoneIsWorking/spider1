@@ -9,33 +9,46 @@ hardware, and build unchanged, and the game-side surface is four files. Standing
 are recorded here rather than worked around silently, because each one costs the next consumer the
 same debugging session.
 
-None of these were patched in the submodule from this repo — the fixes belong upstream, and the
-pattern for all of them is the one psxport already applied to `recMainLo`/`recMainHi`: route the
-value through `GameConfig` instead of baking it in.
+The pattern for all of them is the one psxport already applied to `recMainLo`/`recMainHi` and to the
+recompiler seed set: route the value through `GameConfig` instead of baking it in. Two have since
+been fixed upstream (WART-01, WART-04) rather than worked around here — the entries are kept because
+the reasoning is what makes the next one recognisable.
 
 ---
 
-## WART-01 — `PlatformHle::initBuiltins()` registers the reference consumer's addresses — **worked around**
+## WART-01 — `PlatformHle::initBuiltins()` registered the reference consumer's addresses — **FIXED upstream (psxport 7c212eb5)**
 
-`runtime/recomp/sync_overrides.cpp` registers the hardware-sync HLE table from hardcoded literals:
-VSync `0x80085900`, CdReadSync `0x8008A96C`, CdDataSync `0x8008B4B8`, the CdInit handshake
-`0x8008B2D8`, the libgpu DMA-timeout pair, and the task-switch funnel `0x80080880`. Those are
-Tomba!2's addresses.
+`runtime/recomp/sync_overrides.cpp` used to register the hardware-sync HLE table from hardcoded
+literals: VSync `0x80085900`, CdReadSync `0x8008A96C`, CdDataSync `0x8008B4B8`, the CdInit handshake
+`0x8008B2D8`, the libgpu DMA-timeout pair, and the task-switch funnel `0x80080880` — all Tomba!2's
+addresses.
 
-For a different game this is **worse than a no-op in both directions**: it misses every primitive the
+For a different game that is **worse than a no-op in both directions**: it misses every primitive the
 new game actually uses, *and* it installs handlers over whatever unrelated functions happen to sit at
 those addresses in the new binary — a wrong abort waiting to fire. Spider-Man has real code at
 `0x80085900`.
 
 *Root cause:* the addresses are game data living in framework code.
 
-*Handled here by:* not calling `initBuiltins()` at all, and registering this game's own RE'd
-primitives through the public `PlatformHle::register_` seam instead (`game/core/sync_native.cpp`).
-That seam is public and gates on the BIOS-library address window, so nothing reaches around the
-framework. This is a deliberate substitution, not a bypass.
+*Fixed 2026-07-28, in the framework rather than around it.* `GameConfig` gained an `hle` group
+carrying the sync entry points, the two globals the GPU timeout arms, the address windows
+`register_()` validates against, and the resident-code range the guest backtrace scans.
+`initBuiltins()` now registers only the entries a game declares non-zero, and the framework ships
+none of its own. Same remedy as `recMainLo`/`recMainHi` and the seed set.
 
-*Cost of not fixing upstream:* every new consumer must know to skip `initBuiltins()`, and nothing
-tells them so.
+Two design points came out of it:
+  * The VSync trap became **opt-in** (`hle.vsyncTrap`). "Nothing may reach VSync because the native
+    frame loop owns all timing" is a port POLICY, true only once such a loop exists. This port runs
+    the guest's own loop, so it leaves the trap zero and registers a faithful VSync instead.
+  * `register_()` refuses everything when no window is configured, and says so, rather than silently
+    accepting any address — which would disable the guard for exactly the games that forgot to
+    declare their map.
+
+*The interim workaround (skipping `initBuiltins()` entirely) is GONE* — `main.cpp` calls it normally.
+
+*Verified:* Tomba!2 unchanged (90 headless frames, exit 0, 18 primitives, zero traps/refusals);
+framework still builds standalone (`psxport_smoke ok`); this port installs 0 from `hle` (nothing but
+VSync is RE'd) plus its own VSync, and reports both.
 
 ---
 
@@ -62,13 +75,26 @@ framework outside comments — its own definition.
 
 ---
 
-## WART-04 — `REFUSED 0x00000000` at startup — **benign, cause not chased**
+## WART-04 — `REFUSED 0x00000000` at startup — **ROOT-CAUSED and FIXED (psxport 3c7f8b14)**
 
 Nine of these appear before the config dump on every boot: `PlatformHle` is queried with address `0`
 and correctly refuses it, since `0` is not in the BIOS-library window.
 
-*Status:* the message is the framework behaving correctly, and it has no observed effect on the run —
-it appears before any guest code executes and the boot proceeds normally past it. **Not
-root-caused.** Recorded so the next session recognises it as known noise rather than re-investigating
-it as a new symptom, and so that if it ever *does* correlate with a failure, there is a note saying
-it was never actually explained.
+*Root cause, found 2026-07-28:* `cd_override.cpp` passed `cfg->cd*` straight to `register_()`, so
+every CD address a game has **not configured** arrived as literal `0` and was correctly refused. This
+port's CD group is entirely zero, and there are exactly nine such registrations — hence nine
+messages, one per boot.
+
+So it was never framework noise: it was the framework accurately reporting nine attempts to register
+address 0. Harmless in effect, but it printed as an ERROR ahead of the config dump and buried the
+diagnostics that mattered.
+
+*Fixed upstream:* `cd_override` now skips zero addresses, honouring the same "zero means not
+configured / not RE'd yet" convention the rest of `GameConfig` uses.
+
+*Verified:* this port goes from 9 refusals per boot to 0. Tomba!2 is unaffected — all nine of its CD
+addresses are non-zero, so every registration still happens (18 primitives installed, unchanged).
+
+*Worth keeping:* the earlier entry recorded this as "benign, cause not chased". It was benign, but
+"not chased" was the right thing to write down — it is what made it obvious later that the nine
+refusals and the nine unconfigured CD entries were the same nine.

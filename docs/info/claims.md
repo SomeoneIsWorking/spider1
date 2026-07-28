@@ -10,16 +10,57 @@ downstream.
 
 ---
 
-## CLAIM-01 — The crt0 boot group in `GameConfig` is correct — **holds**
+## CLAIM-00 — "1580 functions recompiled, zero dispatch misses" — **FALSIFIED 2026-07-28**
+
+*Was claimed:* the first recomp of this game produced a trustworthy 1580-function substrate, and the
+port booting through it with zero `rec_dispatch` misses corroborated the boot seam.
+
+*What falsified it:* that run used psxport `f2af64e9`, before the framework stopped shipping a
+hardcoded seed list. The recompiler was therefore seeded with **Tomba!2's** addresses, and measuring
+them against this game's text (`[0x80010000,0x800C6800)`) shows **27 of the 34 land inside it**. Each
+declares a bogus function entry at an arbitrary offset, splitting a real function in two. The
+substrate was corrupt, so the function count described nothing meaningful and "zero misses" was not
+evidence about this game.
+
+*Who relied on it — checked:* CLAIM-01 cited the miss-free boot as corroboration, and RE-00/RE-01 in
+the frontier cited the function count. Both were re-derived against a clean substrate; see CLAIM-01
+and CLAIM-04. Nothing else depended on the figure.
+
+*Superseded by:* CLAIM-04.
+
+---
+
+## CLAIM-04 — The substrate is now seeded only from this game's own binary — **holds**
+
+*Claimed:* the current recomp contains no foreign seed, so every recompiled function entry is one the
+executable itself vouches for.
+
+*Evidence:* psxport ≥ `9127e10e` ships no seeds and takes them via `--seeds`; this repo's
+`game/recomp_seeds.json` is deliberately EMPTY, so discovery runs purely from the entry point, the
+recompiler's pointer/table scans, and direct `jal` following. Result: **335 seeds → 1561 functions**,
+against 355 → 1580 under the contaminated run. The seed file is a hash input to
+`tools/ensure_recomp.py`, so a change to it forces a regenerate on every machine.
+
+*Expires if:* a seed is ever added without a recorded rationale, or if the recompiler's own discovery
+changes — either makes "every entry is binary-vouched" no longer automatic.
+
+---
+
+## CLAIM-01 — The crt0 boot group in `GameConfig` is correct — **holds (re-verified on a clean substrate)**
 
 *Claimed:* every value in the crt0/boot group of `game/core/game_config.cpp` is the address the
 retail executable actually uses.
 
 *Evidence:* read instruction by instruction out of the crt0 at `0x8008739C` (disassembly reproducible
 via `tools/redump_ram.py` + the framework's `disasm.py`; the per-field mapping is written out at the
-definition). Independently corroborated: the framework's game-agnostic `crt0_setup` implements this
-exact sequence, and the port boots through it into the guest's `main`, which then executes real
-translated code with **zero `rec_dispatch` misses**.
+definition). This evidence never depended on the recomp — it comes from the executable directly — so
+CLAIM-00's falsification does not touch it. Independently corroborated: the framework's game-agnostic
+`crt0_setup` implements this exact sequence.
+
+*Corroboration re-established 2026-07-28:* the original "boots with zero `rec_dispatch` misses"
+observation was made against the contaminated substrate and had to be discarded with CLAIM-00. It has
+been re-run on the clean 1561-function substrate: the port still boots through crt0 into the guest's
+`main` and executes real translated code down into `0x800649E4`. Same conclusion, honest evidence.
 
 *Expires if:* a `rec_dispatch` MISS or a wild guest write appears during crt0 or early `main`, or the
 disc used is not the US retail release.

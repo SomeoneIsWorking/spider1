@@ -16,8 +16,8 @@ legally-obtained copy.
 ## Status — honest
 
 The port **provisions, recompiles, builds, and boots**. It runs the game's real translated code
-through crt0 into the guest's own `main` and through graphics init, then **stops in libcd** waiting
-on a sync primitive that has not been reverse-engineered yet.
+through crt0 into the guest's own `main` and through graphics init, then **stops in the game's own
+disc-init retry loop**, because libcd `CdInit` has not been reverse-engineered yet.
 
 It is not playable, and there is no picture. Nothing stands in for the missing reverse-engineering:
 where the RE is not done, the port hangs or aborts loudly rather than fabricating behaviour. The
@@ -26,11 +26,11 @@ point.
 
 | | |
 |---|---|
-| Static recompilation | 1580 functions, 8 shards, 0 overlays — hash-gated and reproducible |
+| Static recompilation | 1561 functions, 8 shards, 0 overlays — hash-gated, reproducible, seeded only from the binary |
 | Build | configures and links clean |
 | crt0 / boot seam | reverse-engineered and verified live |
 | libetc `VSync` | reverse-engineered and reimplemented natively |
-| libcd sync | **the current stopping point** |
+| libcd `CdInit` | **the current stopping point** |
 | Frame loop, scheduler, input, renderer | not started — blocked behind libcd |
 
 See [`docs/codemap.md`](docs/codemap.md) for the full subsystem map and

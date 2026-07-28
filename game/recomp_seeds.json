@@ -1,0 +1,30 @@
+// Spider-Man (SLUS_008.75, USA) recompiler seeds — the GAME half of the framework's function
+// discovery (external/psxport/tools/recomp/emit.py --seeds).
+//
+// emit.py seeds discovery from the binary itself (the entry point plus its pointer/table scans) and
+// grows the set by following direct `jal` targets. This file adds only what those scans CANNOT see:
+// functions reached exclusively through a function pointer (`jalr`), or entered mid-body at a resume
+// point. Every entry is a fact about THIS executable, which is why it lives in the game repo.
+//
+// It is EMPTY on purpose. The framework used to hardcode Tomba!2's seed list, and that list is
+// actively wrong here: 27 of its 34 addresses land inside this game's text ([0x80010000,0x800C6800)),
+// where each would declare a bogus function entry at an arbitrary offset and silently split a real
+// function. Starting empty means every function in the substrate is one the binary itself vouches
+// for.
+//
+// HOW TO ADD ONE — do not guess. A missing seed announces itself: the runtime fail-fasts with a
+// [recomp-MISS] naming the address it could not dispatch to. Add that address here, with a note on
+// HOW it is reached and which run surfaced it, then re-run ./run.sh. A seed with no rationale is
+// unreviewable later, which is why the format allows `//` comments.
+//
+// A seed MUST lie inside the module text; emit.py fails with a readable diagnostic otherwise.
+//
+// Schema:
+//   main                  [addr, ...]          resident-module seeds
+//   main_reentry          [addr, ...]          mid-body re-entry points
+//   overlay_bases         {STEM: addr}         overlay load addresses      — N/A: this game has none
+//   overlay_seeds         {STEM: [addr, ...]}  per-overlay seeds           — N/A: this game has none
+{
+  "main": [],
+  "main_reentry": []
+}

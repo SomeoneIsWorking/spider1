@@ -27,10 +27,20 @@ both by the ISO tree (`discdump list`) and by the recompiler reporting `0 overla
 `tools/ensure_recomp.py` extracts the executable and runs the framework recompiler, hash-gated on the
 inputs so every machine builds an identical substrate.
 
-**Evidence:** PS-X EXE header — entry `0x8008739C`, load `0x80010000`, text `0x000B6800`.
-1580 functions emitted across 8 shards from 355 seeds via `jal` discovery.
+The seed set is supplied by this repo (`game/recomp_seeds.json`) and is deliberately **empty**, so
+discovery runs purely from the binary — entry point, the recompiler's pointer/table scans, and direct
+`jal` following. It is a hash input, so changing it forces a regenerate everywhere.
 
-**Expires if:** a different region/revision of the disc is used (the addresses below are US-retail).
+**Evidence:** PS-X EXE header — entry `0x8008739C`, load `0x80010000`, text `0x000B6800`.
+**1561 functions** emitted across 8 shards from 335 seeds.
+
+**Corrected 2026-07-28:** the first run of this step reported 1580 functions from 355 seeds and was
+*wrong* — it predated the framework taking seeds via `--seeds`, so the recompiler used Tomba!2's
+hardcoded list, of which 27 of 34 land inside this game's text and split real functions. See
+`docs/info/claims.md` CLAIM-00 (falsified) and CLAIM-04.
+
+**Expires if:** a seed is added to the seed file without a recorded rationale, or a different
+region/revision of the disc is used (the addresses below are US-retail).
 
 ---
 
@@ -67,28 +77,48 @@ counter and times itself against it. So the counter must advance with real time 
 rate (60000/1001 Hz), which is what the native handler does; a counter advanced only inside blocking
 calls left the poll loop spinning forever. See `docs/info/claims.md` CLAIM-02.
 
-**Verified on real data:** the pre-fix hang (a deterministic spin in `_vsync_wait`) is gone; the run
-proceeds past graphics init into libcd.
+**Verified on real data, and re-verified on the clean substrate:** the pre-fix hang (a deterministic
+spin in `_vsync_wait`) is gone; the run proceeds past graphics init and down into the game's own
+disc-init retry loop (RE-03), which is where it now stops.
 
 ---
 
-## RE-03 — libcd sync primitives — `blocked` on nothing; **this is `next`**
+## RE-03 — libcd `CdInit` — `blocked` on nothing; **this is `next`**
 
-Where the port currently stops. The boot reaches the CD chain and blocks:
+Where the port stops, now characterised precisely (the earlier, vaguer version of this entry was
+written against the contaminated substrate):
 
 ```
-main 0x8002C354 -> 0x8006BF9C -> 0x800649E4 -> 0x8008A16C -> 0x8008A1FC
-                -> 0x8008D4E4 -> 0x8008CE8C -> (polls VSync forever)
+main 0x8002C354 -> 0x8006BF9C -> 0x800649E4        the game's disc-init RETRY loop
+                                   |
+                                   +-> 0x8008710C  BIOS A(0x3F) printf  (the "UNIMPL A0:0x3F" flood)
+                                   +-> VSync x100  wait ~100 fields
+                                   +-> 0x8008A16C  CdInit -> returns 0 -> retry forever
 ```
 
-`0x8008CE8C` polls the vblank counter as a timeout while waiting on a CD operation that never
-completes, because this game's CD sync primitives are not yet identified or wired.
+`0x800649E4` is a bounded-wait retry: print, wait 100 vblanks, call `CdInit`, loop while it returns 0.
+It never succeeds, so the boot spins here indefinitely.
 
-To do: RE this game's `CdReadSync` / `CdDataSync` / the low-level `CdInit` reset handshake and
-register native handlers alongside `VSync` in `game/core/sync_native.cpp`. The framework's own CD
-natives (`Cd::overridesInit`) supply drive-ready and by-LBA reads; the missing half is the sync
-leaves. Note this game's data layout is a single packed archive (`CD.WAD`) rather than ISO files, so
-the loader path is likely to differ substantially from an SDK-file-per-asset game.
+`0x8008A16C` is libcd's `CdInit`: it calls `0x8008A1FC` up to **4 times** (counter `s0` starts at 4),
+and only on a return of 1 does it install three CD event-callback pointers (into `0x800B3B14`,
+`0x800B3B18`, `0x800B1C7C`), clear `0x800B1C80`, and return 1. `0x8008A1FC` descends into
+`0x8008D4E4 -> 0x8008CE8C`, which is where the low-level controller handshake spins.
+
+**The trap to avoid here:** this does NOT map onto the framework's generic `hle.cdInitHandshake`.
+That handler reports `v0 = 0` — correct for the reference consumer's differently-shaped function —
+whereas this chain needs `1` to mean success. Wiring the two together because the names match would
+produce a silent infinite retry, which is the exact failure already in front of us. RE `0x8008A1FC`
+on its own terms first.
+
+Note also the callback-pointer installs: whatever satisfies `CdInit` must leave those three globals
+holding real handlers, or the first CD event afterwards dispatches through a null pointer.
+
+**Do not fabricate a success return.** Forcing `CdInit` to report 1 without the handshake and the
+callback state would make the boot appear to progress while the CD subsystem is unconfigured — far
+harder to diagnose later than the current clean stop.
+
+Downstream, not started: the actual data path. This game's assets live in one packed archive
+(`CD.WAD`) rather than as ISO files, so the loader will not resemble an SDK-file-per-asset game's.
 
 ---
 

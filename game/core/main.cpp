@@ -65,10 +65,12 @@ int main(int argc, char** argv) {
   game->spu_audio.init();     // SDL audio sink (PSXPORT_NOAUDIO to disable)
   game->gpu.gpu_native_init();// native GPU renderer over the guest's GP0 stream
   game->cd.overridesInit();   // native CD: drive-ready + by-LBA read
-  // NOT game->platform_hle.initBuiltins(): its table is Tomba!2's guest addresses, baked in as
-  // literals rather than routed through GameConfig. Installing them here would miss every primitive
-  // Spider-Man actually uses and would hook unrelated functions that happen to share an address.
-  // This game registers its own RE'd primitives instead — see game/core/sync_native.cpp.
+  // Hardware-sync HLE, in two halves. initBuiltins() installs the framework's generic handlers at
+  // whatever addresses THIS game declares in GameConfig::hle — as of psxport 7c212eb5 it ships none
+  // of its own, so it can no longer install another game's addresses over ours. Today that group is
+  // all zero (nothing but VSync has been RE'd), so this registers nothing and says so.
+  game->platform_hle.initBuiltins();
+  // Then this game's own faithfully reimplemented primitives, which have no generic form.
   spiderman_install_sync_natives(game);
   game->pad.overridesInit();  // native controller input
   c->r[4] = 1; c->r[5] = 0;   // a0/a1 as the BIOS leaves them

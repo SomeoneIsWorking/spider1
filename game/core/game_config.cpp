@@ -91,6 +91,47 @@ static const GameConfig g_spiderman_cfg = {
     // --- pad driver (re-frontier: RE-05) ---
     /* padSlot0Buf    */ 0, /* padSlot1Buf */ 0, /* padDriverFn */ 0,
     /* padSlotPtrTable*/ 0,
+
+    // --- platform HLE: the PSX hardware-sync primitives -------------------------------------------
+    /* hle */ {
+        // The address window PlatformHle::register_() accepts. Its job is to keep GAME/engine logic
+        // out of the hardware-sync table, so both bounds are evidence-based:
+        //
+        //   LOWER 0x80083000 — below the lowest observed SDK kernel-call stub (0x80083EC8) and well
+        //     above the highest observed game-logic address (main 0x8002C354, 0x800649E4, 0x8006BF9C).
+        //     Evidence: scanning the text for the SDK's BIOS-call stub idiom
+        //     (`addiu $t2,$zero,0xA0/0xB0/0xC0 ; jr $t2`) finds 41 of them, ALL within
+        //     0x80083EC8..0x80091730 — that cluster is the SCEI library text.
+        //   UPPER 0x80096000 — the end of library text: the first address known to be .rodata is
+        //     0x80096020, the "VSync: timeout" string that identified VSync in the first place.
+        //
+        // Provisional in the sense that it may need widening as more of the library is RE'd — but it
+        // fails LOUDLY (a REFUSED diagnostic) rather than silently, so widening is evidence-driven.
+        /* windowLo */ {0x80083000u, 0},
+        /* windowHi */ {0x80096000u, 0},
+
+        // codeScanLo/Hi left zero on purpose: the framework then falls back to [recMainLo, recMainHi),
+        // which is exactly right here — this game has no overlays, so the recompiled MAIN text IS the
+        // entire resident code range.
+        /* codeScanLo */ 0, /* codeScanHi */ 0,
+
+        // NOT YET REVERSE-ENGINEERED — zero means the framework installs no handler, and the guest
+        // will spin in the real primitive if it reaches one. That is the honest signal, and it is
+        // precisely what currently stops the boot (docs/issues/boot-stalls.md STALL-03).
+        /* decDctInSync    */ 0, /* decDctOutSync */ 0,   // libmdec       (re-frontier: RE-07)
+        /* cdReadSync      */ 0, /* cdDataSync    */ 0,   // libcd         (re-frontier: RE-03)
+        /* cdInitHandshake */ 0,                          // libcd         (re-frontier: RE-03)
+        /* gpuTimeoutArm   */ 0, /* gpuTimeoutCheck */ 0, // libgpu        (re-frontier: RE-04)
+        /* gpuTimeoutDeadlineVar */ 0, /* gpuTimeoutFlagVar */ 0,
+        /* changeThread    */ 0,                          // kernel yield  (re-frontier: RE-05)
+
+        // vsyncTrap stays ZERO, and that is a deliberate statement rather than a gap. The trap means
+        // "nothing may reach VSync because the native frame loop owns all timing" — untrue here. This
+        // port runs the guest's own loop on the substrate, so it REIMPLEMENTS VSync faithfully and
+        // registers that handler itself (game/core/sync_native.cpp). Setting both would let
+        // initBuiltins clobber the real implementation with an abort.
+        /* vsyncTrap */ 0,
+    },
 };
 
 extern void spiderman_install_game_hooks();   // game/core/game_hooks.cpp

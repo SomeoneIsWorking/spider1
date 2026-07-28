@@ -7,17 +7,18 @@
 // framework's answer is PlatformHle: a per-Game table mapping a BIOS-library address to a native
 // handler that reproduces the primitive's OBSERVABLE RESULT without the spin.
 //
-// The framework's own PlatformHle::initBuiltins() registers Tomba!2's addresses as baked-in literals
-// (VSync 0x80085900, CdReadSync 0x8008A96C, ChangeThread 0x80080880, …) rather than routing them
-// through GameConfig. For Spider-Man those addresses are simply DIFFERENT code, so initBuiltins() is
-// worse than useless here: it would both miss every primitive this game actually uses AND install
-// handlers over unrelated Spider-Man functions that happen to sit at Tomba's addresses — a wrong
-// abort waiting to happen. This port therefore does NOT call initBuiltins(); it registers its own
-// RE'd primitives below. (Framework wart recorded in docs/issues/; the proper fix upstream is the
-// same one applied to recMainLo/recMainHi — route the addresses through GameConfig.)
+// This file holds the primitives that have no generic form — ones this game implements ITSELF, as
+// opposed to the framework's generic handlers, which initBuiltins() installs at whatever addresses
+// GameConfig::hle declares.
 //
-// register_() is a public framework seam and gates on the BIOS-library address window
-// [0x80080000,0x8009E000), which 0x80084BE0 is inside. Nothing here reaches around the framework.
+// (Historical note worth keeping: until psxport 7c212eb5 the framework's initBuiltins() carried
+// Tomba!2's addresses as baked-in literals, which for this game would have missed every primitive it
+// actually uses AND hooked unrelated Spider-Man functions sharing those addresses. This port briefly
+// worked around that by skipping initBuiltins entirely; the framework now ships no game addresses at
+// all, so the workaround is gone and main.cpp calls it normally.)
+//
+// register_() is a public framework seam, gated on the game's declared BIOS-library window — see
+// GameConfig::hle.windowLo/windowHi in game_config.cpp for how that range was established.
 #include "core.h"
 #include "game.h"
 #include "cfg.h"

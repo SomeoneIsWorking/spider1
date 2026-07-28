@@ -47,19 +47,35 @@ VSync "should" do — is what separated the two.
 
 ---
 
-## STALL-03 — Blocks in libcd — **OPEN, and it is the current frontier**
+## STALL-03 — Blocks in the game's disc-init retry loop — **OPEN, and it is the current frontier**
 
-*Symptom:* boot proceeds past graphics init, then blocks with the chain
-`0x8002C354 -> 0x8006BF9C -> 0x800649E4 -> 0x8008A16C -> 0x8008A1FC -> 0x8008D4E4 -> 0x8008CE8C`.
+*Symptom:* boot proceeds past graphics init, then never presents a frame.
 
-*What it is:* `0x8008CE8C` polls the vblank counter as a timeout while waiting on a CD operation that
-never completes. Distinguished from STALL-01/02 by the fact that the counter *is* now advancing —
-this is a genuine wait on CD state, not a frozen clock.
+*What it is — characterised precisely on the clean substrate:*
 
-*Status:* open, tracked as `re-frontier` RE-03. This game's CD sync primitives have not been
-identified. Deliberately left to hang rather than stubbed: a fake completion here would make the boot
-appear to progress while feeding the game garbage, which is far harder to diagnose later than a
-clean stop.
+```
+main 0x8002C354 -> 0x8006BF9C -> 0x800649E4     print, wait 100 vblanks, call CdInit, retry while 0
+                                   +-> 0x8008A16C  CdInit -> always returns 0
+```
 
-*Note for whoever picks it up:* the data layout is a single packed archive (`CD.WAD`), not
-SDK-file-per-asset, so do not assume the loader resembles the reference consumer's.
+`0x8008A16C` (libcd `CdInit`) calls `0x8008A1FC` up to four times and only returns 1 after installing
+three CD event-callback pointers. `0x8008A1FC` descends into `0x8008D4E4 -> 0x8008CE8C`, where the
+low-level controller handshake spins. Nothing wires this game's CD subsystem, so `CdInit` never
+succeeds and `0x800649E4` retries forever — printing through BIOS `A(0x3F)` each pass, which is the
+`UNIMPL A0:0x3F` flood in the log.
+
+*Distinguished from STALL-01/02 by:* the vblank counter IS advancing now. This is a genuine wait on
+CD state, not a frozen clock.
+
+*Note on the earlier reading of this stall:* it was first recorded as "blocks in libcd" with a
+backtrace that descended straight into `0x8008CE8C`. That observation was taken against the
+seed-contaminated substrate (CLAIM-00) and the call path it showed should not be trusted. The chain
+above is from the clean 1561-function substrate.
+
+*Status:* open, tracked as `re-frontier` RE-03, which records the specific trap — this does NOT map
+onto the framework's generic `hle.cdInitHandshake`, whose handler returns `v0 = 0` where this chain
+needs `1`.
+
+*Deliberately left to hang.* A fabricated success return would make the boot appear to progress with
+the CD subsystem unconfigured and the three callback pointers null, which is far harder to diagnose
+later than a clean stop.

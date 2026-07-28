@@ -35,7 +35,7 @@ scratch/             all run artifacts (gitignored) — logs, dumps, the extract
 
 | Subsystem | Where | Status |
 |---|---|---|
-| Disc provisioning + static recompilation | `tools/ensure_recomp.py` | **done** — hash-gated; 1580 functions, 8 shards, 0 overlays |
+| Disc provisioning + static recompilation | `tools/ensure_recomp.py`, `game/recomp_seeds.json` | **done** — hash-gated; 1561 functions, 8 shards, 0 overlays, seeded only from the binary |
 | Build (framework + game + substrate) | `CMakeLists.txt`, `cmake/spiderman_port.cmake` | **done** — configures and links clean |
 | `GameConfig` boot/crt0 group | `game/core/game_config.cpp` | **done** — RE-verified against the crt0 at `0x8008739C` |
 | `GameConfig` everything else | `game/core/game_config.cpp` | **missing** — deliberately zero; see `docs/re-frontier.md` |
@@ -43,7 +43,7 @@ scratch/             all run artifacts (gitignored) — logs, dumps, the extract
 | `GameHooks` vtable | `game/core/game_hooks.cpp` | **done for Phase 0** — neutral where nothing is owned, fail-fast where a path is not stood up |
 | Boot spine | `game/core/main.cpp` | **done for Phase 0** — boots to the guest's own `main` on the substrate |
 | libetc `VSync` | `game/core/sync_native.cpp` | **done** — RE-verified, native, real-time-driven counter |
-| libcd sync primitives | — | **missing** — the current stopping point (`re-frontier` RE-03) |
+| libcd `CdInit` | — | **missing** — the current stopping point (`re-frontier` RE-03) |
 | Native frame loop / OT | — | **missing** — blocked on RE-03 |
 | Scheduler | — | **missing** — blocked; the SDK task model may not apply to this engine |
 | Input | — | **missing** — framework override installed, no game buffers RE'd |
@@ -58,10 +58,11 @@ scratch/             all run artifacts (gitignored) — logs, dumps, the extract
 - **Whether a measurement tool can be trusted** → `docs/info/instruments.md`.
 - **A bug or a ruled-out cause** → `docs/issues/`.
 - **How to disassemble a guest address** → `tools/redump_ram.py`, then the framework's `disasm.py`.
+- **Why a recompiler seed exists** → `game/recomp_seeds.json` (empty by design; every entry needs a rationale).
 - **The framework's porting methodology** → `external/psxport/docs/porting-a-new-psx-game.md`.
 
 ## Current state in one line
 
 The port provisions, recompiles, builds, and boots: crt0 → the guest's `main` → graphics init → and
-stops in libcd waiting on a sync primitive that has not been reverse-engineered yet. No hacks stand
-in for that; it hangs honestly.
+stops in the game's own disc-init retry loop, because libcd `CdInit` has not been reverse-engineered
+yet. No hacks stand in for that; it hangs honestly.

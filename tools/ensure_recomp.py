@@ -13,8 +13,10 @@ What it does, in order:
      directly, and the rest of the game lives in the packed archive CD.WAD, which the recompiler
      does not consume. So unlike Tomba!2 (BIN/START|DEMO|GAME|A00..A0L) there is nothing else to
      extract, and emit.py reports "0 overlay module(s)".
-  3. Compute the recomp IDENTITY = emit.py's RECOMP_VERSION + a hash of the INPUTS (the executable
-     plus the recompiler module sources). If the stored identity (generated/.recomp.hash) matches,
+  3. Compute the recomp IDENTITY = emit.py's RECOMP_VERSION + a hash of the INPUTS (the executable,
+     this game's seed file, and the recompiler module sources). The seed set is a GAME fact the
+     framework no longer ships, and changing it changes the emitted function set, so it is an input
+     like the executable. If the stored identity (generated/.recomp.hash) matches,
      the on-disk version stamp matches RECOMP_VERSION, AND the generated set is complete, do
      nothing. Otherwise re-run emit.py and rewrite the identity.
 
@@ -42,6 +44,9 @@ RECOMP_SRCS = [f"{RECOMP_DIR}/emit.py", f"{RECOMP_DIR}/decode.py", f"{RECOMP_DIR
 
 EXE_NAME = "SLUS_008.75"          # the retail US boot executable, per SYSTEM.CNF
 EXE = f"scratch/bin/spiderman/{EXE_NAME}"
+# The recompiler seed set is a GAME fact, supplied by this repo — the framework ships none. A change
+# to it changes the emitted function set, so it is a hash input like the executable itself.
+SEEDS = "game/recomp_seeds.json"
 GEN_DIR = "generated"
 GEN_MAIN = "generated/spiderman_rec.c"
 HASH_FILE = "generated/.recomp.hash"
@@ -122,7 +127,7 @@ def extract(discdump, disc, disc_path, dest_dir):
 
 
 def input_hash():
-    """SHA-256 over the game executable + the recompiler sources."""
+    """SHA-256 over the game executable + this game's seed file + the recompiler sources."""
     h = hashlib.sha256()
 
     def feed(label, path):
@@ -131,6 +136,7 @@ def input_hash():
             h.update(f.read())
 
     feed(EXE_NAME, os.path.join(ROOT, EXE))
+    feed(SEEDS, os.path.join(ROOT, SEEDS))
     for src in RECOMP_SRCS:
         feed(src, os.path.join(ROOT, src))
     return h.hexdigest()
@@ -150,7 +156,8 @@ def generated_complete():
 def run_emit():
     say("recompiling SLUS_008.75 -> C (the execution substrate)…")
     cmd = [sys.executable, os.path.join(ROOT, f"{RECOMP_DIR}/emit.py"),
-           os.path.join(ROOT, EXE), os.path.join(ROOT, GEN_MAIN)]
+           os.path.join(ROOT, EXE), os.path.join(ROOT, GEN_MAIN),
+           "--seeds", os.path.join(ROOT, SEEDS)]
     if subprocess.run(cmd).returncode != 0:
         die("emit.py failed")
 
