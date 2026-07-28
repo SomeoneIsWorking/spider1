@@ -83,141 +83,25 @@ disc-init retry loop (RE-03), which is where it now stops.
 
 ---
 
-## RE-03 — libcd `CdInit` — `blocked` on nothing; **this is `next`**
+## RE-03 — libcd `CdInit` — `re-partial`; **still `next`, but the ground has moved**
 
-Where the port stops, now characterised precisely (the earlier, vaguer version of this entry was
-written against the contaminated substrate):
+The `cmd 0x00` mystery that dominated this step is **gone, and it was never a CD problem**. It was a
+framework memory-mapping defect: the guest stack lived in an unmodelled RAM mirror, so stack writes
+were silently discarded and callee-saved registers came back as 0 — including libcd's command byte.
+Full account in `docs/issues/boot-stalls.md` STALL-04; fixed in psxport `94118f85`.
 
-```
-main 0x8002C354 -> 0x8006BF9C -> 0x800649E4        the game's disc-init RETRY loop
-                                   |
-                                   +-> 0x8008710C  BIOS A(0x3F) printf  (the "UNIMPL A0:0x3F" flood)
-                                   +-> VSync x100  wait ~100 fields
-                                   +-> 0x8008A16C  CdInit -> returns 0 -> retry forever
-```
+**Current state, measured:** the CD model now receives exactly the commands the call sites pass —
+`0x01` (Getstat) and `0x0A` (Init) — with **zero unhandled commands** and zero lost registers.
 
-`0x800649E4` is a bounded-wait retry: print, wait 100 vblanks, call `CdInit`, loop while it returns 0.
-It never succeeds, so the boot spins here indefinitely.
+**What remains:** the boot still stops in the game's disc-init retry loop at `0x800649E4`, so
+`CdInit` still returns 0 — but now for a legitimate reason rather than corruption. The open question
+is narrow and clean: given that Getstat and Init are both acknowledged, which part of `CdInit`'s
+success path is unsatisfied? Recall it requires `0x8008A1FC` to return 1, which needs BOTH
+`0x8008D4E4` and `0x8008D3F4` to return 0, and only then installs the three CD event-callback
+pointers.
 
-`0x8008A16C` is libcd's `CdInit`: it calls `0x8008A1FC` up to **4 times** (counter `s0` starts at 4),
-and only on a return of 1 does it install three CD event-callback pointers (into `0x800B3B14`,
-`0x800B3B18`, `0x800B1C7C`), clear `0x800B1C80`, and return 1.
-
-`0x8008A1FC` returns 1 **iff both** `0x8008D4E4` and `0x8008D3F4` return 0 — read directly:
-
-```
-8008A204  jal 0x8008D4E4          ; low-level init A
-8008A20C  bnez v0 -> 0x8008A224   ; A non-zero  -> return 0 (failure)
-8008A214  jal 0x8008D3F4          ; low-level init B
-8008A220  sltiu v0, v0, 1         ; v0 = (B == 0)
-```
-
-`0x8008D4E4` clears the libcd state globals, then runs the controller reset handshake at
-`0x8008D588`: select index 1, write 7 to the IRQ-flag register to acknowledge, write 7 to the
-IRQ-enable register, read the flag register back, and loop while `& 7` is non-zero.
-
-### The measured mechanism (2026-07-28)
-
-`PSXPORT_DEBUG=cdc` — the framework CD model's own channel — reports, 77 times in a 45 s boot:
-
-```
-[cdc] cmd 0x00 params=0 [00 00 00]
-[cdc] UNHANDLED cmd 0x00 -> ack only
-```
-
-So the guest is writing `0` to the command register (`0x1F801801` with index 0) and the framework's
-`exec_command` is treating that as command `0x00`. Its `default:` branch calls `cdc_irq(s, 3, ...)`,
-which **enqueues an INT3 acknowledgement**. Each phantom IRQ leaves the queue non-empty, so the flag
-register reads `0xE0 | type` instead of `0xE0`, `& 7` stays non-zero, and the handshake loop cannot
-converge. (An empty queue reads `0xE0`, whose low 3 bits are 0 — the loop's own exit condition.)
-
-**Open question, and it must be answered before changing anything:** the real CXD1199 has no command
-`0x00`, and would respond to an invalid command with INT5 (error), not INT3 (ack). So the framework's
-"unhandled -> ack only" default looks wrong in general. But whether the correct fix is (a) not
-treating a `0` write as a command at all, (b) responding INT5 to invalid commands, or (c) something
-in how the guest reaches that write, is NOT yet established — and (b) changes behaviour for the
-reference consumer, which may depend on unhandled commands being acked. Determine what the guest
-intends by that write first; do not change the shared CD model on a hunch.
-
-**Caller chain, established by host backtrace (2026-07-28):**
-
-```
-0x8008CE8C <- 0x8008D4E4 <- 0x8008A1FC <- 0x8008A16C <- 0x800649E4 <- 0x8006BF9C <- 0x8002C354
-```
-
-`0x8008CE8C` is libcd's command-send routine: `a0` = command byte, `a1`/`a2`/`a3` = params/result,
-and it indexes a command-name table at `0x800B3B38 + cmd*4` for a debug print gated on
-`*(0x800B3B1C) >= 2`. `0x8008D4E4` issues four commands through it (`0x8008D628/D650/D664/D680`)
-with `a0` = **0x01 Getstat, 0x01, 0x0A Init, 0x0C Demute** — every one of which the framework's
-model implements. (Thirteen call sites exist in total; see the enumeration below.)
-
-**Measured with an override at the callee entry (`PSXPORT_DEBUG=cdarg`, INST-08), bracketed by
-ENTER/LEAVE markers so containment is proven rather than inferred from timing:**
-
-| observation | count |
-|---|---|
-| command-send routine ENTERed | 26 |
-| entry `a0` values seen | only `0x01` and `0x0A` — never `0` |
-| writes to the command register `0x1801` | 26 — **every one `0x00`** |
-
-The 1:1 ratio is the key number. Each call performs exactly one command-register write, and it is
-always zero. So this **is** the routine's own command store — not a nested callee's, and not another
-site elsewhere. The writes fall between ENTER and LEAVE, so containment is established.
-
-**This reopens the recompiler-mistranslation hypothesis, which the previous revision of this entry
-closed too early.** That closure was based on reading only two emitted lines — the entry
-(`c->r[17] = c->r[4]`) and the store (`c->mem_w8(c->r[2], c->r[17])`) — both of which are faithful.
-But faithful endpoints do not make a faithful PATH: `s1` is `0x01`/`0x0A` at entry and `0` at the
-store, so something between them zeroes it, and a static scan of writes to `s1` inside the function
-finds only the entry assignment, one `andi` AFTER the store, and the epilogue reload. None explains
-it.
-
-Note the guest saves the caller's `s1` to its frame at `0x8008CEB0` — *before* the entry assignment —
-so the stack slot holds `0`. Any path that reloads `s1` from that slot before the store would produce
-exactly this. That is a hypothesis, not a finding.
-
-**LOCALISED to a lost callee-saved register, and it is not a CD problem.** The command byte is lost
-across the call to `0x8008C944`, not by anything in libcd. Beyond that, be careful what you inherit
-from this entry: an attribution to the render/present path was withdrawn, and so was the claim that
-the guest stack is overwritten — the watched word reads 0 both before and after, so nothing is
-observed corrupting it. See `docs/issues/boot-stalls.md` STALL-04 for what is measured versus what
-was inferred. Full measurement chain in
-`docs/issues/boot-stalls.md` STALL-04, which now outranks this step: `0x8008C944` fails to preserve
-`s1` 25 times, its save/restore are correctly emitted at a matching frame offset, and the frame slot
-is found holding 0 afterwards — the guest stack was overwritten mid-call. Suppressing frame
-presentation drops the clobbers from 22 to 4.
-
-Work STALL-04 first. Re-check whether `cmd 0x00` survives at all once the corruption stops; a good
-part of this step may dissolve with it.
-
-**(superseded) Next step — localise the zeroing, do not re-derive it.** Install entry/exit overrides logging `s1`
-on the functions the command-send routine calls, and bisect until the call that zeroes it is named.
-If no nested call is responsible, the fault is in the emitted body itself and belongs in the
-recompiler (framework), not the game.
-
-Ruled out and not to be re-examined: all four references to the command-register pointer
-`0x800B3DDC` (one response-FIFO read, the measured command store, two bank-3 volume writes), and the
-idea that some *other* site issues the zero — the 26:26 correspondence excludes it.
-
-**Two corrections to earlier entries in this file, both now settled:**
-  * An earlier revision said the chain `0x8008A1FC -> 0x8008D4E4 -> 0x8008CE8C` came from the
-    contaminated substrate and "should not be trusted". **That was wrong, and the original reading
-    was right.** `0x8008D4E4` does call `0x8008CE8C`, from four sites at `0x8008D628..0x8008D680` —
-    past `0x8008D620`, which is simply where the earlier disassembly stopped. Confirmed by host
-    backtrace on the clean substrate. Distrusting a correct record cost more than the original error.
-  * `PSXPORT_WWATCH` remains distrusted (INST-06) — it is not what produced this chain. The working
-    instrument is `PSXPORT_DEBUG=cdcw,cdcbt` (INST-07).
-
-**Guest `pc`/`ra` are unreliable here.** The recomp does not refresh them on static gen-to-gen calls.
-The first trace attributed the CD command write to `0x8008B900` — a three-instruction getter that
-loads a halfword and returns, with `ra=0`. Only the host backtrace named the real chain.
-
-**Do not fabricate a success return.** Forcing `CdInit` to report 1 without the handshake and the
-callback state would make the boot appear to progress with the CD subsystem unconfigured and the
-three callback pointers null — far harder to diagnose later than a clean stop.
-
-Downstream, not started: the actual data path. This game's assets live in one packed archive
-(`CD.WAD`) rather than as ISO files, so the loader will not resemble an SDK-file-per-asset game's.
+Everything below this line predates the fix; treat the eliminations as still valid (they were
+measured) but re-derive nothing from the `cmd 0x00` framing.
 
 ---
 

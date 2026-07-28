@@ -88,89 +88,39 @@ later than a clean stop.
 
 ---
 
-## STALL-04 — A callee-saved register is lost across a call — **OPEN; "stack corruption" was my inference, not a measurement**
+## STALL-04 — A callee-saved register is lost across a call — **RESOLVED (framework: RAM mirroring)**
 
-*Symptom:* a callee-saved guest register is silently zeroed across a call, corrupting whatever the
-caller was holding. Surfaced as libcd's command byte arriving at the hardware as `0x00`, but the
-mechanism is general and nothing about it is CD-specific.
+*Root cause:* PSX main RAM is 2 MB **mirrored four times** across the low 8 MB of each segment.
+`host_ptr` masked to `0x1FFFFFFF` and then required the result under 2 MB, so it modelled only the
+first mirror. This game ships a stack-top constant of `0x00800000`, so crt0 computes
+`sp = 0x807FFFF8` and the **entire guest stack lives in the top mirror**. Every stack access
+resolved to NULL, and NULL falls through to `io_write`/`io_read` — an unmapped-I/O path with no
+handler for a RAM address — so the accesses were **silently discarded**: stack writes vanished,
+stack reads returned 0.
 
-*Chain of measurement, each step ruling out the previous suspect:*
+*Fixed* in psxport `94118f85`: RAM-region addresses mask to `0x1FFFFF` before the bounds check, so all
+four mirrors resolve to the same storage. An access straddling the wrap still returns NULL rather
+than silently aliasing.
 
-1. The command-send routine is entered 26x with `a0` = `0x01`/`0x0A`, never 0, yet all 26 of its
-   command-register writes are `0x00` (1:1, so it IS that routine's store).
-2. The emitted C is faithful at both ends — entry `c->r[17] = c->r[4]`, store
-   `c->mem_w8(c->r[2], c->r[17])` — so the recompiler is not dropping the value.
-3. The value is lost across a nested call: `0x8008C944` fails to preserve `s1` **25 times**
-   (`1 -> 0`, `0x0A -> 0`).
-4. That callee's save and restore are BOTH emitted, at the SAME frame offset (28), matching the
-   disassembly. So it is not a translation or control-flow fault.
-5. ~~Reading the frame slot after the call shows it holds `0` — the guest STACK ITSELF was
-   overwritten during the call.~~ **RETRACTED.** That read was taken only AFTER the call, and
-   "0 afterwards" was inferred to mean "overwritten". Sampling the same address BEFORE the call as
-   well shows it is **`0` before too** — so nothing is observed overwriting anything. The slot simply
-   never receives the value.
+*Verified:* lost-register count **25 → 0**. The CD model now receives `cmd 0x01` and `cmd 0x0A` with
+**zero unhandled** (was `cmd 0x00` x26, all unhandled). Tomba!2 unaffected — its stack sits inside
+the first 2 MB, so it never exercised the mirror.
 
-*The render-path suspicion below is now doubly unsupported* — not only was the A/B confounded, the
-corruption it was meant to explain is not in evidence at all.
+*How far the symptom was from the cause:* dropped stack writes → a callee-saved register saved as 1
+and restored as 0 → libcd sending command `0x00` instead of Getstat/Init → `CdInit` failing forever →
+the boot stalling in the game's disc-init retry loop. Nothing at the symptom end pointed at memory
+mapping.
 
-*SUSPECT (A/B, weak):* `0x8008C944` calls VSync immediately after its register saves, and this port's
-native VSync presents frames. Suppressing presentation changed the clobber count over a fixed run
-from 22 to 4.
+*Wrong attributions made along the way, kept deliberately as a record of what misled:*
+a recompiler mistranslation; the render/present path; guest-stack corruption. **Each was stated with
+more confidence than the evidence carried, and each died to a properly covered measurement.** The
+common failure was reading silence as a negative result — three separate false zeros
+(`go_public` with no history, `PSXPORT_WWATCH`, a channel-gated probe). That is now a RULE at the top
+of `docs/info/instruments.md`.
 
-*But that A/B does not establish causation, and a direct test did NOT confirm it.* Suppressing
-presentation also changes run timing drastically, so a fixed-window count is not comparable between
-the two runs — the difference may be pace, not cause.
+*Residual worth fixing upstream:* a guest access to an unmapped address is dropped with no
+diagnostic. A channel-gated warning when `io_write`/`io_read` falls through with no handler would
+have named this in one run instead of a session.
 
-A direct check was then run (`PSXPORT_DEBUG=presentwatch`): snapshot a window of guest RAM around the
-stack pointer across every present and report any word that changes. Over 1491 presents it reported
-**zero guest-RAM writes**, and the window did include the corrupted address.
+---
 
-*That negative is NOT yet trustworthy either, and this is the important part.* The `sp` recorded at
-those presents was the CALLER's frame, not `0x8008C944`'s own (which sits ~0x40 lower). So the probe
-may simply never have sampled while execution was inside the call that matters — a COVERAGE gap, not
-an acquittal. "Zero hits" and "never looked" print identically, which is the failure mode the
-instruments ledger exists to catch.
-
-*So the honest state, after removing what I inferred rather than measured:*
-  * **Solid:** `0x8008C944` returns with `s1` = 0 when it was called with `s1` = `0x01`/`0x0A`,
-    25 times a run. The command byte really is lost across that call.
-  * **Solid:** VSync calls made during that call do not change the watched word
-    (coverage proven: `vsyncs-covered=2` per occurrence, not an unsampled zero).
-  * **NOT established:** that anything overwrites the guest stack. The watched slot reads 0 both
-    before and after.
-
-*Most likely remaining explanations, in order of cheapness to test:*
-  1. **The watched address is simply wrong.** It is COMPUTED as `(caller_sp - 64) + 28` from the
-     callee's frame size and save offset, rather than observed. If the real save lands elsewhere,
-     every conclusion drawn from that address is about an unrelated word. Test by determining the
-     actual store address instead of deriving it.
-  2. The save never executes on the path taken (an early branch past the prologue).
-  3. The restore reads a different address than the save wrote.
-
-*MEASURED 2026-07-28 (and it resolves item 1 below):* the callee saves `s1` and THEN calls VSync, so
-the value visible at the first VSync inside the call is the saved one. It reads:
-
-```
-armed VSync #1: slot[807FFEA4]=00000000 (s1 live=00000001)
-```
-
-`s1` is live and correct (`1`) at that point, but the computed slot holds `0`. **So the save does not
-land at `(caller_sp - 64) + 28`.** Every statement in this entry about that address describes an
-unrelated word, exactly as suspected. The address arithmetic — caller sp `0x807FFEC8`, callee frame
-`-64`, save offset `+28` — matches the emitted C and the disassembly, so the discrepancy is NOT in
-the arithmetic and that is itself the surprise worth chasing.
-
-*Also corrected:* the previous entry's "VSync calls during the call do not change the watched word
-(coverage proven)" was a FALSE NEGATIVE. That check used `cfg_logf` on a channel that was not
-enabled in the run, so it could never print. It has been re-run with the channel on. Coverage is
-genuinely 2 VSyncs per occurrence, but no conclusion from the earlier silent run stands.
-
-*Next, in order:*
-  1. ~~Stop computing the slot address — OBSERVE it.~~ Done: the computed address is wrong, proven
-     above. Now find where the save ACTUALLY lands (log the effective address from the emitted store
-     itself, not from arithmetic) — and treat a mismatch between that and the disassembly's implied
-     address as a possible recompiler frame/ABI defect worth reporting upstream. The emitted save is
-     `c->mem_w32((c->r[29] + 28), c->r[17])`; log `c->r[29]` from inside the callee (an override on
-     `0x8008C944` that reports sp on entry) and compare against the address the probe assumed.
-  2. Only once the real address is known does any statement about that word mean anything.
-  3. Do NOT re-derive steps 1-4; those are measured and settled. Step 5 is retracted.

@@ -46,6 +46,25 @@ changes — either makes "every entry is binary-vouched" no longer automatic.
 
 ---
 
+## CLAIM-05 — The guest stack lives in a RAM mirror, and the framework now models it — **holds**
+
+*Claimed:* this game's stack is at `sp = 0x807FFFF8`, inside the fourth 2 MB mirror of PSX main RAM,
+and before psxport `94118f85` every access to it was silently discarded.
+
+*Evidence:* the executable ships `*0x800B3E70 = 0x00800000` as the stack-top constant, and crt0
+computes `sp = (*that - 8) | 0x80000000`. `host_ptr` required `(addr & 0x1FFFFFFF) < 0x200000`, which
+`0x7FFFF8` fails; NULL there falls through to the unmapped-I/O path. Directly measured: the
+callee-saved register slot read 0 while the live register read 1, at an address confirmed by
+observing the callee's own `sp` rather than deriving it.
+
+*Verified by the fix:* lost-register count 25 → 0; CD commands `0x00` x26 → `0x01`/`0x0A` with zero
+unhandled; Tomba!2 unchanged.
+
+*Expires if:* a game is found whose accesses legitimately straddle the 2 MB wrap — the fix returns
+NULL there rather than aliasing, which is deliberate but untested against real usage.
+
+---
+
 ## CLAIM-01 — The crt0 boot group in `GameConfig` is correct — **holds (re-verified on a clean substrate)**
 
 *Claimed:* every value in the crt0/boot group of `game/core/game_config.cpp` is the address the

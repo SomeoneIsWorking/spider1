@@ -154,8 +154,12 @@ static void spiderman_vsync(Core* c) {
     // The callee saves s1 to this slot and THEN calls VSync, so the value visible here is the
     // saved one. This distinguishes "the save never landed" from "the save landed and was later
     // destroyed" — the two remaining explanations, which every earlier probe conflated.
-    cfg_logf("stackwatch", "armed VSync #%u: slot[%08X]=%08X (s1 live=%08X)",
-             g_diag_vsync_while_armed, _wa, _wv, c->r[17]);
+    // sp here IS the callee's frame pointer: the emitted code saves s1 and then calls VSync with no
+    // sp change between, so the effective save address is OBSERVED as sp+28 rather than derived from
+    // the caller's sp and an assumed frame size. That derivation is what went wrong before.
+    cfg_logf("stackwatch", "armed VSync #%u: callee sp=%08X -> save addr %08X = %08X | assumed %08X = %08X | s1 live=%08X",
+             g_diag_vsync_while_armed, c->r[29], c->r[29] + 28u, c->mem_r32(c->r[29] + 28u),
+             _wa, _wv, c->r[17]);
   }
   vblank_advance(c);   // the ISR's job: the counter tracks real time on EVERY call, query or wait
 
