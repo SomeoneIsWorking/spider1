@@ -70,6 +70,26 @@ are empty here.
 
 ---
 
+## INST-08 — `PSXPORT_DEBUG=cdarg` (entry-argument override) — **trusted; the one that works here**
+
+*What it shows:* the guest ABI arguments at the ENTRY of a chosen recompiled function, logged by a
+native override that then super-calls the original body (`game/core/diag_overrides.cpp`).
+
+*Why it is the right tool:* it depends on neither of the two things that mislead in this codebase —
+it does not read guest `pc`/`ra` (stale on gen-to-gen calls) and it does not walk host frames
+(collapsed by `-foptimize-sibling-calls`). It runs with the registers as the caller actually set
+them.
+
+*Validated:* it reported a NON-uniform distribution (17x `a0=0x01`, 17x `a0=0x0A`) rather than one
+repeated value, and that result then disproved a previously-recorded backtrace attribution — an
+instrument that can overturn a standing belief is doing its job.
+
+*Cost when off:* nothing. The override is installed only when its channel is set, deliberately: an
+always-installed wrapper would insert a native frame into every call chain and perturb the very
+tail-call behaviour under investigation.
+
+---
+
 ## INST-07 — `PSXPORT_DEBUG=cdcw,cdcbt` (CD register writer) — **trusted, with one hard caveat**
 
 *What it shows:* every write to a CD controller register with the register, value, current bank, and
@@ -88,7 +108,8 @@ touches no CD register. `ra=0` is the tell. Treat `pc`/`ra` as a hint only — a
 with `-foptimize-sibling-calls` (required, or guest tail-jump loops grow the stack without bound), so
 a tail call REPLACES the caller's frame. The backtrace can name a function that merely tail-called
 into the chain, with intermediate frames gone. So this instrument can localise a write to a region
-but **cannot be trusted to name the immediate caller**. For a definitive answer, log the argument on
+but **cannot be trusted to name the immediate caller** — this was later confirmed the hard way, when
+an entry-argument override (INST-08) disproved a caller this backtrace had named. For a definitive answer, log the argument on
 entry via a framework override + super-call rather than reading frames.
 
 ---

@@ -24,7 +24,8 @@ set(GAME_SRC
   game/core/game_config.cpp       # the RE'd GameConfig (guest address literals)
   game/core/game_hooks.cpp        # the GameHooks vtable
   game/core/recomp_register.cpp   # the generated-substrate seam
-  game/core/sync_native.cpp)      # RE'd PSX hardware-sync primitives (libetc VSync)
+  game/core/sync_native.cpp       # RE'd PSX hardware-sync primitives (libetc VSync)
+  game/core/diag_overrides.cpp)   # observe-only overrides (log + super-call), channel-gated
 
 # ---- the recompiled substrate -----------------------------------------------------------------
 # emit.py writes the exact TU list to generated/rec_sources.cmake (GEN_REC_SRCS, basenames).

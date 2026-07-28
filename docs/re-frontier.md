@@ -151,34 +151,34 @@ and it indexes a command-name table at `0x800B3B38 + cmd*4` for a debug print ga
 with `a0` = **0x01 Getstat, 0x01, 0x0A Init, 0x0C Demute** — every one of which the framework's
 model implements. (Thirteen call sites exist in total; see the enumeration below.)
 
-**The live contradiction — three facts that do not fit, and none of them is a guess:**
+**Measured with an override at the callee entry (`PSXPORT_DEBUG=cdarg`), which is immune to both
+confounds below:** the command-send routine is entered **17x with a0=0x01 and 17x with a0=0x0A, and
+never with 0**. So this routine never sends command 0, and its store carries 1 or 0x0A as the
+translation says it should.
 
-1. **Runtime.** The command register receives `0x00`, and at the store both `a0` and the callee's
-   `s1` read `0` (`PSXPORT_DEBUG=cdcw`).
-2. **The translation is faithful.** `gen_func_8008CE8C` emits `c->r[17] = c->r[4]` at entry and
-   `c->mem_w8(c->r[2], c->r[17])` at the store — an exact match for `move $s1,$a0` and
-   `sb $s1,($v0)`. The caller's `a0 = 1` at `L_8008D5D8` is emitted too, and is not clobbered before
-   the call. So the recompiler-mistranslation hypothesis from the previous entry is **not supported**
-   for this path.
-3. **No call site passes zero.** All **13** `jal 0x8008CE8C` sites in the text were enumerated
-   (nine at `0x80086D3C..0x80086FF0`, four at `0x8008D628..0x8008D680`); the command argument is
-   `0x01`, `0x02`, `0x0A` or `0x0C`. Never `0`.
+**Therefore the observed `cmd 0x00` does not come from the command-send routine at all** — and the
+earlier host-backtrace attribution to `gen_func_8008D4E4 -> gen_func_8008CE8C` is **disproven by
+contradiction**, which is the sibling-call frame-collapse caveat (INST-07) confirmed empirically
+rather than merely suspected.
 
-So the caller reaching the store with `a0 = 0` has **not been identified**, and that is the state of
-this step — not a conclusion about the game.
+**Every reference to the command-register pointer `0x800B3DDC` is now accounted for, and none of them
+is the writer:**
 
-**Why caller identification is hard here, and the trap to avoid:** BOTH available signals mislead.
-  * Guest `pc`/`ra` are not refreshed on static gen-to-gen calls (INST-07).
-  * The host backtrace is confounded too: generated code is built with `-foptimize-sibling-calls`
-    (required — guest tail-jump loops would otherwise grow the stack without bound), so a tail call
-    REPLACES the caller's frame. A backtrace can therefore name a function that merely tail-called
-    into the chain, with intermediate frames gone. The `gen_func_8008D4E4` attribution recorded
-    earlier rests on exactly that signal and should be treated as **unconfirmed**.
+| site | what it does | bank |
+|---|---|---|
+| `0x8008C480` | READS the response FIFO (same address, opposite direction) | — |
+| `0x8008D030` | the command store — carries `0x01`/`0x0A`, measured | 0 |
+| `0x8008D2E4` | CD-to-SPU volume register write | 3 |
+| `0x8008D4A4` | CD-to-SPU volume register write | 3 |
 
-**Suggested next step:** stop relying on frames. Install a framework override on `0x8008CE8C` that
-logs `a0` on entry and then super-calls the original body. That yields a per-entry argument log that
-neither stale registers nor frame collapse can distort, and it will say directly whether a
-zero-argument caller exists.
+**So the next lead is a narrow one:** the store that lands on `0x1F801801` at bank 0 with value 0
+does NOT go through the `0x800B3DDC` pointer. It reaches the address some other way — a hardcoded
+`0x1F801801`, a different pointer global, or a computed address. Find that store; do not re-examine
+the four sites above, they are eliminated.
+
+Note this also weakens (does not yet refute) the "framework acks an invalid command" mechanism: that
+analysis still holds for whatever *does* issue the zero, but the issuer is no longer believed to be
+libcd's command-send path.
 
 **Two corrections to earlier entries in this file, both now settled:**
   * An earlier revision said the chain `0x8008A1FC -> 0x8008D4E4 -> 0x8008CE8C` came from the

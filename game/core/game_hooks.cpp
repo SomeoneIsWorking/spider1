@@ -40,8 +40,13 @@ static void spiderman_bootInit(Core* c) {
 }
 
 // ── neutral ─────────────────────────────────────────────────────────────────────────────────────
-static void spiderman_registerOverrides(Game*) {
-  // No native override clusters exist yet. When the first owned function lands it registers here.
+extern void spiderman_install_diag_overrides(Game*);   // game/core/diag_overrides.cpp
+
+static void spiderman_registerOverrides(Game* g) {
+  // No native BEHAVIOUR overrides exist yet — this port owns no game function. The only thing
+  // installed here is diagnostic, and only when its channel is on: a wrapper that logs and then
+  // super-calls the original body, so a run with it enabled executes what a run without it does.
+  spiderman_install_diag_overrides(g);
 }
 
 static void spiderman_renderFadeState(Core*, FadeState* out) {
