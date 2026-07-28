@@ -42,6 +42,34 @@ present in this image", not "no code there".
 
 ---
 
+## INST-04 — `tools/go_public.py scan` — **trusted, but it CAN report a false green**
+
+*What it shows:* pre-publication scan of the git HISTORY for copyrighted/binary assets (section A),
+foreign or absolute paths (section B), and docs referencing sensitive gitignored items (section C).
+
+*Caught lying once, and this is the important entry in this file:* run against a repo whose `HEAD`
+had been deleted, it reported **`RESULT: clean ✓ — ready to publish`**. There was no history to walk,
+so it found nothing — and "found nothing" and "nothing is there" print identically. Re-running the
+identical command after a real commit reported **0 blocking + 58 to review**. Same repo, same
+content, opposite-looking verdicts.
+
+*How to use it so it cannot lie:* **only scan a repo that has commits, and confirm the verdict is
+non-empty.** A `clean ✓` with zero items listed in any section is the tell — a real scan of a real
+repo essentially always has section-C items to review. Treat a silent all-clean as an unrun scan
+until proven otherwise.
+
+*Validated positively:* it distinguishes answers when it has history. It found a genuine blocking
+item (a tilde home path in a vendored tool's comment) and, once that was fixed, correctly moved it
+off the blocking list while keeping the 58 unrelated review items — rather than flipping everything
+to clean at once.
+
+*Interpreting section C:* the 58 review items on this repo are filename PATTERNS appearing as text
+(`SLUS_`, `.chd`, `.bin`, `.exe`) in documentation and provisioning code that tells a user to supply
+their own disc. That is intentional and portable. Sections A and B are the ones that block, and both
+are empty here.
+
+---
+
 ## INST-03 — The watchdog backtrace (`PSXPORT_WATCHDOG=<sec>`) — **trusted, with a caveat**
 
 *What it shows:* where the process was when no frame got presented in time — the framework's stall
