@@ -257,11 +257,33 @@ an immediate-offset scan as a complete writer set.
 to this effect was inference from absence. It is now measured with an entry probe that emits an
 unconditional ARM line (INST-11): the arm line prints, **zero** call lines follow over a 40 s boot.
 
-That matters because the routine is NOT only reachable from the gated wait loop. Three of its four
-call sites are **ungated** — `0x8008CAAC`, `0x8008CD2C` and `0x8008DA58` each read the CD status
-register (`*0x800B3DD8`), mask the low two bits, and call straight in with no `0x8008B900` check.
-Only the wait loop's site at `0x8008D188` sits behind the polling gate. So the routine failing to run
-is not explained by the gate alone: those three call sites are themselves never reached.
+**CORRECTED — only ONE of the four call sites is ungated, not three.** The earlier revision of this
+paragraph claimed `0x8008CAAC`, `0x8008CD2C` and `0x8008DA58` were all ungated. That was read off a
+window of ~8 instructions before each `jal`, and the gate sits **ten** instructions back. Widening the
+window shows:
+
+| site | gate |
+|---|---|
+| `0x8008CAAC` | **gated** — `jal 0x8008B900` at `0x8008CA84`, `beqz` at `0x8008CA88` |
+| `0x8008CD2C` | **gated** — `jal 0x8008B900` at `0x8008CD04`, `beqz` at `0x8008CD0C` |
+| `0x8008D188` | **gated** — the wait loop |
+| `0x8008DA58` | genuinely ungated — it sits at the ENTRY of `0x8008DA24`, straight through |
+
+And the one ungated site is unreachable for a different reason: **`0x8008DA24` has no direct caller
+anywhere in the text** — a full scan for `j`/`jal` to it returns nothing, so it is a public libcd
+entry the game only reaches indirectly, if at all.
+
+**So RE-03's causal loop is now closed, and it is genuinely circular:**
+
+1. Three of the four paths to the service routine are behind the polling gate at `0x800B2886`.
+2. That gate is opened only by `0x8008BA00`, whose single caller is CdInit's `longjmp`-recovery path.
+3. The `longjmp` never fires either — `A(14h)` is implemented in this framework as a loud abort, and
+   the port does not abort, so nothing ever unwinds into that recovery.
+4. So the service routine never runs; the completion byte is written only by error paths; every
+   command times out; CdInit fails — which is the condition that would have triggered the recovery.
+
+Breaking the cycle requires commands to actually complete, which requires the service routine to run,
+which requires the interrupt route — not the gate. **The frontier stays on interrupt delivery.**
 
 Also settled, by enumerating every BIOS-call stub in the executable: there is **exactly one `C(02h)`
 `SysEnqIntRP` stub** (`0x8008DCB8`) and one `C(03h)` (`0x8008DCA8`), and the single registration made
