@@ -61,6 +61,17 @@ so it found nothing — and "found nothing" and "nothing is there" print identic
 identical command after a real commit reported **0 blocking + 58 to review**. Same repo, same
 content, opposite-looking verdicts.
 
+*FIXED IN THE TOOL 2026-07-28 — this no longer relies on the reader remembering.* `report()` now
+receives the commit count, refuses to issue any verdict when it is <= 0 ("NOT A VERDICT — this
+repository has no commits"), and prints `scanned N commit(s) of history` on every run so the reach is
+never implicit. Fixed in all three copies (this repo, Tomba2Engine, the global skill).
+
+*The fix itself needed two attempts, which is worth recording:* the first version recomputed the
+count inside `report()`, where `cwd` is not in scope, and hid the resulting `NameError` behind
+`except Exception` — so it reported "could not be queried" for a healthy 16-commit repo and would
+have failed closed on everything. Caught by validating BOTH directions (empty repo must refuse, real
+repo must scan) rather than only the case being fixed.
+
 *How to use it so it cannot lie:* **only scan a repo that has commits, and confirm the verdict is
 non-empty.** A `clean ✓` with zero items listed in any section is the tell — a real scan of a real
 repo essentially always has section-C items to review. Treat a silent all-clean as an unrun scan
@@ -122,12 +133,22 @@ entry via a framework override + super-call rather than reading frames.
 
 ---
 
-## INST-06 — `PSXPORT_WWATCH` (guest store watch) — **DISTRUSTED — it produced a false zero**
+## INST-06 — `PSXPORT_WWATCH` (guest store watch) — **TRUST RESTORED 2026-07-28 — my distrust was wrong**
 
 *What it should show:* the guest `pc`/`ra` of any store landing in an address range
 (`PSXPORT_WWATCH=lo,hi`), which is exactly the tool for "who writes this register?".
 
-*Why it is distrusted:* it reported **zero hits on an address that is written continuously**. Armed
+**RETRACTION.** This entry marked the tool distrusted. Re-tested directly: it arms correctly
+(`cfg_str` returns the range, `sscanf` parses `lo=800B397C hi=800B3980`) and fires — **892 hits** over
+a boot on the validation address. The tool works. Leaving it marked distrusted was the more damaging
+error, because it steers the next session away from a working instrument toward hand-rolled probes.
+
+Why it reported zero earlier is **not established**. The likeliest candidates are an intervening
+framework change to the per-guest-write path, or a flaw in my original test. Recorded as unresolved
+rather than guessed. Validate before relying on it — but expect it to work.
+
+*The original (incorrect) reasoning, kept because the discipline was right even though the verdict
+was wrong:* it reported **zero hits on an address that is written continuously**. Armed
 over the vblank counter `0x800B397C..0x800B3980` — which this port's own native VSync writes on every
 call, thousands of times a run — it logged nothing at all. A tool that cannot see a guaranteed write
 cannot be used to prove a write does not happen.
