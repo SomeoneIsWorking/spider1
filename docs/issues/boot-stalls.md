@@ -72,9 +72,15 @@ backtrace that descended straight into `0x8008CE8C`. That observation was taken 
 seed-contaminated substrate (CLAIM-00) and the call path it showed should not be trusted. The chain
 above is from the clean 1561-function substrate.
 
-*Status:* open, tracked as `re-frontier` RE-03, which records the specific trap — this does NOT map
-onto the framework's generic `hle.cdInitHandshake`, whose handler returns `v0 = 0` where this chain
-needs `1`.
+*Mechanism, measured:* `PSXPORT_DEBUG=cdc` shows the guest reaching the CD model with command `0x00`
+77 times in a 45 s boot, each answered `UNHANDLED cmd 0x00 -> ack only`. That default path enqueues an
+INT3, so the IRQ queue never empties and the reset handshake's "loop until the flag register reads
+clear" cannot converge. Full reasoning, and the open question about what the correct fix is, in
+`re-frontier` RE-03.
+
+*Status:* open, tracked as `re-frontier` RE-03, which also records the specific trap — this does NOT
+map onto the framework's generic `hle.cdInitHandshake`, whose handler returns `v0 = 0` where this
+chain needs `1`.
 
 *Deliberately left to hang.* A fabricated success return would make the boot appear to progress with
 the CD subsystem unconfigured and the three callback pointers null, which is far harder to diagnose

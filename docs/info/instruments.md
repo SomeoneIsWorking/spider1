@@ -20,8 +20,8 @@ mode would have been indistinguishable from the truth here, so this mattered: th
 established CLAIM-02.
 
 *Known limit — read this before citing it:* it can only observe calls the port actually reaches, and
-the port currently stops in libcd during boot. So it measures the **boot** call pattern, not the
-gameplay loop. Do not cite it as evidence about gameplay pacing.
+the port currently stops in the disc-init retry loop during boot. So it measures the **boot** call
+pattern, not the gameplay loop. Do not cite it as evidence about gameplay pacing.
 
 ---
 
@@ -63,10 +63,25 @@ item (a tilde home path in a vendored tool's comment) and, once that was fixed, 
 off the blocking list while keeping the 58 unrelated review items — rather than flipping everything
 to clean at once.
 
-*Interpreting section C:* the 58 review items on this repo are filename PATTERNS appearing as text
+*Interpreting section C:* the review items on this repo (100 at last count) are filename PATTERNS appearing as text
 (`SLUS_`, `.chd`, `.bin`, `.exe`) in documentation and provisioning code that tells a user to supply
 their own disc. That is intentional and portable. Sections A and B are the ones that block, and both
 are empty here.
+
+---
+
+## INST-05 — `PSXPORT_DEBUG=cdc` (framework CD-controller channel) — **trusted**
+
+*What it shows:* every command the guest issues to the modelled CD controller
+(`external/psxport/runtime/recomp/cdc_native.c`), with its parameters, and whether the model handled it.
+
+*Validated:* it distinguishes answers — it names a specific command byte and reports handled versus
+`UNHANDLED`, and it is the reason RE-03 has a mechanism rather than a guess. It turned "CdInit returns
+0 for some reason" into "the guest issues command 0x00 77 times and the model acks each one".
+
+*Known limit:* it reports what the MODEL received, not what the guest meant. `cmd 0x00` means a zero
+reached the command register with index 0 — it does not establish that the guest intended a command.
+That distinction is exactly the open question in RE-03, so do not read this channel as intent.
 
 ---
 
@@ -76,9 +91,16 @@ are empty here.
 diagnostic.
 
 *Validated:* it distinguished states rather than always saying the same thing. Across the port's
-three successive stalls it named three *different* call chains (the libetc VSync deadline loop, then
-the libcd chain, then the CD wait polling the real-time clock), and each pointed at a cause that,
-once addressed, moved the stall somewhere new. That is the behaviour of a working instrument.
+successive stalls it named *different* locations — the libetc VSync deadline loop, then the disc-init
+retry loop — and each pointed at a cause that, once addressed, moved the stall somewhere new. That is
+the behaviour of a working instrument.
+
+*Second caveat, which DID mislead here:* a single sample lands wherever the process happens to be,
+not necessarily at the cause. On this port it repeatedly sampled inside the 100-vblank wait of a
+retry loop, which says only "it is retrying" — the actual failure was one call further on. Worse, a
+backtrace taken against the seed-contaminated substrate showed a call chain (`0x8008CE8C`) that does
+not exist in the clean disassembly, and it was written into the frontier notes before being caught.
+**Corroborate any backtrace against the disassembly before recording it as a call chain.**
 
 *Caveat that cost time here:* it is a **single sample**, so it cannot by itself distinguish "spinning
 in a tight loop" from "making slow progress". Confirm which by sampling more than once and comparing

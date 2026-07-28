@@ -101,21 +101,52 @@ It never succeeds, so the boot spins here indefinitely.
 
 `0x8008A16C` is libcd's `CdInit`: it calls `0x8008A1FC` up to **4 times** (counter `s0` starts at 4),
 and only on a return of 1 does it install three CD event-callback pointers (into `0x800B3B14`,
-`0x800B3B18`, `0x800B1C7C`), clear `0x800B1C80`, and return 1. `0x8008A1FC` descends into
-`0x8008D4E4 -> 0x8008CE8C`, which is where the low-level controller handshake spins.
+`0x800B3B18`, `0x800B1C7C`), clear `0x800B1C80`, and return 1.
 
-**The trap to avoid here:** this does NOT map onto the framework's generic `hle.cdInitHandshake`.
-That handler reports `v0 = 0` — correct for the reference consumer's differently-shaped function —
-whereas this chain needs `1` to mean success. Wiring the two together because the names match would
-produce a silent infinite retry, which is the exact failure already in front of us. RE `0x8008A1FC`
-on its own terms first.
+`0x8008A1FC` returns 1 **iff both** `0x8008D4E4` and `0x8008D3F4` return 0 — read directly:
 
-Note also the callback-pointer installs: whatever satisfies `CdInit` must leave those three globals
-holding real handlers, or the first CD event afterwards dispatches through a null pointer.
+```
+8008A204  jal 0x8008D4E4          ; low-level init A
+8008A20C  bnez v0 -> 0x8008A224   ; A non-zero  -> return 0 (failure)
+8008A214  jal 0x8008D3F4          ; low-level init B
+8008A220  sltiu v0, v0, 1         ; v0 = (B == 0)
+```
+
+`0x8008D4E4` clears the libcd state globals, then runs the controller reset handshake at
+`0x8008D588`: select index 1, write 7 to the IRQ-flag register to acknowledge, write 7 to the
+IRQ-enable register, read the flag register back, and loop while `& 7` is non-zero.
+
+### The measured mechanism (2026-07-28)
+
+`PSXPORT_DEBUG=cdc` — the framework CD model's own channel — reports, 77 times in a 45 s boot:
+
+```
+[cdc] cmd 0x00 params=0 [00 00 00]
+[cdc] UNHANDLED cmd 0x00 -> ack only
+```
+
+So the guest is writing `0` to the command register (`0x1F801801` with index 0) and the framework's
+`exec_command` is treating that as command `0x00`. Its `default:` branch calls `cdc_irq(s, 3, ...)`,
+which **enqueues an INT3 acknowledgement**. Each phantom IRQ leaves the queue non-empty, so the flag
+register reads `0xE0 | type` instead of `0xE0`, `& 7` stays non-zero, and the handshake loop cannot
+converge. (An empty queue reads `0xE0`, whose low 3 bits are 0 — the loop's own exit condition.)
+
+**Open question, and it must be answered before changing anything:** the real CXD1199 has no command
+`0x00`, and would respond to an invalid command with INT5 (error), not INT3 (ack). So the framework's
+"unhandled -> ack only" default looks wrong in general. But whether the correct fix is (a) not
+treating a `0` write as a command at all, (b) responding INT5 to invalid commands, or (c) something
+in how the guest reaches that write, is NOT yet established — and (b) changes behaviour for the
+reference consumer, which may depend on unhandled commands being acked. Determine what the guest
+intends by that write first; do not change the shared CD model on a hunch.
+
+**Corrected:** an earlier version of this entry said `0x8008A1FC` descends into
+`0x8008D4E4 -> 0x8008CE8C`, where the handshake spins. That call chain came from the
+seed-contaminated substrate (CLAIM-00) and should not be trusted — `0x8008CE8C` does not appear in
+`0x8008D4E4`'s reset path as disassembled. The chain above is read from the binary directly.
 
 **Do not fabricate a success return.** Forcing `CdInit` to report 1 without the handshake and the
-callback state would make the boot appear to progress while the CD subsystem is unconfigured — far
-harder to diagnose later than the current clean stop.
+callback state would make the boot appear to progress with the CD subsystem unconfigured and the
+three callback pointers null — far harder to diagnose later than a clean stop.
 
 Downstream, not started: the actual data path. This game's assets live in one packed archive
 (`CD.WAD`) rather than as ISO files, so the loader will not resemble an SDK-file-per-asset game's.
