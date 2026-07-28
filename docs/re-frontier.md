@@ -137,11 +137,33 @@ previous revision flagged. The model is behaving correctly: it queues the respon
 the interrupt-flag register reading `0xE3`, i.e. INT3 pending, and the reset routine acking it with
 `w[1803]=07`). Nothing consumes it, because the guest is waiting on a callback that never fires.
 
-**Next step:** determine what libcd's low-level wait actually tests for completion — the flag the CD
-IRQ handler would set — and satisfy it from this port's CD HLE at the point the synchronous read
-completes. Note the chicken-and-egg to avoid: the three CD event callbacks are installed by `CdInit`
-*after* `0x8008A1FC` succeeds, so the init-time wait cannot be relying on them; find what it polls
-instead rather than assuming the callback path.
+**IDENTIFIED — the completion flag is the byte at `0x800B3DF0`.**
+
+The wait loop, read out in full:
+
+```
+8008D0A0  jal 0x80084BE0        ; VSync(-1) -> vblank counter
+8008D0B4  slt  v1, deadline, v0 ; timeout 1: counter past deadline (counter + 0x3C0, ~960 fields)
+8008D0E0  slt  v0, 0x3C0000, v1 ; timeout 2: spin count past 0x3C0000
+8008D210  lbu  v0, (s2)         ; s2 = 0x800B3DF0 — THE COMPLETION FLAG
+8008D218  beqz v0, 0x8008D0A0   ; still zero -> keep polling
+```
+
+The flag is cleared to 0 before the command is issued (`0x8008CFB4`) and the loop exits when it turns
+non-zero. It is written at `0x8008C754`, which stores **2** when an error indicator is clear and **5**
+when it is not — the libcd result codes for *complete* and *disk error*. So `0x800B3DF0` holds
+libcd's interrupt-result code, and the routine around `0x8008C744` is the completion handler that a
+real CD interrupt would run. Our synchronous CD never reaches it, so the flag stays 0 and both
+timeouts expire.
+
+**Next step, and the trap in it:** the obvious move is to poke `0x800B3DF0 = 2` from this port's CD
+HLE when a command completes. **Do not start there.** That routine writes more than this one byte
+(it also touches the block at `0x800C637C`), so poking the flag alone would satisfy the wait while
+leaving the rest of libcd's state unset — a fake completion that makes the boot appear to progress,
+which is precisely the failure mode this frontier exists to prevent. Prefer driving the guest's own
+completion handler so the full state update happens; establish that entry point and its expected
+register state first, and only fall back to a narrower write if driving it proves impossible — in
+which case record it as a `⛔ hack` with what it omits.
 
 Everything below this line predates the fix; treat the eliminations as still valid (they were
 measured) but re-derive nothing from the `cmd 0x00` framing.
