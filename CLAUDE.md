@@ -74,6 +74,18 @@ lockstep feels obligatory and is not. Add the field, update this port, push psxp
 commit message that other consumers must add the field when they bump. Their schedule, their call.
 (USER directive, 2026-07-28.)
 
+## The PC owns subsystems — it does not emulate interrupts
+
+When a guest subsystem blocks on PSX hardware, the answer is for the PORT to own that subsystem
+natively, not to reproduce the hardware faithfully enough that the guest's own ISR runs. Emulating an
+interrupt controller so a guest ISR can set a completion byte is the long way round to a value the
+host already knows.
+
+Concretely: HLE the LIBRARY at a `GameConfig` chokepoint, do the real work natively (serve the read
+from the disc image), and drive whatever completion the guest is waiting on. Hardware modelling is
+still worth having where it is genuinely simpler or serves other consumers — but it is not the
+default answer to "the guest is waiting". (USER directive, 2026-07-28.)
+
 ## Diagnostics go through the framework's channel logger
 
 `cfg_logi` / `cfg_logw` / `cfg_loge` for what a normal run should print; `cfg_dbg("chan")` +

@@ -134,9 +134,24 @@ static const GameConfig g_spiderman_cfg = {
     /* cdCallbackTable*/ {0, 0, 0, 0},
     /* cdCallbackFn   */ {0, 0, 0, 0},
 
+    // cdGetSector: 0x8008D82C, stock libcd's CdGetSector(a0 = dest, a1 = words). RE'd from its
+    // decompiled body (tools/ghidra_query.py func 0x8008D82C): it programs DMA3 — MADR from a0,
+    // BCR from a1|0x10000, through the pointer globals *0x800B3E14/18/1C = 0x1F8010B0/B4/B8 —
+    // spins until the CD status bit 0x40 says data is ready, writes CHCR 0x11000000 to start, then
+    // spins until the busy bit clears. Its only caller is the wrapper 0x80087084, which returns
+    // (result == 0).
+    //
+    // The PC owns this outright. Every instruction of it is hardware ceremony around one fact: move
+    // N words of the current sector into this buffer. The native handler does the move, from the
+    // real disc image, and skips the handshake, the DMA and the wait entirely.
+    /* cdGetSector    */ 0x8008D82Cu,
+
     // --- pad driver (re-frontier: RE-05) ---
     /* padSlot0Buf    */ 0, /* padSlot1Buf */ 0, /* padDriverFn */ 0,
     /* padSlotPtrTable*/ 0,
+    // Byte distance between consecutive slots' pointers. 0 is read as 4 by the framework, which is
+    // the correct default; stated explicitly so this initialiser lists every field the struct has.
+    /* padSlotPtrStride*/ 0,
 
     // --- platform HLE: the PSX hardware-sync primitives -------------------------------------------
     /* hle */ {

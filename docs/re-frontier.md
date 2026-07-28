@@ -410,6 +410,31 @@ void FUN_8008da24(void) {              // the CD line's callback
 slot. The framework's chain walk already runs; the open question is narrower than before and stated
 exactly: delivery declines with `irq_enabled = 0`, so find what leaves interrupt-enable clear.
 
+**DIRECTION SET: the PC owns these subsystems; it does NOT emulate interrupts.** The interrupt work
+(I_STAT/I_MASK, the CD edge, chain delivery, DMA3) is real and stays — it is correct hardware
+modelling and other games may need it. But it is **not how this port should service the CD**. The
+framework's design, and this port's, is that the PC OWNS a subsystem natively rather than
+reproducing PSX hardware and re-entering guest ISRs.
+
+Applied so far:
+- `cdCommand = 0x8008CE8C` — the PC completes libcd commands. **CdInit passes.**
+- `cdGetSector = 0x8008D82C` — the PC moves sector data. Its guest body is pure ceremony (program
+  DMA3, spin for data-ready, kick, spin for done) around one fact: *move N words of the current
+  sector into this buffer*. The native handler moves it, from the real disc, and skips all of it.
+
+**MEASURED, and it names the remaining gap exactly:** `cdGetSector` registers (the plat-hle count
+goes 1 → 2) but is **never reached**. `cd_command` acknowledges `ReadN` without making data
+available, so the guest waits for a **data-ready callback that never comes** and never gets as far as
+fetching sectors. Hence the 33 identical `Setmode → Setloc → ReadN → Pause` cycles.
+
+**So the PC must own the COMPLETION, not just the command.** The decompiled handler names the two
+callbacks precisely: `(*DAT_800b3b18)(DAT_800b3df1, &DAT_800c6384)` is the ready callback and
+`(*DAT_800b3b14)(DAT_800b3df0, &DAT_800c637c)` is the sync callback. Both are guest function pointers
+in guest RAM, so the framework can drive them directly — and `GameConfig` already has
+`cdCallbackTable[4]` / `cdCallbackFn[4]` for exactly this shape. That is the next step: on `ReadN`,
+serve the sector natively and then invoke the guest's ready callback, so the read completes without
+an interrupt ever existing.
+
 **Still do not poke `0x800B3DF0`.** The handler writes more than that byte (it also fills the block at
 `0x800C637C` from the response FIFO), so a direct poke is a fake completion — and now that the
 handler is known to be argument-free and the registers are already modelled, there is no longer any
