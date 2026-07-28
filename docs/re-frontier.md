@@ -253,6 +253,22 @@ Corollary for the earlier note: `0x8008C754` is *a* writer of this byte but not 
 the only store using that immediate, while the others reach it through a base register. Do not treat
 an immediate-offset scan as a complete writer set.
 
+**ESTABLISHED, not inferred: the service routine `0x8008C3E0` never runs.** Every earlier statement
+to this effect was inference from absence. It is now measured with an entry probe that emits an
+unconditional ARM line (INST-11): the arm line prints, **zero** call lines follow over a 40 s boot.
+
+That matters because the routine is NOT only reachable from the gated wait loop. Three of its four
+call sites are **ungated** — `0x8008CAAC`, `0x8008CD2C` and `0x8008DA58` each read the CD status
+register (`*0x800B3DD8`), mask the low two bits, and call straight in with no `0x8008B900` check.
+Only the wait loop's site at `0x8008D188` sits behind the polling gate. So the routine failing to run
+is not explained by the gate alone: those three call sites are themselves never reached.
+
+Also settled, by enumerating every BIOS-call stub in the executable: there is **exactly one `C(02h)`
+`SysEnqIntRP` stub** (`0x8008DCB8`) and one `C(03h)` (`0x8008DCA8`), and the single registration made
+through them is libetc's VBlank element. **libcd never registers a BIOS interrupt element at all.**
+And the polling-gate setter `0x8008BA00` has exactly one caller, `0x8008B998`, on CdInit's
+`longjmp`-recovery path. So neither route to the service routine is open on a normal boot.
+
 **Still do not poke `0x800B3DF0`.** The handler writes more than that byte (it also fills the block at
 `0x800C637C` from the response FIFO), so a direct poke is a fake completion — and now that the
 handler is known to be argument-free and the registers are already modelled, there is no longer any

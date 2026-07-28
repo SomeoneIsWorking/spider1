@@ -30,6 +30,7 @@ extern void gen_func_8008CE8C(Core*);   // libcd command-send: a0 = command byte
 extern void gen_func_8008C944(Core*);   // called by the command-send routine before its store
 extern void gen_func_8008D4E4(Core*);   // CdInit low-level init A — must return 0 for success
 extern void gen_func_8008D3F4(Core*);   // CdInit low-level init B — must return 0 for success
+extern void gen_func_8008C3E0(Core*);   // libcd's CD service routine (the "interrupt handler")
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
 // libcd command-send (0x8008CE8C) — `PSXPORT_DEBUG=cdarg`.
@@ -95,7 +96,32 @@ static void diag_cdinit_B(Core* c) {
   cfg_logf("cdinit", "0x8008D3F4 (init B) returned %08X  %s", c->r[2], c->r[2] ? "<-- FAILS" : "ok");
 }
 
+// `PSXPORT_DEBUG=cdisr` — does libcd's CD service routine 0x8008C3E0 ever RUN, and what does it
+// return? This is the routine that writes the completion byte 0x800B3DF0, and the whole of RE-03
+// turns on whether it executes. Three of its four call sites are UNGATED (0x8008CAAC, 0x8008CD2C,
+// 0x8008DA58 — each reads the CD status register and calls straight in); only the wait loop's site
+// at 0x8008D188 sits behind the polling gate. So "the ISR never runs" is a claim that needs
+// measuring, not assuming — an earlier store-watch showed it never writing 0x800B3DF0, but that
+// traces one byte and cannot distinguish "did not run" from "ran and took a path that stores
+// nothing". This counts entries and reports the return value, which is a bitmask of what it serviced.
+static unsigned g_cdisr_calls = 0;
+static void diag_cd_isr(Core* c) {
+  const unsigned n = ++g_cdisr_calls;
+  gen_func_8008C3E0(c);
+  // Every call for the first few, then decimated — the wait loop can call this thousands of times
+  // and an unbounded log would bury the answer it exists to give.
+  if (n <= 8 || (n % 500) == 0)
+    cfg_logf("cdisr", "0x8008C3E0 call #%u -> v0=%08X", n, c->r[2]);
+}
+
 void spiderman_install_diag_overrides(Game* g) {
+  if (cfg_dbg("cdisr")) {
+    engine_set_override_main(0x8008C3E0u, diag_cd_isr, gen_func_8008C3E0);
+    // Unconditional arm line: this file's own lesson (docs/info/instruments.md) is that a
+    // channel-gated probe's SILENCE is worthless unless the run proves the probe was installed.
+    cfg_logi("cdisr", "CD service-routine probe ARMED on 0x8008C3E0 — if no call lines follow, the "
+                      "routine genuinely never ran");
+  }
   if (cfg_dbg("cdinit")) {
     engine_set_override_main(0x8008D4E4u, diag_cdinit_A, gen_func_8008D4E4);
     engine_set_override_main(0x8008D3F4u, diag_cdinit_B, gen_func_8008D3F4);

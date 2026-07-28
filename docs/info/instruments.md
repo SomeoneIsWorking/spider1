@@ -115,6 +115,28 @@ was quiet". Do not read this log as evidence that VBlank or DMA interrupts did n
 
 ---
 
+## INST-11 — `PSXPORT_DEBUG=cdisr` (CD service-routine entry probe) — **trusted**
+
+*What it shows:* every entry to libcd's CD service routine `0x8008C3E0` and its return value, via an
+observe-only override that super-calls the original body (`game/core/diag_overrides.cpp`).
+
+*Why it exists:* RE-03 turns entirely on whether that routine executes, and the two cheaper
+instruments cannot answer it. A store watch on `0x800B3DF0` traces ONE byte, so it cannot separate
+"did not run" from "ran and took a path that stores nothing". Host backtraces are confounded by
+`-foptimize-sibling-calls`, and guest `pc`/`ra` are stale under static gen-to-gen calls (INST-07).
+An override at the callee's own entry is immune to all three.
+
+*Validated — it emits an unconditional ARM line.* This file's standing rule is that a channel-gated
+probe's silence is worthless unless the run proves the probe was installed. The arm line prints, then
+zero call lines follow, so **the routine genuinely never runs** — a real negative rather than an
+absent instrument. Counting is decimated after the first 8 entries because the wait loop could
+otherwise call it thousands of times and bury the answer.
+
+*Known limit:* it proves the routine was never ENTERED. It says nothing about why its three ungated
+call sites (`0x8008CAAC`, `0x8008CD2C`, `0x8008DA58`) are not reached — that is a separate question.
+
+---
+
 ## INST-04 — `tools/go_public.py scan` — **trusted, but it CAN report a false green**
 
 *What it shows:* pre-publication scan of the git HISTORY for copyrighted/binary assets (section A),
