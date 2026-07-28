@@ -315,6 +315,32 @@ as corroboration of the probes, not as independent proof.
 So nothing in this port delivers an interrupt, and nothing else stands in for one. **Interrupt
 delivery is the only remaining route, now by elimination rather than by assumption.**
 
+**LANDED — interrupt delivery works, and it proves the CD is not serviced that way.**
+psxport `43a12e27` implements the whole path: `SysEnqIntRP`/`SysDeqIntRP` maintain a priority-ordered
+chain of guest `InterruptElement` pointers, `Hle::irqPoll` walks it exactly as the BIOS exception
+path does (run each verifier; the first that claims it gets its handler called with `$a0` = the
+verifier's return), and the poll happens at **guest function entry** — a one-line emitter change, one
+load-and-test of `Core::irq_pending` per call, on all 1561 wrappers.
+
+Measured on this port (`PSXPORT_DEBUG=irq`):
+
+```
+registered interrupt element 0x800C1528 prio=2 (chain now 1)
+pending I_STAT&I_MASK=0x004 but NO registered element claimed it (1 in chain)
+```
+
+So the mechanism runs end to end — registration, latch, gate, chain walk — and the outcome is a
+**statement about the game, not about the framework**: the one element Spider-Man registers is
+libetc's VBlank, and nothing claims CD IRQ2. The "nobody claimed it" line exists precisely because
+that and "the walk never ran" are indistinguishable from outside, and only the first is evidence.
+
+**This closes the last route.** RE-03's remaining question is no longer "how do we deliver
+interrupts" — that is done and verified — but **what services the CD in this game**, given it
+registers no BIOS element, its polling gate opens only on a `longjmp` that never fires, and its
+service routine has no reachable caller. The next candidate is the BIOS's own CD-ROM driver, which
+this framework stubs to constants (`A(70h)`/`A(71h)`/`A(72h)` all return 0) and whose descriptor
+libcd fills in at `CdInit`.
+
 **Still do not poke `0x800B3DF0`.** The handler writes more than that byte (it also fills the block at
 `0x800C637C` from the response FIFO), so a direct poke is a fake completion — and now that the
 handler is known to be argument-free and the registers are already modelled, there is no longer any
