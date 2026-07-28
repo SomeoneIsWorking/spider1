@@ -516,6 +516,37 @@ measured) but re-derive nothing from the `cmd 0x00` framing.
 
 ---
 
+## RE-03b — SPU upload wait — `re-verified`
+
+The boot reached `sfx.vab` and then spun forever in a `TestEvent` loop
+(`0x80089790` ← `0x8006366C` ← `0x800633CC` ← guest `main`). The guest opens the SPU event
+(`OpenEvent(0xF0000009, 0x20, …)` at `0x8008EF28`) and polls it until its sample upload completes —
+the ordinary way to wait for a VAB. Nothing delivered that event.
+
+Fixed in the framework, not here: the DMA4 handler now delivers `HwSPU` at the end of the transfer.
+It performs the DMA synchronously, so the event is due the moment the words have moved. `0xF0000009`
+is the PSX's fixed class, so it belongs in the framework rather than `GameConfig`.
+
+**Verified:** the boot passes `sfx.vab` and reaches MDEC init.
+
+---
+
+## RE-03c — MDEC decode — `next`
+
+The boot now reports the guest's own `MDEC_in_sync timeout:` and stalls at `0x80085948`
+(← `0x80085000` ← `0x800860B4` ← `0x80086CA8`).
+
+`0x80085948` is a generic **DMA-wait helper**: it takes a channel index and polls that channel's CHCR
+at `0x1F801080 + ch*0x10 + 8` until the busy bit clears. For MDEC-in that is DMA0, and `mem.cpp`
+*does* clear DMA0's busy bit after running `mdec_dma_in` — so the naive explanation is already ruled
+out and this needs real measurement rather than a guess at the next override.
+
+**Do not reach for `GameConfig::hle.decDctInSync` reflexively.** That seam exists, but the evidence
+so far says the DMA completes; establish WHY the wait is unsatisfied first — which channel it is
+actually polling, and whether the guest ever kicked it — before replacing anything.
+
+---
+
 ## RE-04 — Per-frame OT / packet-pool layout — `blocked` on RE-03
 
 `GameConfig`'s OT/packet-pool group is entirely zero. The framework's `native_step_frame` iterates
