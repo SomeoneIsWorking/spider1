@@ -88,7 +88,7 @@ later than a clean stop.
 
 ---
 
-## STALL-04 — Guest RAM is corrupted across a call — **OPEN; the CAUSE is NOT yet established**
+## STALL-04 — A callee-saved register is lost across a call — **OPEN; "stack corruption" was my inference, not a measurement**
 
 *Symptom:* a callee-saved guest register is silently zeroed across a call, corrupting whatever the
 caller was holding. Surfaced as libcd's command byte arriving at the hardware as `0x00`, but the
@@ -104,8 +104,14 @@ mechanism is general and nothing about it is CD-specific.
    (`1 -> 0`, `0x0A -> 0`).
 4. That callee's save and restore are BOTH emitted, at the SAME frame offset (28), matching the
    disassembly. So it is not a translation or control-flow fault.
-5. Reading the frame slot after the call shows it holds `0` — **the guest STACK ITSELF was
-   overwritten** during the call. The restore did its job; the saved data was already destroyed.
+5. ~~Reading the frame slot after the call shows it holds `0` — the guest STACK ITSELF was
+   overwritten during the call.~~ **RETRACTED.** That read was taken only AFTER the call, and
+   "0 afterwards" was inferred to mean "overwritten". Sampling the same address BEFORE the call as
+   well shows it is **`0` before too** — so nothing is observed overwriting anything. The slot simply
+   never receives the value.
+
+*The render-path suspicion below is now doubly unsupported* — not only was the A/B confounded, the
+corruption it was meant to explain is not in evidence at all.
 
 *SUSPECT (A/B, weak):* `0x8008C944` calls VSync immediately after its register saves, and this port's
 native VSync presents frames. Suppressing presentation changed the clobber count over a fixed run
@@ -125,12 +131,25 @@ may simply never have sampled while execution was inside the call that matters �
 an acquittal. "Zero hits" and "never looked" print identically, which is the failure mode the
 instruments ledger exists to catch.
 
-*So the honest state:* guest RAM at a saved-register slot IS being corrupted (that part is solid and
-measured five ways). WHAT corrupts it is unknown. The render path is a suspect, not a finding, and
-the previous revision of this entry overstated it as established.
+*So the honest state, after removing what I inferred rather than measured:*
+  * **Solid:** `0x8008C944` returns with `s1` = 0 when it was called with `s1` = `0x01`/`0x0A`,
+    25 times a run. The command byte really is lost across that call.
+  * **Solid:** VSync calls made during that call do not change the watched word
+    (coverage proven: `vsyncs-covered=2` per occurrence, not an unsampled zero).
+  * **NOT established:** that anything overwrites the guest stack. The watched slot reads 0 both
+    before and after.
+
+*Most likely remaining explanations, in order of cheapness to test:*
+  1. **The watched address is simply wrong.** It is COMPUTED as `(caller_sp - 64) + 28` from the
+     callee's frame size and save offset, rather than observed. If the real save lands elsewhere,
+     every conclusion drawn from that address is about an unrelated word. Test by determining the
+     actual store address instead of deriving it.
+  2. The save never executes on the path taken (an early branch past the prologue).
+  3. The restore reads a different address than the save wrote.
 
 *Next, in order:*
-  1. Fix the probe's coverage before trusting either result — assert it samples while inside
-     `0x8008C944` (compare its `sp` against the frame recorded by the s1 probe), then re-run.
-  2. Only then decide whether the render path is implicated.
-  3. Do NOT re-derive the corruption itself; steps 1-5 above are settled.
+  1. Stop computing the slot address — OBSERVE it. The emitted save is
+     `c->mem_w32((c->r[29] + 28), c->r[17])`; log `c->r[29]` from inside the callee (an override on
+     `0x8008C944` that reports sp on entry) and compare against the address the probe assumed.
+  2. Only once the real address is known does any statement about that word mean anything.
+  3. Do NOT re-derive steps 1-4; those are measured and settled. Step 5 is retracted.

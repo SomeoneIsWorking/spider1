@@ -176,10 +176,12 @@ Note the guest saves the caller's `s1` to its frame at `0x8008CEB0` — *before*
 so the stack slot holds `0`. Any path that reloads `s1` from that slot before the store would produce
 exactly this. That is a hypothesis, not a finding.
 
-**LOCALISED to guest-RAM corruption, and it is not a CD problem.** The command byte is destroyed by
-corruption of a saved-register slot on the guest stack, not by anything in libcd. The CAUSE of that
-corruption is still unknown — an early attribution to the render/present path was not confirmed by a
-direct test and has been downgraded to a suspect. Full measurement chain in
+**LOCALISED to a lost callee-saved register, and it is not a CD problem.** The command byte is lost
+across the call to `0x8008C944`, not by anything in libcd. Beyond that, be careful what you inherit
+from this entry: an attribution to the render/present path was withdrawn, and so was the claim that
+the guest stack is overwritten — the watched word reads 0 both before and after, so nothing is
+observed corrupting it. See `docs/issues/boot-stalls.md` STALL-04 for what is measured versus what
+was inferred. Full measurement chain in
 `docs/issues/boot-stalls.md` STALL-04, which now outranks this step: `0x8008C944` fails to preserve
 `s1` 25 times, its save/restore are correctly emitted at a matching frame offset, and the frame slot
 is found holding 0 afterwards — the guest stack was overwritten mid-call. Suppressing frame

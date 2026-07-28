@@ -142,6 +142,14 @@ static void spiderman_vsync(Core* c) {
   // it. But it presents frames, and presenting can run framework and guest code against the SAME
   // c->r[] array — so "native handler" does not imply "register-transparent".
   const uint32_t _s1_in = c->r[17], _s0_in = c->r[16], _s2_in = c->r[18];
+  // Coverage-proven stack watch: the s1 probe publishes the exact slot it cares about, so this
+  // brackets the ENTIRE VSync call (including everything presenting runs) around that one word.
+  // Unlike a window around sp, it cannot silently miss the window that matters.
+  extern uint32_t g_diag_stack_watch;
+  extern unsigned g_diag_vsync_while_armed;
+  const uint32_t _wa = g_diag_stack_watch;
+  const uint32_t _wv = _wa ? c->mem_r32(_wa) : 0u;
+  if (_wa) ++g_diag_vsync_while_armed;   // proves coverage, so a silent watch is not mistaken for innocence
   vblank_advance(c);   // the ISR's job: the counter tracks real time on EVERY call, query or wait
 
   const int32_t mode = (int32_t)c->r[4];
@@ -177,6 +185,8 @@ static void spiderman_vsync(Core* c) {
   c->mem_w32(kHBaseline, h_counter(c));
   (void)c->mem_r32(kGpuStatPtr);   // the guest's status read has no side effect on our GPU
 
+  if (_wa) { const uint32_t now = c->mem_r32(_wa);
+    if (now != _wv) cfg_logf("stackwatch", "VSync CORRUPTED guest stack [%08X] %08X -> %08X", _wa, _wv, now); }
   c->r[2] = ret;
   if (cfg_dbg("vsyncregs") && (c->r[17] != _s1_in || c->r[16] != _s0_in || c->r[18] != _s2_in))
     cfg_logf("vsyncregs", "CLOBBERED across VSync: s0 %08X->%08X  s1 %08X->%08X  s2 %08X->%08X",

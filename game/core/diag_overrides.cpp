@@ -56,6 +56,12 @@ static void diag_cd_command(Core* c) {
 // c->r[] array, so a callee that fails to restore a callee-saved register corrupts its caller's live
 // state. This reports only when the value actually changes across the call, so a silent run is the
 // negative result rather than an absence of output.
+// Published for the VSync handler to watch. The earlier window-around-sp probe could not prove it
+// ever sampled while execution was inside this call, and "zero hits" is indistinguishable from
+// "never looked" — so the address is handed over explicitly instead of guessed from sp.
+uint32_t g_diag_stack_watch = 0;
+unsigned g_diag_vsync_while_armed = 0;
+
 static void diag_s1_across_C944(Core* c) {
   // The callee saves s1 to its own frame at sp-64+28 and restores from the same slot (verified in
   // both the disassembly and the emitted C). So if s1 comes back wrong there are exactly two
@@ -64,10 +70,14 @@ static void diag_s1_across_C944(Core* c) {
   //   slot holds something else        -> the guest STACK was corrupted during the call
   const uint32_t before = c->r[17];
   const uint32_t slot   = (c->r[29] - 64u) + 28u;
+  g_diag_stack_watch = slot;      // armed only for the duration of this call
+  g_diag_vsync_while_armed = 0;
+  const uint32_t slot_before = c->mem_r32(slot);
   gen_func_8008C944(c);
+  g_diag_stack_watch = 0;
   if (c->r[17] != before)
-    cfg_logf("s1trace", "0x8008C944 did NOT preserve s1: %08X -> %08X | frame slot [%08X]=%08X",
-             before, c->r[17], slot, c->mem_r32(slot));
+    cfg_logf("s1trace", "0x8008C944 did NOT preserve s1: %08X -> %08X | slot[%08X] %08X->%08X | vsyncs-covered=%u",
+             before, c->r[17], slot, slot_before, c->mem_r32(slot), g_diag_vsync_while_armed);
 }
 
 void spiderman_install_diag_overrides(Game* g) {
