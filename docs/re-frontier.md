@@ -623,9 +623,26 @@ measurement settled it.
 head advances through the stream — **10 distinct LBAs, 128304 → 128313**, where it had been pinned
 at 128304.
 
-**Next:** the stream advances then stops, with the stall inside the consumer `0x8002B3CC`. Establish
-whether the sector RING is filling faster than it drains, whether a sector type is being rejected, or
-whether the stream simply needs to keep being pumped — measure before changing the controller again.
+**DIAGNOSED — the CONSUMER is fine; the PRODUCER stops.** The ring protocol is complete and
+correct: `StGetNext` (`0x80086B10`) takes a slot whose status is **2** and marks it **4**;
+`StFreeRing` (`0x800872AC`) returns slots to **0** and advances `DAT_800c151c`. Nothing there is
+broken — sectors simply stop being produced after ten.
+
+The cause is a **design consequence of the native read path**, not a controller bug. Streaming
+sectors are produced by the guest's ready callback, and this port drives that callback from
+`cd_drive_stock_read` — a burst that runs at `ReadN` time and terminates on the guest's Pause. That
+is exactly right for a FILE read, which is finite and self-terminating. A movie stream is neither: it
+expects the callback to keep being pumped for as long as the stream runs, paced by the drive.
+
+**So the next step is a design decision, not another controller tweak:** streaming needs the ready
+callback pumped continuously — naturally from the frame/VSync path, at roughly the drive's sector
+rate — while file reads keep the existing burst. Deciding where that pump lives, and how it coexists
+with `cd_drive_stock_read`, shapes how the framework serves XA and FMV for every future consumer, so
+it is worth settling deliberately rather than by patching.
+
+**Explicitly NOT attempted:** extending the burst loop to keep going past Pause. It would produce
+sectors, and it would be wrong — Pause is the guest's own end-of-read signal, and overriding it to
+keep a stream alive re-creates the fake-completion class of bug this frontier exists to prevent.
 
 
 ## RE-04 — Per-frame OT / packet-pool layout — `blocked` on RE-03
