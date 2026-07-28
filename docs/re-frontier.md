@@ -110,15 +110,38 @@ command-wait result with **`Sync`** and **`Ready`** fields, and the routine labe
 `CD_init:`. So this is libcd's standard command-completion wait giving up: the command is written,
 the response never satisfies the wait, it times out, resets the controller and returns `-1`.
 
-**Next step:** the write side is instrumented (`cdcw`) but the READ side is not, and the wait is a
-read loop. Add a CD register READ log and find which status the guest polls for and never sees. Two
-concrete candidates from the framework's model, to test rather than assume:
-  * the status register's `RSLRRDY` (0x20) response-ready bit, which `cdc_read` sets only while a
-    queued response has unread bytes;
-  * the interrupt-flag register (bank 1), which reports `0xE0 | type` while the queue is non-empty.
+**MEASURED — and the wait is not what "command wait" suggested.** Tracing CD register reads
+(`PSXPORT_DEBUG=cdcr,cdcw`) shows the guest write the command and then go **straight** to the error/
+reset routine `0x8008D320` with **no intervening CD register read at all**. It never polls the
+controller for a response.
 
-Do NOT assume the model is wrong — the guest may be waiting on something real that our synchronous
-CD never produces, in which case the fix is in this port's HLE, not in the shared model.
+Disassembling the path after the command store explains why. The wait polls the **vblank counter**,
+not the CD:
+
+```
+8008D048  jal 0x80084BE0      ; VSync(-1) — read the vblank counter
+8008D050  addiu v0, v0, 0x3C0 ; deadline = counter + 960 fields (~16 s)
+8008D060  sw   v0, 0x6394(..) ; store the deadline
+...
+8008D0A0  jal 0x80084BE0      ; re-poll the counter
+```
+
+So libcd waits for a **completion signal delivered by the CD interrupt callback**, and uses the
+vblank counter only as a TIMEOUT. Our runtime serves CD synchronously and never delivers that
+callback, so the completion flag is never set and every command burns the full deadline before
+reporting failure. That is also why the boot is so slow to reach the retry: ~16 s of real time per
+command, with a real-time-driven vblank counter (CLAIM-02).
+
+**So the fix belongs in THIS PORT's HLE, not the shared CD model** — exactly the possibility the
+previous revision flagged. The model is behaving correctly: it queues the response (the trace shows
+the interrupt-flag register reading `0xE3`, i.e. INT3 pending, and the reset routine acking it with
+`w[1803]=07`). Nothing consumes it, because the guest is waiting on a callback that never fires.
+
+**Next step:** determine what libcd's low-level wait actually tests for completion — the flag the CD
+IRQ handler would set — and satisfy it from this port's CD HLE at the point the synchronous read
+completes. Note the chicken-and-egg to avoid: the three CD event callbacks are installed by `CdInit`
+*after* `0x8008A1FC` succeeds, so the init-time wait cannot be relying on them; find what it polls
+instead rather than assuming the callback path.
 
 Everything below this line predates the fix; treat the eliminations as still valid (they were
 measured) but re-derive nothing from the `cmd 0x00` framing.
