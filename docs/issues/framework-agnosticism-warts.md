@@ -196,9 +196,21 @@ Three things fall out, and the third is the one that matters:
 through `SysEnqIntRP` — Spider-Man registers exactly one element there and it is libetc's VBlank.
 libcd reaches its own service routine `0x8008C3E0` through an indirect call on a driver vtable at
 `*0x800B390C`, which is zero in the load image and filled at runtime by BIOS machinery this framework
-stubs out (`A(71h) _96_init` and friends return 0). **Establishing what fills that vtable is the next
-RE step** — ahead of writing any dispatch code, because it decides whether the CD path needs the
-chain walk at all.
+stubs out (`A(71h) _96_init` and friends return 0). **MEASURED: nothing ever fills that vtable.** A store watch over
+`[0x800B390C, 0x800B3910)` for a 35 s boot reports **zero** stores, and the probe is validated — the
+identical instrument on `0x800B3DF0` in the same session reports 241. The address also sits *below*
+`bssZeroLo` (`0x800B5994`), so it is `.data`, and the load image ships it as `0`. Six instructions
+reference it and **all six are loads**; there is no store anywhere in the text.
+
+So `*0x800B390C` is a pointer the BIOS is expected to have filled before the game ever looks — the
+CD driver descriptor installed by the BIOS's own CD-ROM init, which this framework stubs to a
+constant 0 (`A(71h) _96_init` and friends). Every indirect call libcd makes through it
+(`0x8008B86C`, `0x8008B89C`, `0x8008B8CC`, and the two in `CdInit` at `0x8008B9C8`/`0x8008B9D8`)
+therefore dereferences a null descriptor.
+
+**That is the next RE step**, and it is upstream of interrupt delivery: what descriptor does the BIOS
+install, and what does libcd call through it? Until that is known, writing chain-walk dispatch would
+be building for a route this game does not use.
 
 *Honesty constraint on the I_STAT work:* the registers are easy to add, but only sources the
 framework ACTUALLY models may assert a bit. `cdc_native`'s pending queue is a real source for bit 2.

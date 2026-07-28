@@ -226,6 +226,27 @@ Related, from the same pass: BIOS `A(13h) setjmp` was unimplemented, so `CdInit`
 normal path and its `longjmp` recovery path was made on a **stale `$v0`** and varied run to run. It
 now returns 0 deterministically, which means the polling gate is definitively shut.
 
+**TRAP — the completion flag DOES reach 2, and that does not mean completion.** A store watch on
+`0x800B3DF0` (`PSXPORT_WWATCH`, positive-control validated at 241 hits) reports **172 writes of `2`**
+over a 35 s boot — the libcd result code for *complete*. Read naively that says the completion path
+works. It does not. Attributing each store to its innermost frame (`PSXPORT_WWATCH_BT=1`, because
+plain `pc`/`ra` are the known-unreliable kind here) gives:
+
+| value | written by |
+|---|---|
+| `2` | `0x8008C944` (89), `0x8008D320` (88), `0x8008D4E4` (45) |
+| `0` | `0x8008CE8C` (89) — the pre-command clear |
+
+`0x8008D320` is the **controller-reset / error** routine and `0x8008D4E4` is the failing init half.
+**`0x8008C3E0` — the interrupt handler — does not appear at all.** So the `2` is written by the error
+path unwinding its own state machine after the wait times out, not by a completed command. The model
+in this step is unchanged; what changed is that the obvious probe on this byte reports a false
+positive, and a future session watching it would conclude the opposite of the truth.
+
+Corollary for the earlier note: `0x8008C754` is *a* writer of this byte but not the only one — it was
+the only store using that immediate, while the others reach it through a base register. Do not treat
+an immediate-offset scan as a complete writer set.
+
 **Still do not poke `0x800B3DF0`.** The handler writes more than that byte (it also fills the block at
 `0x800C637C` from the response FIFO), so a direct poke is a fake completion — and now that the
 handler is known to be argument-free and the registers are already modelled, there is no longer any
