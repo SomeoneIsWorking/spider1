@@ -566,28 +566,47 @@ re-checks. Wedged decoders are now reported with exact counts rather than trunca
 
 ---
 
-## RE-03d — XA / CD streaming still expects HARDWARE-level CD data — `next`
+## RE-03d — XA / CD streaming — `re-verified`
 
-The boot now stalls in the CD **streaming** poller (`0x80085000`, via the wrapper `0x800860B4`),
-waiting on the DMA helper `0x80085948` — which it calls with **channel 3**, i.e. DMA3, the CD→RAM
-channel (`FUN_80085948(3, buf, 0, 8, 0x11000000, …)`).
+The streaming poller spun forever, and the reason was **upstream of the DMA it was preparing**. Its
+helper `0x80085948` waits on the CD status register's **DRQSTS bit (0x40)** — "data FIFO not empty" —
+and only kicks DMA3 once that sets:
 
-That is a direct consequence of the design choice made in RE-03, and worth stating rather than
-discovering twice: **the file-read path is now fully HLE'd, so `cdc`'s sector FIFO has no source.**
-DMA3 drains that FIFO. The streaming path bypasses `CdRead` entirely and moves data at the hardware
-level, so the two halves of the CD now disagree about which layer owns the transfer.
+```
+while ((*CD_STATUS & 0x40) == 0) { }     // never set: the controller had no data
+*DMA3_CHCR = 0x11000000;                 // never reached
+```
 
-Wiring `cdSync` (`0x80086C60`) did **not** move it — recorded so the next session does not retry it.
+A game reads the disc at **two levels**: file reads through libcd (served natively here) and
+XA/streaming that bypasses libcd and drives the hardware directly. With libcd HLE'd, the controller
+model never saw a command, so its FIFO stayed empty forever.
 
-Two coherent options, and the choice should be made deliberately rather than by patching:
-1. **Own streaming natively too** — override the streaming reader so XA/STR data is served from the
-   disc image like everything else. Consistent with the rest of the CD, and with the directive that
-   the PC owns subsystems.
-2. **Feed `cdc` from the HLE path** — have the native CD layer push sectors into the controller's
-   FIFO so DMA3 has something real to drain. Keeps the hardware path working for any game that uses
-   it, at the cost of maintaining both.
+**Fix:** `cdc_begin_read` positions the controller and loads a sector from the *same disc image* the
+native path reads, called from the native CD command handler on ReadN/ReadS. Neither layer invents
+data; they share one source of truth.
+
+**Corrected judgement worth keeping:** the previous revision of this step offered two options and
+leaned toward owning streaming natively. That was wrong, and reading the wait is what showed it — the
+spin is on a hardware status bit *before any DMA*, so a native override of the streaming reader would
+never have been reached. The evidence picked the other option.
+
+**Verified:** the poller no longer spins; the boot leaves libcd entirely.
 
 ---
+
+## RE-04 — Movie playback / front-end — `next`
+
+The boot now reaches the game's own movie path: `0x8002B430` ← `0x8002AA0C` ← guest `main`.
+`0x8002B430` acquires something from `0x8002B3CC`, passes it to `0x8002A338` with an entry from the
+table indexed by the global at `gp+0x69C`, then calls `0x800872AC`.
+
+That table is the **movie descriptor table at `0x80097DEC`** already RE'd for `bootFmv` (24-byte
+stride; path, width, height, frame count, frame bytes). So this is the intro-movie sequence, and
+`GameConfig::bootFmv` — deliberately left empty because the boot ran on the substrate — is now the
+relevant seam. Establish whether the guest wants to play the movie itself (in which case the STR
+path needs feeding) or whether the port should own it via the native `.STR` player, before wiring
+anything.
+
 
 ## RE-04 — Per-frame OT / packet-pool layout — `blocked` on RE-03
 
