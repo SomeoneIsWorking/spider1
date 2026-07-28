@@ -104,19 +104,28 @@ static const GameConfig g_spiderman_cfg = {
     // no overlay slots to describe — this is genuinely empty, not un-RE'd.
     /* overlaySlots   */ {{0, nullptr}, {0, nullptr}, {0, nullptr}},
 
-    // --- CD chokepoints (re-frontier: RE-03) -------------------------------------------------
-    // cdCommand: 0x8008CE8C, libcd's command-send. RE'd from its own body — it takes the command
-    // byte in a0 (`c->r[17] = c->r[4]` at entry, stored to the controller's command register), the
-    // parameter block in a1 and the result buffer in a2, which is the framework handler's contract.
+    // --- CD chokepoints ---------------------------------------- deliberately EMPTY, and why --
+    // This game runs STOCK Sony libcd (rcsids in the binary: `bios.c` and `intr.c v1.75` at
+    // 0x800966B8 / 0x80096450), which is REGISTER-LEVEL code, not a bespoke engine loader:
+    //   CD_cw        0x8008CE8C  drives 0x1F801800-03 via its own pointer table at 0x800B3DD8
+    //   CD_init      0x8008D4E4  claims IRQ2 through InterruptCallback (0x8008BBD0) and writes
+    //                            I_MASK directly at 0x8008BCF0 (via *0x800B3914 = 0x1F801074)
+    //   CD_getsector 0x8008D82C  fetches sector data by DMA3 (*0x800B3E14/18/1C =
+    //                            0x1F8010B0/B4/B8 — verified in the load image)
+    // The framework's CDC register model, DMA3 channel and interrupt delivery serve all of that
+    // directly, so this port needs NO CD chokepoint and no game address in the framework.
     //
-    // Overriding it replaces the FAILING WAIT as well, not just the send: the completion wait at
-    // 0x8008D0A0 lies INSIDE this function (the next recompiled entry is 0x8008D298), so the whole
-    // send-then-wait-for-an-interrupt-that-never-arrives sequence is one native call.
+    // STATE OF PLAY, 2026-07-28. cdCommand = 0x8008CE8C (CD_cw) is set because it is the BEST KNOWN
+    // state: with it, CdInit passes and the boot reaches the CD read path. Without it the boot
+    // regresses to CdInit failing outright.
     //
-    // This is the framework's sanctioned strategy, not a shortcut around the RE: psxport serves CD
-    // synchronously from the real disc image, so the library-level primitive is HLE'd while the
-    // DATA still comes from the CHD. What would be a fake is returning success without reading —
-    // that is not what happens here.
+    // It is nonetheless the WRONG long-term answer and is tracked as such: an ACK moves no data, so
+    // reads stall one stage later. The right design is to let the guest's own register-level libcd
+    // run against the framework's CDC model (DMA3 + per-sector INT1 now exist for exactly that).
+    // That path is blocked on ONE measured thing: interrupt delivery declines with irq_enabled = 0,
+    // i.e. the guest is left inside a critical section it never exits. Implementing COP0 Status
+    // (psxport, same session) did not clear it, so the restore is happening by some route still not
+    // modelled. Find that, then set this back to 0. See docs/re-frontier.md RE-03.
     /* cdInit         */ 0, /* cdCommand */ 0x8008CE8Cu, /* cdSync */ 0, /* cdReadPrim */ 0,
     /* cdFileLoad     */ 0, /* cdAsyncRead */ 0,
     /* voicePlay      */ 0, /* voiceStop */ 0, /* lastSectorTracker */ 0,

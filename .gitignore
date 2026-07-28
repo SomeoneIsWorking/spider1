@@ -25,3 +25,6 @@ __pycache__/
 # Editor / OS noise
 compile_commands.json
 .DS_Store
+
+# Ghidra headless project (derived from your own disc image via tools/redump_ram.py)
+scratch/ghidra/

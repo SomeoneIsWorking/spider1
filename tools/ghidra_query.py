@@ -1,0 +1,113 @@
+#!/usr/bin/env python3
+"""Query the analysed Spider-Man image through Ghidra (PyGhidra).
+
+WHY THIS EXISTS. This port's RE was being done with a thin capstone wrapper plus hand-rolled
+address scans over a RAM image, and that combination produced a run of confidently WRONG
+conclusions, every one of which a real disassembler answers for free:
+
+  * "0x8008DA24 has no callers"   -> it is referenced as DATA (installed into a callback table)
+  * "*0x800B390C ships as 0"      -> it is linker-initialised .data
+  * a store attributed to the wrong `jal` -> the store sat in a BRANCH DELAY SLOT
+  * function boundaries taken from `jal` targets -> wrong for anything invoked indirectly
+
+An address scan only finds the reference FORMS you thought to look for. Ghidra's reference model
+finds the ones you did not, which is exactly where the errors were.
+
+Usage:
+    tools/ghidra_query.py xrefs 0x8008DA24    every reference TO addr, with type + owning function
+    tools/ghidra_query.py func  0x8008C3E0    containing function + decompiled C
+    tools/ghidra_query.py calls 0x80087660    what that function calls
+    tools/ghidra_query.py data  0x800B38EC 16 dump N words with symbol/xref annotation
+
+Build the project first with tools/ghidra_import.sh. Nothing here ships game data: the project is
+derived from scratch/bin/spiderman/ram.bin, which tools/redump_ram.py produces from your own disc.
+"""
+import os
+import sys
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+PROJ = os.path.join(ROOT, "scratch", "ghidra")
+NAME = "spider1"
+
+
+def main():
+    if len(sys.argv) < 3:
+        print(__doc__)
+        return 2
+    mode, addr_s = sys.argv[1], sys.argv[2]
+
+    import pyghidra
+    pyghidra.start()
+    from ghidra.app.decompiler import DecompInterface
+    from ghidra.util.task import ConsoleTaskMonitor
+
+    # Open the EXISTING analysed program from the project. Passing the binary path (rather than
+    # None) is what makes pyghidra locate the already-imported program instead of trying to create
+    # one, which fails with a null program.
+    binpath = os.path.join(ROOT, "scratch", "bin", "spiderman", "ram.bin")
+    with pyghidra.open_program(binpath, project_location=PROJ, project_name=NAME,
+                               analyze=False) as api:
+        prog = api.getCurrentProgram()
+        af = prog.getAddressFactory()
+        fm = prog.getFunctionManager()
+        addr = af.getAddress(addr_s)
+
+        def owner_str(a):
+            f = fm.getFunctionContaining(a)
+            return "%s @%s" % (f.getName(), f.getEntryPoint()) if f else "(not in a function)"
+
+        if mode == "xrefs":
+            refs = list(prog.getReferenceManager().getReferencesTo(addr))
+            calls = 0
+            for r in refs:
+                t = r.getReferenceType().getName()
+                if "CALL" in t:
+                    calls += 1
+                print("  %s  %-16s from %s" % (r.getFromAddress(), t, owner_str(r.getFromAddress())))
+            print("total %d reference(s) to %s  (%d call, %d other)" % (len(refs), addr, calls,
+                                                                        len(refs) - calls))
+            if refs and calls == 0:
+                print("  NOTE: zero CALL references but %d other(s) — this is reached INDIRECTLY "
+                      "(installed into a table / called through a pointer), not dead code." % len(refs))
+
+        elif mode == "func":
+            f = fm.getFunctionContaining(addr)
+            if f is None:
+                print("no function contains %s (data, or not yet defined)" % addr)
+                return 1
+            print("// %s  entry=%s  body=%s" % (f.getName(), f.getEntryPoint(), f.getBody()))
+            di = DecompInterface()
+            di.openProgram(prog)
+            res = di.decompileFunction(f, 120, ConsoleTaskMonitor())
+            print(res.getDecompiledFunction().getC() if res.decompileCompleted()
+                  else "// decompilation failed: %s" % res.getErrorMessage())
+
+        elif mode == "calls":
+            f = fm.getFunctionContaining(addr)
+            if f is None:
+                print("no function contains %s" % addr)
+                return 1
+            for c in sorted(f.getCalledFunctions(ConsoleTaskMonitor()), key=lambda x: str(x.getEntryPoint())):
+                print("  %s  %s" % (c.getEntryPoint(), c.getName()))
+
+        elif mode == "data":
+            n = int(sys.argv[3]) if len(sys.argv) > 3 else 8
+            mem = prog.getMemory()
+            for i in range(n):
+                a = addr.add(i * 4)
+                v = mem.getInt(a) & 0xFFFFFFFF
+                tgt = af.getAddress("0x%08X" % v) if 0x80000000 <= v < 0x80200000 else None
+                note = ""
+                if tgt is not None:
+                    fn = fm.getFunctionContaining(tgt)
+                    if fn is not None:
+                        note = "  -> %s @%s" % (fn.getName(), fn.getEntryPoint())
+                print("  %s  %08X%s" % (a, v, note))
+        else:
+            print(__doc__)
+            return 2
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
