@@ -156,14 +156,58 @@ libcd's interrupt-result code, and the routine around `0x8008C744` is the comple
 real CD interrupt would run. Our synchronous CD never reaches it, so the flag stays 0 and both
 timeouts expire.
 
-**Next step, and the trap in it:** the obvious move is to poke `0x800B3DF0 = 2` from this port's CD
-HLE when a command completes. **Do not start there.** That routine writes more than this one byte
-(it also touches the block at `0x800C637C`), so poking the flag alone would satisfy the wait while
-leaving the rest of libcd's state unset — a fake completion that makes the boot appear to progress,
-which is precisely the failure mode this frontier exists to prevent. Prefer driving the guest's own
-completion handler so the full state update happens; establish that entry point and its expected
-register state first, and only fall back to a narrower write if driving it proves impossible — in
-which case record it as a `⛔ hack` with what it omits.
+**RESOLVED — the completion handler is `0x8008C3E0`, and it is real hardware code, not a stub target.**
+
+Reached by scanning backward from the flag store to the enclosing prologue (`addiu sp, sp, -0x30` at
+`0x8008C3E0`; the preceding function ends at `0x8008C39C`). It takes **no arguments**. Its whole input
+is the CD controller, read through three pointer globals the executable initialises statically:
+
+| global | value in the loaded image | port |
+|---|---|---|
+| `0x800B3DD8` | `0x1F801800` | index/status |
+| `0x800B3DDC` | `0x1F801801` | response FIFO |
+| `0x800B3DE0` | `0x1F801802` | data FIFO |
+| `0x800B3DE4` | `0x1F801803` | interrupt flag |
+
+So the earlier plan — "drive the guest's completion handler" — needs no argument reconstruction at
+all. The handler services the controller and returns a bitmask of what it saw. **The framework's CDC
+model already presents exactly these four registers** (`runtime/recomp/cdc_state.h`, dispatched from
+`mem.cpp:160/204`), including the pending-interrupt queue. Nothing about this step requires new
+hardware modelling.
+
+**So the real blocker is one level up: nothing ever calls the handler.** Every reference to
+`0x8008C3E0` in the executable is a direct `jal` — from `0x8008CAAC`, `0x8008CD2C`, `0x8008D188`,
+`0x8008DA58`. The one inside the stalling wait loop is guarded:
+
+```
+8008D160  jal  0x8008b900      ; getter: lhu $v0, 0x800B2886 — nothing more
+8008D168  beqz $v0, 0x8008d210 ; gate CLOSED -> skip the service call, go straight to the flag test
+8008D188  jal  0x8008c3e0      ; the completion handler — only on the open path
+```
+
+`0x800B2886` is written in exactly one place, `sh $v0, 2($s1)` at `0x8008BA68` (`$s1 = 0x800B2884`),
+inside `0x8008BA00`. `CdInit` calls that only when BIOS **A(13h) `setjmp`** at `0x80091340` returns
+non-zero — i.e. only after a `longjmp` back into `CdInit` from an error path. **That gate is libcd's
+degraded polling fallback, not its normal mode.** In normal operation the handler runs from the CD
+**interrupt**, and the poll gate stays shut for the whole boot. Confirmed by scanning the full text
+for stores to `0x2886` and for stores through the `0x800B2884` base: one writer, that one.
+
+**Root cause of RE-03, stated plainly: psxport has no interrupt delivery.** `B(19h) HookEntryInt`
+records the handler into `hle.int_handler` (`hle.cpp:176`) and **it is never read anywhere** — the
+only two mentions of the symbol in the whole runtime are its declaration and that assignment.
+`C(02h)/C(03h) SysEnqIntRP/DeqIntRP` return `$a1` and record nothing. So a guest that waits on any
+interrupt-delivered completion waits forever; libcd is simply the first one this port reached.
+
+**Next step:** an interrupt-delivery model in the framework (game-agnostic — this is not a
+Spider-Man fact). Minimum shape: keep the handler chain that `SysEnqIntRP`/`HookEntryInt` register,
+and invoke it from the point where `cdc_native` queues an interrupt, with `I_STAT`/`I_MASK` modelled
+well enough that the handler's acknowledge sequence clears it. Then the guest's own `0x8008C3E0`
+runs, sets `0x800B3DF0` itself, and the wait exits through the path the hardware would have used.
+
+**Still do not poke `0x800B3DF0`.** The handler writes more than that byte (it also fills the block at
+`0x800C637C` from the response FIFO), so a direct poke is a fake completion — and now that the
+handler is known to be argument-free and the registers are already modelled, there is no longer any
+excuse for one.
 
 Everything below this line predates the fix; treat the eliminations as still valid (they were
 measured) but re-derive nothing from the `cmd 0x00` framing.

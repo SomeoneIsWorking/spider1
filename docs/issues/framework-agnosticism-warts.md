@@ -98,3 +98,29 @@ addresses are non-zero, so every registration still happens (18 primitives insta
 *Worth keeping:* the earlier entry recorded this as "benign, cause not chased". It was benign, but
 "not chased" was the right thing to write down — it is what made it obvious later that the nine
 refusals and the nine unconfigured CD entries were the same nine.
+
+---
+
+## WART-05 — There is no interrupt delivery at all — **OPEN, blocks RE-03**
+
+*What it is:* the framework accepts every interrupt-registration call a guest can make and discards
+all of them. `B(19h) HookEntryInt` assigns `hle.int_handler` (`runtime/recomp/hle.cpp:176`) and no
+other line in the runtime reads that field — the declaration and the assignment are its only two
+mentions. `C(02h)/C(03h) SysEnqIntRP/DeqIntRP` return `$a1` and record nothing. So guest code that
+waits on an interrupt-delivered completion waits until its own timeout, every time.
+
+*Why it is a wart and not a Spider-Man fact:* nothing about the gap is game-specific. Any PSX title
+whose SDK library completes work in an ISR — libcd, libspu's transfer callbacks, root-counter
+callbacks — hits it. The reference consumer does not, only because its native overrides bypass the
+libraries that would.
+
+*Not a workaround candidate.* The game-side alternative is to write the completion state the ISR
+would have written, from this port's HLE. That is a fake completion by construction (see RE-03: the
+handler fills a response block, not just the flag byte), so it is banned here. The fix has to be the
+real one, upstream.
+
+*Shape of the fix:* keep the registered handler chain; drive it from wherever the framework already
+knows an interrupt became pending — `cdc_native.c`'s queue is the first such site — with `I_STAT` /
+`I_MASK` modelled far enough that the handler's own acknowledge sequence clears the condition.
+Everything the CD handler needs on the register side is already present (`cdc_state.h`, dispatched
+from `mem.cpp:160/204`); the missing piece is only the dispatch into guest code.

@@ -78,9 +78,18 @@ INT3, so the IRQ queue never empties and the reset handshake's "loop until the f
 clear" cannot converge. Full reasoning, and the open question about what the correct fix is, in
 `re-frontier` RE-03.
 
-*Status:* open, tracked as `re-frontier` RE-03, which also records the specific trap — this does NOT
-map onto the framework's generic `hle.cdInitHandshake`, whose handler returns `v0 = 0` where this
-chain needs `1`.
+*ROOT CAUSE, established 2026-07-28 — it is not a CD problem either.* libcd's command wait exits on a
+completion byte (`0x800B3DF0`) that only its CD **interrupt** handler (`0x8008C3E0`) writes. That
+handler is argument-free and reads only the four CD registers the framework already models — but
+**psxport never delivers an interrupt to guest code**: `B(19h) HookEntryInt` stores the handler in
+`hle.int_handler` and nothing in the runtime ever reads that field, and `C(02h) SysEnqIntRP` records
+nothing at all. The wait loop's *polling* fallback is gated on `0x800B2886`, written in exactly one
+place, reachable only after a `longjmp` error recovery — so on this port the handler is never called
+by either route. Full derivation in `re-frontier` RE-03.
+
+*Status:* open, tracked as `re-frontier` RE-03. The fix is a game-agnostic interrupt-delivery model in
+the framework, not a Spider-Man HLE. Note this does NOT map onto the framework's generic
+`hle.cdInitHandshake`, whose handler returns `v0 = 0` where this chain needs `1`.
 
 *Deliberately left to hang.* A fabricated success return would make the boot appear to progress with
 the CD subsystem unconfigured and the three callback pointers null, which is far harder to diagnose

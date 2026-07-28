@@ -48,6 +48,15 @@ the function identification at once.
 from `CD.WAD` at runtime is **not** in the image and will disassemble as zeros. Zeros mean "not
 present in this image", not "no code there".
 
+*Second known limit — SILENCE IS NOT "EMPTY" (found 2026-07-28):* `disasm.py` is a thin capstone
+wrapper, and capstone's `disasm()` **stops at the first word it cannot decode and yields nothing
+further**. Ask for a range that *begins* on data — e.g. `0x8008C3B0`, which holds a string pointer —
+and the tool prints **nothing at all** and exits 0. That is indistinguishable from "this range is
+empty", and it is exactly the read-silence-as-a-negative trap that has already cost this project
+three false conclusions. If a range comes back empty, dump the raw words before believing it; the
+code is usually there, just preceded by a literal pool or a BIOS-call stub. Nudging the start
+forward past the data resumes normal output.
+
 ---
 
 ## INST-04 — `tools/go_public.py scan` — **trusted, but it CAN report a false green**
