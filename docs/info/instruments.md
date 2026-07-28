@@ -8,6 +8,14 @@
 > slot"), and it is the THIRD distinct false-zero in this file (INST-04, INST-06, this).
 > Every probe here now emits an unconditional arm/coverage line, so a silent run is evidence.
 
+> **SECOND RULE, same day: `cmake --build … | grep error` is not a build check.** Run from the wrong
+> directory, cmake printed `No rule to make target 'spiderman_port'` and exited — and the grep, which
+> only looked for `error:`, swallowed it and printed a cheerful "built". The next 40-second run
+> measured a STALE binary and reported zero hits for a probe that was never compiled in. Check the
+> build's exit status, or look at the last lines (`Linking … / Built target …`), and confirm the
+> artifact changed — `strings` for a format string the new code introduces is a two-second check that
+> would have caught this immediately.
+
 A broken instrument fails **silently**: "no signal" and "instrument returning nothing" are identical
 on screen. Uniform output — all-black frames, all-zero dumps, "no diff", an empty log — is the tell.
 
