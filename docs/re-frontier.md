@@ -149,15 +149,36 @@ intends by that write first; do not change the shared CD model on a hunch.
 and it indexes a command-name table at `0x800B3B38 + cmd*4` for a debug print gated on
 `*(0x800B3B1C) >= 2`. `0x8008D4E4` issues four commands through it (`0x8008D628/D650/D664/D680`)
 with `a0` = **0x01 Getstat, 0x01, 0x0A Init, 0x0C Demute** — every one of which the framework's
-model implements.
+model implements. (Thirteen call sites exist in total; see the enumeration below.)
 
-**The live contradiction, and it is the next thing to resolve:** the model observes `cmd 0x00`,
-which matches none of those four. So either `a0` is not reaching the command-register write, or the
-write is not the one those call sites intend. **A recompiler mistranslation is a real candidate here
-and should be ruled in or out first** — the substrate is generated code, and if `a0` is being lost
-between the call site and the store, that is a framework bug to fix in the recompiler, not a game
-fact to record. Compare the emitted C for `gen_func_8008CE8C` against the disassembly before
-assuming the game is doing something unusual.
+**The live contradiction — three facts that do not fit, and none of them is a guess:**
+
+1. **Runtime.** The command register receives `0x00`, and at the store both `a0` and the callee's
+   `s1` read `0` (`PSXPORT_DEBUG=cdcw`).
+2. **The translation is faithful.** `gen_func_8008CE8C` emits `c->r[17] = c->r[4]` at entry and
+   `c->mem_w8(c->r[2], c->r[17])` at the store — an exact match for `move $s1,$a0` and
+   `sb $s1,($v0)`. The caller's `a0 = 1` at `L_8008D5D8` is emitted too, and is not clobbered before
+   the call. So the recompiler-mistranslation hypothesis from the previous entry is **not supported**
+   for this path.
+3. **No call site passes zero.** All **13** `jal 0x8008CE8C` sites in the text were enumerated
+   (nine at `0x80086D3C..0x80086FF0`, four at `0x8008D628..0x8008D680`); the command argument is
+   `0x01`, `0x02`, `0x0A` or `0x0C`. Never `0`.
+
+So the caller reaching the store with `a0 = 0` has **not been identified**, and that is the state of
+this step — not a conclusion about the game.
+
+**Why caller identification is hard here, and the trap to avoid:** BOTH available signals mislead.
+  * Guest `pc`/`ra` are not refreshed on static gen-to-gen calls (INST-07).
+  * The host backtrace is confounded too: generated code is built with `-foptimize-sibling-calls`
+    (required — guest tail-jump loops would otherwise grow the stack without bound), so a tail call
+    REPLACES the caller's frame. A backtrace can therefore name a function that merely tail-called
+    into the chain, with intermediate frames gone. The `gen_func_8008D4E4` attribution recorded
+    earlier rests on exactly that signal and should be treated as **unconfirmed**.
+
+**Suggested next step:** stop relying on frames. Install a framework override on `0x8008CE8C` that
+logs `a0` on entry and then super-calls the original body. That yields a per-entry argument log that
+neither stale registers nor frame collapse can distort, and it will say directly whether a
+zero-argument caller exists.
 
 **Two corrections to earlier entries in this file, both now settled:**
   * An earlier revision said the chain `0x8008A1FC -> 0x8008D4E4 -> 0x8008CE8C` came from the

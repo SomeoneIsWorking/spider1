@@ -82,8 +82,14 @@ against the disassembly (`0x8008D4E4` really does call `0x8008CE8C`, from four s
 *THE CAVEAT — the `pc`/`ra` fields lie under recompiled execution.* The recomp does not refresh guest
 `pc`/`ra` on static gen-to-gen calls. This instrument's very first output attributed a CD command
 write to `0x8008B900`, which disassembles as a three-instruction getter (load halfword, return) that
-touches no CD register. `ra=0` is the tell. **Use `cdcbt`'s host backtrace for identification and
-treat `pc`/`ra` as a hint only** — a plausible non-zero `ra` is weak evidence, a zero `ra` is none.
+touches no CD register. `ra=0` is the tell. Treat `pc`/`ra` as a hint only — a plausible non-zero `ra` is weak evidence, a zero `ra` is none.
+
+*SECOND CAVEAT, found later: `cdcbt`'s host backtrace is ALSO confounded.* Generated code is compiled
+with `-foptimize-sibling-calls` (required, or guest tail-jump loops grow the stack without bound), so
+a tail call REPLACES the caller's frame. The backtrace can name a function that merely tail-called
+into the chain, with intermediate frames gone. So this instrument can localise a write to a region
+but **cannot be trusted to name the immediate caller**. For a definitive answer, log the argument on
+entry via a framework override + super-call rather than reading frames.
 
 ---
 
