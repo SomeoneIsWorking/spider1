@@ -1,5 +1,13 @@
 # Instruments ledger — can the tool be trusted to show the OTHER answer?
 
+> **RULE, learned the expensive way (2026-07-28): a probe must prove it CAN fire before its silence
+> means anything.** `cfg_logf(chan, ...)` is channel-gated. A check written as
+> `if (bad) cfg_logf("mychan", ...)` prints nothing when `mychan` is not in `PSXPORT_DEBUG` — and
+> "condition never true" and "channel not enabled" are indistinguishable on screen. This produced a
+> false negative that stood as a recorded conclusion for a full session ("VSync does not corrupt the
+> slot"), and it is the THIRD distinct false-zero in this file (INST-04, INST-06, this).
+> Every probe here now emits an unconditional arm/coverage line, so a silent run is evidence.
+
 A broken instrument fails **silently**: "no signal" and "instrument returning nothing" are identical
 on screen. Uniform output — all-black frames, all-zero dumps, "no diff", an empty log — is the tell.
 

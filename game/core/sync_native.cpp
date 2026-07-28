@@ -149,7 +149,14 @@ static void spiderman_vsync(Core* c) {
   extern unsigned g_diag_vsync_while_armed;
   const uint32_t _wa = g_diag_stack_watch;
   const uint32_t _wv = _wa ? c->mem_r32(_wa) : 0u;
-  if (_wa) ++g_diag_vsync_while_armed;   // proves coverage, so a silent watch is not mistaken for innocence
+  if (_wa) {
+    ++g_diag_vsync_while_armed;   // proves coverage, so a silent watch is not mistaken for innocence
+    // The callee saves s1 to this slot and THEN calls VSync, so the value visible here is the
+    // saved one. This distinguishes "the save never landed" from "the save landed and was later
+    // destroyed" — the two remaining explanations, which every earlier probe conflated.
+    cfg_logf("stackwatch", "armed VSync #%u: slot[%08X]=%08X (s1 live=%08X)",
+             g_diag_vsync_while_armed, _wa, _wv, c->r[17]);
+  }
   vblank_advance(c);   // the ISR's job: the counter tracks real time on EVERY call, query or wait
 
   const int32_t mode = (int32_t)c->r[4];

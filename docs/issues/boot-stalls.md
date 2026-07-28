@@ -147,8 +147,29 @@ instruments ledger exists to catch.
   2. The save never executes on the path taken (an early branch past the prologue).
   3. The restore reads a different address than the save wrote.
 
+*MEASURED 2026-07-28 (and it resolves item 1 below):* the callee saves `s1` and THEN calls VSync, so
+the value visible at the first VSync inside the call is the saved one. It reads:
+
+```
+armed VSync #1: slot[807FFEA4]=00000000 (s1 live=00000001)
+```
+
+`s1` is live and correct (`1`) at that point, but the computed slot holds `0`. **So the save does not
+land at `(caller_sp - 64) + 28`.** Every statement in this entry about that address describes an
+unrelated word, exactly as suspected. The address arithmetic — caller sp `0x807FFEC8`, callee frame
+`-64`, save offset `+28` — matches the emitted C and the disassembly, so the discrepancy is NOT in
+the arithmetic and that is itself the surprise worth chasing.
+
+*Also corrected:* the previous entry's "VSync calls during the call do not change the watched word
+(coverage proven)" was a FALSE NEGATIVE. That check used `cfg_logf` on a channel that was not
+enabled in the run, so it could never print. It has been re-run with the channel on. Coverage is
+genuinely 2 VSyncs per occurrence, but no conclusion from the earlier silent run stands.
+
 *Next, in order:*
-  1. Stop computing the slot address — OBSERVE it. The emitted save is
+  1. ~~Stop computing the slot address — OBSERVE it.~~ Done: the computed address is wrong, proven
+     above. Now find where the save ACTUALLY lands (log the effective address from the emitted store
+     itself, not from arithmetic) — and treat a mismatch between that and the disassembly's implied
+     address as a possible recompiler frame/ABI defect worth reporting upstream. The emitted save is
      `c->mem_w32((c->r[29] + 28), c->r[17])`; log `c->r[29]` from inside the callee (an override on
      `0x8008C944` that reports sp on entry) and compare against the address the probe assumed.
   2. Only once the real address is known does any statement about that word mean anything.
