@@ -88,7 +88,7 @@ later than a clean stop.
 
 ---
 
-## STALL-04 — The render/present path corrupts guest RAM — **OPEN, and it outranks RE-03**
+## STALL-04 — Guest RAM is corrupted across a call — **OPEN; the CAUSE is NOT yet established**
 
 *Symptom:* a callee-saved guest register is silently zeroed across a call, corrupting whatever the
 caller was holding. Surfaced as libcd's command byte arriving at the hardware as `0x00`, but the
@@ -107,21 +107,30 @@ mechanism is general and nothing about it is CD-specific.
 5. Reading the frame slot after the call shows it holds `0` — **the guest STACK ITSELF was
    overwritten** during the call. The restore did its job; the saved data was already destroyed.
 
-*What is doing it:* `0x8008C944` calls VSync immediately after its register saves, and this port's
-native VSync presents frames. A/B over one boot: **with presenting 22 clobbers, with presenting
-suppressed 4**. So the present path is the dominant source. (The native VSync handler itself is
-register-transparent — separately measured at 0 clobbers — so it is what presenting *runs*, not the
-handler's own code.)
+*SUSPECT (A/B, weak):* `0x8008C944` calls VSync immediately after its register saves, and this port's
+native VSync presents frames. Suppressing presentation changed the clobber count over a fixed run
+from 22 to 4.
 
-*Why this outranks RE-03:* psxport's porting guide states the rule directly — the render overlay MUST
-NOT write guest RAM, because a guest write from render breaks the byte-compare. This is that rule
-being violated in practice, and the blast radius is not one CD command: ANY live callee-saved
-register across ANY call that presents can be corrupted. Chasing the CD symptom further is chasing a
-downstream effect.
+*But that A/B does not establish causation, and a direct test did NOT confirm it.* Suppressing
+presentation also changes run timing drastically, so a fixed-window count is not comparable between
+the two runs — the difference may be pace, not cause.
 
-*Residual, do not forget it:* suppressing presenting removed most but NOT all clobbers (4 remain).
-There is a second source. Counts across the two runs are not strictly comparable (timing differs), so
-treat "22 vs 4" as "dominant, not sole" rather than as a ratio.
+A direct check was then run (`PSXPORT_DEBUG=presentwatch`): snapshot a window of guest RAM around the
+stack pointer across every present and report any word that changes. Over 1491 presents it reported
+**zero guest-RAM writes**, and the window did include the corrupted address.
 
-*Next:* find what in the present path writes guest RAM. Then re-check whether the CD `cmd 0x00`
-survives at all once it stops — a good part of RE-03 may simply dissolve.
+*That negative is NOT yet trustworthy either, and this is the important part.* The `sp` recorded at
+those presents was the CALLER's frame, not `0x8008C944`'s own (which sits ~0x40 lower). So the probe
+may simply never have sampled while execution was inside the call that matters — a COVERAGE gap, not
+an acquittal. "Zero hits" and "never looked" print identically, which is the failure mode the
+instruments ledger exists to catch.
+
+*So the honest state:* guest RAM at a saved-register slot IS being corrupted (that part is solid and
+measured five ways). WHAT corrupts it is unknown. The render path is a suspect, not a finding, and
+the previous revision of this entry overstated it as established.
+
+*Next, in order:*
+  1. Fix the probe's coverage before trusting either result — assert it samples while inside
+     `0x8008C944` (compare its `sp` against the frame recorded by the s1 probe), then re-run.
+  2. Only then decide whether the render path is implicated.
+  3. Do NOT re-derive the corruption itself; steps 1-5 above are settled.

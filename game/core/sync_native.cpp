@@ -107,7 +107,32 @@ static void vblank_advance(Core* c) {
   if (fields <= cur) return;
   uint32_t present = fields - cur;
   if (present > kMaxPresentCatchup) present = kMaxPresentCatchup;
-  for (uint32_t i = 0; i < present; ++i) gpu_present(c);
+
+  // `PSXPORT_DEBUG=presentwatch` — does presenting write GUEST RAM? It must not: psxport's porting
+  // guide makes the render overlay read-only with respect to guest memory, because a guest write
+  // from render corrupts live state (STALL-04: it destroyed a saved callee-saved register on the
+  // guest stack). This snapshots a window around the CURRENT guest stack pointer across each
+  // present and names every word that changed, so the answer is addresses rather than suspicion.
+  const bool watch = cfg_dbg("presentwatch");
+  const uint32_t win_lo = (c->r[29] & ~3u) - 0x100u;   // a little below sp (callee frames)
+  const uint32_t kWords = 0x180 / 4;                   // and well above it (live caller frames)
+  uint32_t snap[kWords];
+  for (uint32_t i = 0; watch && i < kWords; ++i) snap[i] = c->mem_r32(win_lo + i * 4);
+
+  if (watch) cfg_logf("presentwatch", "arm: presenting %u frame(s), window [%08X..%08X) sp=%08X",
+                      present, win_lo, win_lo + kWords * 4, c->r[29]);
+  for (uint32_t i = 0; i < present; ++i) {
+    gpu_present(c);
+    if (!watch) continue;
+    for (uint32_t w = 0; w < kWords; ++w) {
+      const uint32_t now = c->mem_r32(win_lo + w * 4);
+      if (now != snap[w]) {
+        cfg_logf("presentwatch", "present WROTE guest RAM [%08X] %08X -> %08X (sp=%08X)",
+                 win_lo + w * 4, snap[w], now, c->r[29]);
+        snap[w] = now;
+      }
+    }
+  }
   c->mem_w32(kVblankCount, fields);
 }
 
