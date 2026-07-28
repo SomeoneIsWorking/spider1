@@ -142,6 +142,37 @@ call sites (`0x8008CAAC`, `0x8008CD2C`, `0x8008DA58`) are not reached — that i
 
 ---
 
+## INST-12 — Ghidra headless (`tools/ghidra_query.py`) — **trusted, after failing its first control**
+
+*What it shows:* real cross-references (calls AND data), the function containing an address with its
+extent, the call set of a function, annotated data dumps — and **decompiled C**.
+
+*Why it replaces the old approach:* INST-02 (capstone + hand-rolled address scans) is what produced
+this project's run of confident wrong answers — "no callers" for a routine installed into a table, a
+`.data` pointer read as zero, a store blamed on the wrong `jal` because it sat in a branch delay
+slot, function boundaries guessed from `jal` targets. An address scan finds only the reference FORMS
+you thought to look for. Prefer this for anything about references, boundaries, or control flow.
+
+*It FAILED its first control, and that is the entry.* A raw-binary import gives Ghidra no entry
+point, so it disassembled nothing and **every** reference query returned zero — indistinguishable
+from "genuinely unreferenced", the exact failure this tool exists to remove. Worse, the first
+PyGhidra binding silently opened a NEW EMPTY program rather than the imported one, so memory reads
+threw and the seeder reported "created 0 functions" while seeding nothing.
+
+*Validated only after both were fixed* (`open_project` + `program_context` binds the saved program;
+`tools/ghidra_seed.py` feeds it the recompiler's own 1561 function entries): a control query on
+`0x8008C3E0` now returns **exactly the four `UNCONDITIONAL_CALL` sites** an independent hand scan
+found — `0x8008CAAC`, `0x8008CD2C`, `0x8008D188`, `0x8008DA58` — each with its owning function.
+Memory reads agree with a raw dump (`0x800B38EC = 0x80096450`).
+
+*Run a control after any re-import.* An empty answer from this tool has now been wrong twice for
+reasons that had nothing to do with the question asked.
+
+*Known limit:* it sees STATIC references. A pointer written into a table at runtime still shows zero
+call refs — for those, an entry probe on the callee (INST-11) is the instrument, not this.
+
+---
+
 ## INST-04 — `tools/go_public.py scan` — **trusted, but it CAN report a false green**
 
 *What it shows:* pre-publication scan of the git HISTORY for copyrighted/binary assets (section A),

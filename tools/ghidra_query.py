@@ -41,13 +41,11 @@ def main():
     from ghidra.app.decompiler import DecompInterface
     from ghidra.util.task import ConsoleTaskMonitor
 
-    # Open the EXISTING analysed program from the project. Passing the binary path (rather than
-    # None) is what makes pyghidra locate the already-imported program instead of trying to create
-    # one, which fails with a null program.
-    binpath = os.path.join(ROOT, "scratch", "bin", "spiderman", "ram.bin")
-    with pyghidra.open_program(binpath, project_location=PROJ, project_name=NAME,
-                               analyze=False) as api:
-        prog = api.getCurrentProgram()
+    # Open the program ALREADY IN THE PROJECT. The older open_program(path, ...) call silently
+    # created a fresh, empty program instead — which is why every query returned zero and memory
+    # reads threw: there was nothing in it. open_project + program_context binds the saved one.
+    project = pyghidra.open_project(PROJ, NAME)
+    with pyghidra.program_context(project, "/ram.bin") as prog:
         af = prog.getAddressFactory()
         fm = prog.getFunctionManager()
         addr = af.getAddress(addr_s)

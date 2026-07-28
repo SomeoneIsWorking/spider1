@@ -42,10 +42,11 @@ def main():
     from ghidra.app.cmd.disassemble import DisassembleCommand
     from ghidra.app.cmd.function import CreateFunctionCmd
 
-    binpath = os.path.join(ROOT, "scratch", "bin", "spiderman", "ram.bin")
-    with pyghidra.open_program(binpath, project_location=PROJ, project_name="spider1",
-                               analyze=False) as api:
-        prog = api.getCurrentProgram()
+    # Bind the program ALREADY IN THE PROJECT. open_program(path, ...) silently creates a fresh
+    # EMPTY program instead, which is why the first attempt reported "created 0 functions": it was
+    # seeding nothing. open_project + program_context binds the saved, imported one.
+    project = pyghidra.open_project(PROJ, "spider1")
+    with pyghidra.program_context(project, "/ram.bin") as prog:
         af = prog.getAddressFactory()
         fm = prog.getFunctionManager()
         tx = prog.startTransaction("seed recompiler entries")
