@@ -67,6 +67,13 @@ Where the framework already bakes one in, that is a **wart**: record it in
 `docs/issues/framework-agnosticism-warts.md`, work around it through a public seam, and fix it
 upstream rather than patching the submodule from here.
 
+**Never edit, build, commit to, or bump the pin of a SIBLING consumer** (Tomba2Engine) from this
+repo — not even to keep a positional `GameConfig` initialiser compiling. Each consumer pins its own
+psxport commit, so a framework change cannot break a sibling until that sibling chooses to move; the
+lockstep feels obligatory and is not. Add the field, update this port, push psxport, and say in the
+commit message that other consumers must add the field when they bump. Their schedule, their call.
+(USER directive, 2026-07-28.)
+
 ## Diagnostics go through the framework's channel logger
 
 `cfg_logi` / `cfg_logw` / `cfg_loge` for what a normal run should print; `cfg_dbg("chan")` +
