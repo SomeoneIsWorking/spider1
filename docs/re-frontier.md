@@ -377,6 +377,39 @@ service routine has no reachable caller. The next candidate is the BIOS's own CD
 this framework stubs to constants (`A(70h)`/`A(71h)`/`A(72h)` all return 0) and whose descriptor
 libcd fills in at `CdInit`.
 
+**CORRECTED by decompilation — `0x800B2886` is an IN-INTERRUPT flag, not a "polling gate".**
+Several revisions of this step described `0x800B2886` as a gate that opens libcd's polling fallback,
+opened only via `longjmp` error recovery. That reading is **wrong**, and one decompile shows why.
+
+`0x8008BA00` is libapi's **interrupt dispatcher** (`intr.c`). It sets `DAT_800b2886 = 1` on entry —
+meaning *"we are inside interrupt context"* — then loops over **11 IRQ lines**, computing
+`I_MASK & enabled-mask & I_STAT` (`*DAT_800b3914 & DAT_800b28b4 & *DAT_800b3910`), acking each
+serviced bit with `*DAT_800b3910 = ~(1 << n)`, and calling that line's callback from the table at
+`DAT_800b2888`. Only two functions in the whole image touch `0x800B2886`: this one writes it, and
+`0x8008B900` reads it.
+
+So `0x8008B900` answers *"am I in interrupt context?"*, and the three CD service call sites gated on
+it are the **called-from-inside-the-ISR** path — the inverse of what was recorded. The CD's callback
+is a slot in `DAT_800b2888`, installed at runtime, which is exactly why a static reference scan found
+no caller for `0x8008DA24`.
+
+The decompiled handler makes the completion path plain:
+
+```c
+void FUN_8008da24(void) {              // the CD line's callback
+  while (true) {
+    uVar2 = FUN_8008c3e0();           // service routine; returns a bitmask of what it handled
+    if (uVar2 == 0) break;            // drain until nothing left
+    if ((uVar2 & 4) && DAT_800b3b18) (*DAT_800b3b18)(DAT_800b3df1, &DAT_800c6384);   // ready cb
+    if ((uVar2 & 2) && DAT_800b3b14) (*DAT_800b3b14)(DAT_800b3df0, &DAT_800c637c);   // sync cb
+  }
+}
+```
+
+**What this means for the port:** delivery must reach `0x8008BA00`, which then fans out to the CD
+slot. The framework's chain walk already runs; the open question is narrower than before and stated
+exactly: delivery declines with `irq_enabled = 0`, so find what leaves interrupt-enable clear.
+
 **Still do not poke `0x800B3DF0`.** The handler writes more than that byte (it also fills the block at
 `0x800C637C` from the response FIFO), so a direct poke is a fake completion — and now that the
 handler is known to be argument-free and the registers are already modelled, there is no longer any
