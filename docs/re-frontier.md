@@ -594,30 +594,38 @@ never have been reached. The evidence picked the other option.
 
 ---
 
-## RE-04 — Movie playback — `re-partial`; **question settled, one gap left**
+## RE-04 — Movie playback — `re-partial`; the stream now RUNS
 
-**Settled: the GUEST plays the movie itself.** `0x8002B3CC` calls `0x80086B10` — libcd's streaming
-getter — and `0x800872AC` walks a sector ring at `DAT_800c1510` (stride `0x20`) checking a
-sector-type field. So this is libcd's `StGetNext`-style ring, decoded through the MDEC path fixed in
-RE-03c. **The framework's native `.STR` player is the wrong tool here**, and `GameConfig::bootFmv`
+**Settled: the GUEST plays the movie itself.** `0x8002B3CC` calls `0x80086B10` (libcd's streaming
+getter) and `0x800872AC` walks a sector ring at `DAT_800c1510`. It decodes through the MDEC path
+fixed in RE-03c, so the framework's native `.STR` player is the wrong tool and `GameConfig::bootFmv`
 stays empty — the guest wants sectors, not a replacement player.
 
-**The gap, measured:** sectors do not advance. DMA3 fires continuously but always transfers the same
-8 words and the head stays at LBA 128304.
+**Three linked defects kept it pinned on one sector** (all fixed, psxport `7916dce0`):
 
-Two facts pin it down:
-1. Sector advancement belonged in the wrong place. It was happening on full FIFO drain, but a
-   streaming reader takes only the 32-byte header from each sector and discards the rest, so that
-   never fires. Moved to the ACK path, where hardware puts it (psxport `5daf2fe4`).
-2. That alone is not enough, and the reason is the interesting part: the guest's streaming path
-   writes **`0x80` (BFRD, "want sector data") to `0x1F801803` with index 0** and never sets the ack
-   bits. This model treats BFRD as "reload the CURRENT sector", so the head still does not move.
+1. **Setmode never reached the controller** — the native CD layer forwarded it to the XA streamer
+   only, so `CdcState::mode` stayed 0.
+2. **`load_sector` ignored the whole-sector bit** regardless. Streaming reads the first 8 words of a
+   sector as header + subheader to identify it; it was getting picture data, recognised nothing, and
+   re-requested the same sector forever.
+3. **Advancement had no reachable trigger.** Draining cannot be it — this reader takes 2048 bytes of
+   a 2340-byte FIFO and asks again. The interrupt ACK cannot be it — it drives BFRD directly and
+   never acks. So the trigger is **BFRD itself**: a data request when the current sector is already
+   partly read is a request for the *next* one, remainder discarded, which is what the drive does
+   when it refills per sector.
 
-**Do not simply make BFRD advance.** On hardware BFRD moves the *current* sector into the data FIFO;
-the head advances when the drive delivers the next INT1 — and nothing in this model produces those
-during a continuous read, because **there is no time source driving the drive**. That is the same
-shape as the MDEC bug fixed earlier: a time-stepped device with nothing stepping it. The fix is a
-drive tick that delivers INT1s while `reading` is set, not a redefinition of BFRD.
+Point 3 is worth keeping as a lesson: an earlier revision moved advancement to the ACK path on a
+plausible hardware argument, and this file recorded "do not simply make BFRD advance". Both were
+reasoning from how the hardware is usually described rather than from what this guest does. The
+measurement settled it.
+
+**Verified:** transfers now show BOTH the 8-word header and the 504-word body per sector, and the
+head advances through the stream — **10 distinct LBAs, 128304 → 128313**, where it had been pinned
+at 128304.
+
+**Next:** the stream advances then stops, with the stall inside the consumer `0x8002B3CC`. Establish
+whether the sector RING is filling faster than it drains, whether a sector type is being rejected, or
+whether the stream simply needs to keep being pumped — measure before changing the controller again.
 
 
 ## RE-04 — Per-frame OT / packet-pool layout — `blocked` on RE-03
