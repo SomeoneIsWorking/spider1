@@ -541,9 +541,26 @@ at `0x1F801080 + ch*0x10 + 8` until the busy bit clears. For MDEC-in that is DMA
 *does* clear DMA0's busy bit after running `mdec_dma_in` — so the naive explanation is already ruled
 out and this needs real measurement rather than a guess at the next override.
 
-**Do not reach for `GameConfig::hle.decDctInSync` reflexively.** That seam exists, but the evidence
-so far says the DMA completes; establish WHY the wait is unsatisfied first — which channel it is
-actually polling, and whether the guest ever kicked it — before replacing anything.
+**ROOT-CAUSED, and it was not a DMA channel.** `DecDCTinSync` is `0x80085DF0`: it polls
+`*0x800B114C`, which the load image ships as **`0x1F801824`** — the MDEC1 status register — waiting
+for bit `0x20000000` (data-in) to clear, with a `0x100000` spin cap before printing its own
+`MDEC_in_sync` timeout. The earlier backtrace naming `0x80085948` was confounded by
+`-foptimize-sibling-calls`, exactly the caveat INST-07 records.
+
+The defect is in the framework: `MDEC_DMAWrite` **silently drops a word when the input FIFO is
+full**, and real DMA0 never permits that — it honours `MDEC_DMACanWrite()` and stalls until the
+decoder has room. `mdec_dma_in` pushed whole blocks unconditionally, so words were lost, the decode
+never completed, and the status bit stayed set.
+
+**Measured, not inferred:** with the predicate honoured and drops reported, the log says
+`input FIFO full after 1 of 32 word(s)` — the decoder was receiving **one word of a 32-word block**.
+
+**NOT FIXED, stated plainly.** The guard turns silent corruption into a named error where it happens;
+it does not make the decode work. This model cannot stall a DMA mid-transfer the way the hardware
+channel does. Either DMA0 must interleave (push what fits, let the decoder step and drain, continue)
+or MDEC-in must be driven natively. The FIFO reporting full after ONE word points at the decoder not
+being ready to accept input — most likely its OUTPUT is undrained — so establish the in/out ordering
+before rewriting the transfer loop.
 
 ---
 
