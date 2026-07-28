@@ -435,6 +435,28 @@ in guest RAM, so the framework can drive them directly — and `GameConfig` alre
 serve the sector natively and then invoke the guest's ready callback, so the read completes without
 an interrupt ever existing.
 
+**PROGRESS — real sector data now flows, PC-owned, with no interrupt involved.** `cdGetSector` and
+`cdReadyCbPtr` complete the design: a stock-libcd read is a per-sector callback loop, so the port
+drives it by invoking the callback the game already registered. Measured: 78 `CdGetSector` transfers,
+40 completed read cycles, real LBAs (16 and 8850), correct sector headers (`02:00:00 mode 02` at LBA
+8850, matching its Setloc), zero read errors from the framework side.
+
+**But the guest rejects the reads, and it now SAYS SO.** With BIOS `printf` implemented (INST-13) the
+binary reports `CdRead: sector error` (34) and `CdRead: retry...` (68) — the
+`FUN_80087220(&loc) != DAT_800b1c5c` branch of the game's ready callback at `0x800899A0`. That is the
+drive-position check: it converts the 3-word header it just popped into a sector number and compares
+it against its own expected counter.
+
+**Note the correction this forced:** the headers being served are demonstrably right, and from that I
+had concluded the check was passing. The game's own diagnostic says otherwise. Correct data at the
+right offset is not the same as the check succeeding — the remaining suspects are the units
+`FUN_80087220` produces (MSF→sector with or without the 150-frame lead-in) versus what
+`DAT_800b1c5c` was seeded with, and whether the header must come from the sector the DATA is read
+from or the one BEFORE it.
+
+**Next:** decompile `0x80087220` and read what it computes, then compare against the seeding of
+`DAT_800b1c5c` on the read-setup path. Both are one grep away in `scratch/decomp/`.
+
 **Still do not poke `0x800B3DF0`.** The handler writes more than that byte (it also fills the block at
 `0x800C637C` from the response FIFO), so a direct poke is a fake completion — and now that the
 handler is known to be argument-free and the registers are already modelled, there is no longer any

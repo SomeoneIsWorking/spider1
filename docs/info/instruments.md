@@ -173,6 +173,27 @@ call refs — for those, an entry probe on the callee (INST-11) is the instrumen
 
 ---
 
+## INST-13 — `PSXPORT_DEBUG=guest` (the game's OWN diagnostics) — **trusted**
+
+*What it shows:* every string the executable prints through BIOS `A(3Fh) printf` / `B(3Fh) puts`.
+
+*Why it matters more than it sounds:* these were being discarded as `UNIMPL A0:0x3F` — hundreds per
+boot — which threw away the most direct evidence a port can get: the binary saying, in English, what
+IT thinks is wrong. This project's single most useful identification (`VSync: timeout`) already came
+from a string the executable emits; every other one was going in the bin.
+
+*Validated, and it corrected a live conclusion within one run:* the sector headers being served
+looked correct (`LBA 8850 -> 02:00:00 mode 02`, matching its Setloc exactly), from which I had just
+concluded the guest's drive-position check was passing. The channel immediately reported
+`CdRead: sector error` x34 and `CdRead: retry...` x68 — so the check is being REJECTED. It also
+distinguishes rather than echoing one string: five distinct messages in one boot, including
+`CD_init:` and `ResetGraph:jtb=...,env=...` with correctly formatted arguments.
+
+*Known limit:* it sees only what the game routes through the BIOS calls. A title with its own serial
+or screen logger prints nothing here, and silence is not evidence that the game is content.
+
+---
+
 ## INST-04 — `tools/go_public.py scan` — **trusted, but it CAN report a false green**
 
 *What it shows:* pre-publication scan of the git HISTORY for copyrighted/binary assets (section A),

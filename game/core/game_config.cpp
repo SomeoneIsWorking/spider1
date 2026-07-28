@@ -146,6 +146,17 @@ static const GameConfig g_spiderman_cfg = {
     // real disc image, and skips the handshake, the DMA and the wait entirely.
     /* cdGetSector    */ 0x8008D82Cu,
 
+    // cdReadyCbPtr: 0x800B3B18, the guest global that stock libcd's CdReadyCallback() writes.
+    // Identified from its setter at 0x80086C94, which is the classic get-and-set shape
+    // (`old = g; g = param; return old`) — the pair at 0x80086C80 does the same for the SYNC
+    // callback at 0x800B3B14.
+    //
+    // This is what lets the PC own the read outright. The game's handler (0x800899A0) is a per-sector
+    // driver: it calls CdGetSector, advances its own destination, decrements its remaining count, and
+    // when the count hits zero restores the callbacks and issues Pause. So a read completes by
+    // invoking that callback once per sector — no CD interrupt, no ISR chain, no busy-wait.
+    /* cdReadyCbPtr   */ 0x800B3B18u,
+
     // --- pad driver (re-frontier: RE-05) ---
     /* padSlot0Buf    */ 0, /* padSlot1Buf */ 0, /* padDriverFn */ 0,
     /* padSlotPtrTable*/ 0,
