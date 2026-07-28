@@ -93,12 +93,32 @@ Full account in `docs/issues/boot-stalls.md` STALL-04; fixed in psxport `94118f8
 **Current state, measured:** the CD model now receives exactly the commands the call sites pass —
 `0x01` (Getstat) and `0x0A` (Init) — with **zero unhandled commands** and zero lost registers.
 
-**What remains:** the boot still stops in the game's disc-init retry loop at `0x800649E4`, so
-`CdInit` still returns 0 — but now for a legitimate reason rather than corruption. The open question
-is narrow and clean: given that Getstat and Init are both acknowledged, which part of `CdInit`'s
-success path is unsatisfied? Recall it requires `0x8008A1FC` to return 1, which needs BOTH
-`0x8008D4E4` and `0x8008D3F4` to return 0, and only then installs the three CD event-callback
-pointers.
+**What remains — narrowed to one leaf, measured:**
+
+| probe | result |
+|---|---|
+| `0x8008D4E4` (init A) | returns `0xFFFFFFFF` **every time** — this is the failing half |
+| `0x8008D3F4` (init B) | never runs (short-circuited by A) |
+| command-send `0x8008CE8C` | returns `0xFFFFFFFF` for **all 60 calls**, Getstat and Init alike |
+
+So it is not command-specific: **every** libcd command reports failure. The `-1` is set at
+`0x8008D150`/`0x8008D15C`, on a path that first prints a diagnostic via BIOS printf and then calls the
+controller-reset routine `0x8008D320` (the bank-1 acknowledge sequence already seen in `cdcw` traces).
+
+The binary names its own failure. The format string that path prints (`0x8009660C`) reports a
+command-wait result with **`Sync`** and **`Ready`** fields, and the routine label at `0x800966F0` is
+`CD_init:`. So this is libcd's standard command-completion wait giving up: the command is written,
+the response never satisfies the wait, it times out, resets the controller and returns `-1`.
+
+**Next step:** the write side is instrumented (`cdcw`) but the READ side is not, and the wait is a
+read loop. Add a CD register READ log and find which status the guest polls for and never sees. Two
+concrete candidates from the framework's model, to test rather than assume:
+  * the status register's `RSLRRDY` (0x20) response-ready bit, which `cdc_read` sets only while a
+    queued response has unread bytes;
+  * the interrupt-flag register (bank 1), which reports `0xE0 | type` while the queue is non-empty.
+
+Do NOT assume the model is wrong — the guest may be waiting on something real that our synchronous
+CD never produces, in which case the fix is in this port's HLE, not in the shared model.
 
 Everything below this line predates the fix; treat the eliminations as still valid (they were
 measured) but re-derive nothing from the `cmd 0x00` framing.

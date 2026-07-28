@@ -28,6 +28,8 @@
 // The recompiled bodies this file wraps. Declared with the signature the recompiler emits.
 extern void gen_func_8008CE8C(Core*);   // libcd command-send: a0 = command byte
 extern void gen_func_8008C944(Core*);   // called by the command-send routine before its store
+extern void gen_func_8008D4E4(Core*);   // CdInit low-level init A — must return 0 for success
+extern void gen_func_8008D3F4(Core*);   // CdInit low-level init B — must return 0 for success
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
 // libcd command-send (0x8008CE8C) — `PSXPORT_DEBUG=cdarg`.
@@ -80,7 +82,25 @@ static void diag_s1_across_C944(Core* c) {
              before, c->r[17], slot, slot_before, c->mem_r32(slot), g_diag_vsync_while_armed);
 }
 
+// `PSXPORT_DEBUG=cdinit` — WHICH half of CdInit's success test fails. 0x8008A1FC returns 1 (success)
+// only when BOTH of these return 0; CdInit retries it four times and only then installs the CD
+// event callbacks. Reporting each return value separately turns "CdInit fails" into a named leaf.
+// Both probes super-call, so behaviour is unchanged.
+static void diag_cdinit_A(Core* c) {
+  gen_func_8008D4E4(c);
+  cfg_logf("cdinit", "0x8008D4E4 (init A) returned %08X  %s", c->r[2], c->r[2] ? "<-- FAILS" : "ok");
+}
+static void diag_cdinit_B(Core* c) {
+  gen_func_8008D3F4(c);
+  cfg_logf("cdinit", "0x8008D3F4 (init B) returned %08X  %s", c->r[2], c->r[2] ? "<-- FAILS" : "ok");
+}
+
 void spiderman_install_diag_overrides(Game* g) {
+  if (cfg_dbg("cdinit")) {
+    engine_set_override_main(0x8008D4E4u, diag_cdinit_A, gen_func_8008D4E4);
+    engine_set_override_main(0x8008D3F4u, diag_cdinit_B, gen_func_8008D3F4);
+    cfg_logi("cdinit", "CdInit success-path probes installed on 0x8008D4E4 / 0x8008D3F4");
+  }
   if (cfg_dbg("s1trace")) {
     engine_set_override_main(0x8008C944u, diag_s1_across_C944, gen_func_8008C944);
     cfg_logi("s1trace", "s1-preservation probe installed on 0x8008C944");
