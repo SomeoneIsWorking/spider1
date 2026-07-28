@@ -594,18 +594,30 @@ never have been reached. The evidence picked the other option.
 
 ---
 
-## RE-04 — Movie playback / front-end — `next`
+## RE-04 — Movie playback — `re-partial`; **question settled, one gap left**
 
-The boot now reaches the game's own movie path: `0x8002B430` ← `0x8002AA0C` ← guest `main`.
-`0x8002B430` acquires something from `0x8002B3CC`, passes it to `0x8002A338` with an entry from the
-table indexed by the global at `gp+0x69C`, then calls `0x800872AC`.
+**Settled: the GUEST plays the movie itself.** `0x8002B3CC` calls `0x80086B10` — libcd's streaming
+getter — and `0x800872AC` walks a sector ring at `DAT_800c1510` (stride `0x20`) checking a
+sector-type field. So this is libcd's `StGetNext`-style ring, decoded through the MDEC path fixed in
+RE-03c. **The framework's native `.STR` player is the wrong tool here**, and `GameConfig::bootFmv`
+stays empty — the guest wants sectors, not a replacement player.
 
-That table is the **movie descriptor table at `0x80097DEC`** already RE'd for `bootFmv` (24-byte
-stride; path, width, height, frame count, frame bytes). So this is the intro-movie sequence, and
-`GameConfig::bootFmv` — deliberately left empty because the boot ran on the substrate — is now the
-relevant seam. Establish whether the guest wants to play the movie itself (in which case the STR
-path needs feeding) or whether the port should own it via the native `.STR` player, before wiring
-anything.
+**The gap, measured:** sectors do not advance. DMA3 fires continuously but always transfers the same
+8 words and the head stays at LBA 128304.
+
+Two facts pin it down:
+1. Sector advancement belonged in the wrong place. It was happening on full FIFO drain, but a
+   streaming reader takes only the 32-byte header from each sector and discards the rest, so that
+   never fires. Moved to the ACK path, where hardware puts it (psxport `5daf2fe4`).
+2. That alone is not enough, and the reason is the interesting part: the guest's streaming path
+   writes **`0x80` (BFRD, "want sector data") to `0x1F801803` with index 0** and never sets the ack
+   bits. This model treats BFRD as "reload the CURRENT sector", so the head still does not move.
+
+**Do not simply make BFRD advance.** On hardware BFRD moves the *current* sector into the data FIFO;
+the head advances when the drive delivers the next INT1 — and nothing in this model produces those
+during a continuous read, because **there is no time source driving the drive**. That is the same
+shape as the MDEC bug fixed earlier: a time-stepped device with nothing stepping it. The fix is a
+drive tick that delivers INT1s while `reading` is set, not a redefinition of BFRD.
 
 
 ## RE-04 — Per-frame OT / packet-pool layout — `blocked` on RE-03
