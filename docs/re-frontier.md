@@ -139,6 +139,21 @@ in how the guest reaches that write, is NOT yet established — and (b) changes 
 reference consumer, which may depend on unhandled commands being acked. Determine what the guest
 intends by that write first; do not change the shared CD model on a hunch.
 
+**Attempted and inconclusive (2026-07-28):** the open question was approached by disassembling every
+reference to the CD register-pointer globals `0x800B3DD8/3DDC/3DE0/3DE4`. Two useful facts came out
+of it, both read from the binary:
+  * `0x8008D3F4` (the second init the success path needs) ends by writing the CD-to-SPU **volume**
+    registers at index 2 and 3, then returns 0. Its write to `0x1F801801` is a volume write at
+    index 3, NOT a command — and the framework's model correctly ignores index 2/3 there.
+  * `0x8008C45C` READS `0x1F801801` as the response FIFO (same address, different function by
+    direction), gated on the status register's RSLRRDY bit. Also not a command.
+
+So no site in the reset path was shown to issue a command, and the origin of the observed `cmd 0x00`
+is **still unknown**. An attempt to settle it with `PSXPORT_WWATCH` over the command register failed:
+that instrument returned zero hits on a control address that is written thousands of times per run,
+so it is distrusted and its results here are void (`docs/info/instruments.md` INST-06). Do not read
+"zero writes observed" as "the guest does not write it".
+
 **Corrected:** an earlier version of this entry said `0x8008A1FC` descends into
 `0x8008D4E4 -> 0x8008CE8C`, where the handshake spins. That call chain came from the
 seed-contaminated substrate (CLAIM-00) and should not be trusted — `0x8008CE8C` does not appear in

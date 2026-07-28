@@ -70,6 +70,38 @@ are empty here.
 
 ---
 
+## INST-06 — `PSXPORT_WWATCH` (guest store watch) — **DISTRUSTED — it produced a false zero**
+
+*What it should show:* the guest `pc`/`ra` of any store landing in an address range
+(`PSXPORT_WWATCH=lo,hi`), which is exactly the tool for "who writes this register?".
+
+*Why it is distrusted:* it reported **zero hits on an address that is written continuously**. Armed
+over the vblank counter `0x800B397C..0x800B3980` — which this port's own native VSync writes on every
+call, thousands of times a run — it logged nothing at all. A tool that cannot see a guaranteed write
+cannot be used to prove a write does not happen.
+
+*What it nearly cost:* it was armed over the CD command register `0x1F801801` to answer RE-03's open
+question, returned zero hits twice, and the obvious reading — "the guest never writes the command
+register" — is a substantive claim about the game that would have gone into the frontier notes as
+fact. It is not supported by anything. **Both zero-hit results are void.**
+
+*Two traps found while testing it, worth knowing if it is ever repaired:*
+  * `wwatch_check` ORs `0x80000000` into the store address before comparing, but the env-arm path
+    (unlike the programmatic `wwatch_arm`) does NOT normalise the configured bounds. So an I/O watch
+    must be armed in KSEG1 form (`9f801801`), not `1f801801`, or it silently never matches. This is
+    documented in a comment in `mem.cpp` and is easy to walk straight into.
+  * The env parse shadows the width parameter `w` with the config string `w` inside `wwatch_check`.
+    Harmless as written, but it is the kind of thing to check first.
+
+*Root cause not established.* Only SBS calls `wwatch_arm`, and SBS was not running, so the
+"pre-armed, env never read" theory does not explain it. Ordering is not the problem either —
+`wwatch_check` runs before `io_write` in `mem_w8`, so I/O stores do pass through it.
+
+*Before using it again:* re-validate against a known-written address and confirm it fires. Treat a
+zero result as "unproven", never as "does not happen".
+
+---
+
 ## INST-05 — `PSXPORT_DEBUG=cdc` (framework CD-controller channel) — **trusted**
 
 *What it shows:* every command the guest issues to the modelled CD controller
