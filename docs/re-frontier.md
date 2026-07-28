@@ -83,7 +83,43 @@ disc-init retry loop (RE-03), which is where it now stops.
 
 ---
 
-## RE-03 — libcd `CdInit` — `re-partial`; **still `next`, but the ground has moved**
+## RE-03 — libcd `CdInit` — **PASSED.** The stall is gone; the frontier moves to the CD READ path
+
+**`CdInit` now succeeds.** Wiring ONE `GameConfig` chokepoint — `cdCommand = 0x8008CE8C`, libcd's
+command-send — cleared it:
+
+| probe | before | after |
+|---|---|---|
+| `0x8008D4E4` (init A) | `0xFFFFFFFF` every time | **`00000000` ok** |
+| `0x8008D3F4` (init B) | never ran | **`00000000` ok** |
+
+Overriding that one address replaces the failing WAIT as well as the send, because the completion
+wait at `0x8008D0A0` lies inside the same function (the next recompiled entry is `0x8008D298`). So the
+whole send-then-wait-for-an-interrupt-that-never-arrives sequence became one native call.
+
+**What this says about the preceding investigation, honestly:** the interrupt work (I_STAT/I_MASK, the
+CD edge, chain delivery) was correct and is retained — but it was never the shortest path to a booting
+port. psxport's design is to HLE the LIBRARY at `GameConfig` chokepoints, serving CD synchronously
+from the real disc; this port had that entire group at zero while the hardware route got the
+attention. The framework's own docs say this; the frontier did not.
+
+**The boot now reaches the CD READ path**, and stalls there: 33 identical
+`Setmode -> Setloc -> ReadN -> Pause` cycles, all from `0x80086D90`/`0x80086EC4`, seeking `LBA 8850`
+and retrying because no data arrives.
+
+**Next step, and a guess that was rejected:** the stock-libcd read primitive needs a native handler.
+The framework's existing `cd_read` does NOT fit — it takes `(blocks, lba, buf)`, the ENGINE-loader
+contract, whereas stock libcd's `CdRead(sectors, buf, mode)` carries no LBA and reads from wherever
+`Setloc` left the head. `Cd::setloc_lba` exists for exactly this and is currently **recorded but never
+consumed** — no stock-libcd read handler exists in the framework at all (the comment there notes Spyro
+hit the same wall). `0x80086DE4` was the obvious candidate and is **wrong**: it masks `a0` to a byte
+and uses it as an index into a table at `0x800B11A8`, so it is a slot dispatcher, not `CdRead`.
+Identify the real primitive before wiring anything — a wrong override here writes disc sectors into an
+arbitrary guest buffer.
+
+---
+
+## RE-03 (superseded detail below) — libcd `CdInit` — the investigation that got here
 
 The `cmd 0x00` mystery that dominated this step is **gone, and it was never a CD problem**. It was a
 framework memory-mapping defect: the guest stack lived in an unmodelled RAM mirror, so stack writes

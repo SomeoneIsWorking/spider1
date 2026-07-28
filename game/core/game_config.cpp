@@ -104,8 +104,20 @@ static const GameConfig g_spiderman_cfg = {
     // no overlay slots to describe — this is genuinely empty, not un-RE'd.
     /* overlaySlots   */ {{0, nullptr}, {0, nullptr}, {0, nullptr}},
 
-    // --- CD chokepoints (re-frontier: RE-04) ---
-    /* cdInit         */ 0, /* cdCommand */ 0, /* cdSync */ 0, /* cdReadPrim */ 0,
+    // --- CD chokepoints (re-frontier: RE-03) -------------------------------------------------
+    // cdCommand: 0x8008CE8C, libcd's command-send. RE'd from its own body — it takes the command
+    // byte in a0 (`c->r[17] = c->r[4]` at entry, stored to the controller's command register), the
+    // parameter block in a1 and the result buffer in a2, which is the framework handler's contract.
+    //
+    // Overriding it replaces the FAILING WAIT as well, not just the send: the completion wait at
+    // 0x8008D0A0 lies INSIDE this function (the next recompiled entry is 0x8008D298), so the whole
+    // send-then-wait-for-an-interrupt-that-never-arrives sequence is one native call.
+    //
+    // This is the framework's sanctioned strategy, not a shortcut around the RE: psxport serves CD
+    // synchronously from the real disc image, so the library-level primitive is HLE'd while the
+    // DATA still comes from the CHD. What would be a fake is returning success without reading —
+    // that is not what happens here.
+    /* cdInit         */ 0, /* cdCommand */ 0x8008CE8Cu, /* cdSync */ 0, /* cdReadPrim */ 0,
     /* cdFileLoad     */ 0, /* cdAsyncRead */ 0,
     /* voicePlay      */ 0, /* voiceStop */ 0, /* lastSectorTracker */ 0,
     /* cdInlineLoad   */ 0,
