@@ -198,7 +198,21 @@ only two mentions of the symbol in the whole runtime are its declaration and tha
 `C(02h)/C(03h) SysEnqIntRP/DeqIntRP` return `$a1` and record nothing. So a guest that waits on any
 interrupt-delivered completion waits forever; libcd is simply the first one this port reached.
 
-**Next step:** an interrupt-delivery model in the framework (game-agnostic — this is not a
+**UPDATED after measuring `B(19h)` — the CD interrupt arrives by NEITHER route this port can see.**
+`B(19h)` is `SetCustomExitFromException`, and its buffer resolves to a `longjmp` target **mid-way
+through `CdInit`** (`ra=0x8008B990`, the instruction after the `setjmp` call) — libcd's error
+recovery, not a per-interrupt trampoline, and not an address a static recompile can even enter.
+`SysEnqIntRP` carries exactly one element and it is libetc's **VBlank**. libcd instead reaches its
+service routine `0x8008C3E0` through an indirect call on a driver vtable at `*0x800B390C`, which the
+load image leaves **zero** and which is filled at runtime by BIOS machinery this framework stubs
+(`A(71h) _96_init` and friends return 0). Full evidence in
+`docs/issues/framework-agnosticism-warts.md` WART-05.
+
+**So the next RE step is that vtable, not the dispatch code:** establish what fills `*0x800B390C` and
+what it points at. It decides whether the CD path needs a chain walk at all, and writing delivery
+before knowing would be building for a route this game does not use.
+
+**Next step (framework, still required for VBlank):** an interrupt-delivery model (game-agnostic — this is not a
 Spider-Man fact). Minimum shape: keep the handler chain that `SysEnqIntRP`/`HookEntryInt` register,
 and invoke it from the point where `cdc_native` queues an interrupt, with `I_STAT`/`I_MASK` modelled
 well enough that the handler's acknowledge sequence clears it. Then the guest's own `0x8008C3E0`

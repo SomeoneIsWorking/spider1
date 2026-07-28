@@ -163,6 +163,43 @@ game does want the CD interrupt; the only thing still missing is the dispatch in
 *Still missing, and it is the whole remaining wart:* nothing calls the registered handlers. The chain
 from `SysEnqIntRP` is still discarded and `hle.int_handler` is still never read.
 
+### `B(19h)` is `SetCustomExitFromException`, and for this binary it is ERROR RECOVERY — measured
+
+`B(19h)` is not "hook a handler function". Its argument is a **jmp_buf-shaped structure**
+`{ +0 ra, +4 sp, +8 fp, +0x0C..0x28 s0..s7, +0x2C gp }`, and the BIOS exception path — after walking
+the `SysEnqIntRP` chains — loads those registers and jumps to `ra` instead of resuming the interrupted
+context. Dumped at the call (`PSXPORT_DEBUG=bios`):
+
+```
+B0:0x19 custom-exit buf=0x800B28BC: ra=0x8008B990 sp=0x800B389C fp=0x807FFFF8 gp=0x800B47F4
+  s0 = 0x800B2884   (libcd's state struct — the base whose +2 is the polling gate)
+```
+
+Three things fall out, and the third is the one that matters:
+
+1. **The structure identification is confirmed independently.** `gp` reads `0x800B47F4`, which is
+   exactly the value RE'd into `GameConfig::gp` from crt0, and `sp` (`0x800B389C`) is a dedicated
+   stack distinct from the interrupted `sp` — while `fp` holds the interrupted `0x807FFFF8`. This also
+   cross-checks the `A(13h) setjmp` implementation landed earlier today: it writes that exact layout.
+2. **`ra` is MID-FUNCTION.** `0x8008B990` is the instruction immediately after `jal 0x80091340`
+   (setjmp) inside `CdInit`, which begins at `0x8008B928`. A static recompile addresses function
+   ENTRIES; it cannot dispatch into the middle of one. Any design that "just calls the custom exit"
+   is unimplementable as written, and would have surfaced as a runtime recomp-MISS rather than at
+   design time.
+3. **So the custom exit is not a per-interrupt trampoline — it is libcd's `longjmp` error recovery.**
+   `A(13h) setjmp` at `0x8008B988` fills the buffer; `B(19h)` registers it; a CD error unwinds to
+   `0x8008B990` with `$v0 != 0`, so the `beqz` falls through to `jal 0x8008BA00` — the routine that
+   sets the polling gate at `0x800B2886`. That is the same conclusion the static read reached from
+   the other direction, now confirmed from the run.
+
+**Consequence for the delivery design:** the CD interrupt does NOT arrive through `B(19h)`. Nor
+through `SysEnqIntRP` — Spider-Man registers exactly one element there and it is libetc's VBlank.
+libcd reaches its own service routine `0x8008C3E0` through an indirect call on a driver vtable at
+`*0x800B390C`, which is zero in the load image and filled at runtime by BIOS machinery this framework
+stubs out (`A(71h) _96_init` and friends return 0). **Establishing what fills that vtable is the next
+RE step** — ahead of writing any dispatch code, because it decides whether the CD path needs the
+chain walk at all.
+
 *Honesty constraint on the I_STAT work:* the registers are easy to add, but only sources the
 framework ACTUALLY models may assert a bit. `cdc_native`'s pending queue is a real source for bit 2.
 Bit 0 (VBlank) has no modelled source yet, and asserting it from a free-running timer would be
