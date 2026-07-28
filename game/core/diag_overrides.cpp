@@ -37,9 +37,14 @@ extern void gen_func_8008CE8C(Core*);   // libcd command-send: a0 = command byte
 // value is lost before entry. This says which, with no dependence on frames or on guest pc/ra.
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
 static void diag_cd_command(Core* c) {
-  cfg_logf("cdarg", "CD cmd-send entry: a0=%02X a1=%08X a2=%08X a3=%08X sp=%08X",
+  // Entry/exit markers bracket the super-call so an interleaved register-write log shows whether a
+  // given store happened INSIDE this call or merely near it in time. Without the exit marker,
+  // sequence is not containment — and guest pc is stale here, so it cannot answer that either.
+  cfg_logf("cdarg", "CD cmd-send ENTER: a0=%02X a1=%08X a2=%08X a3=%08X sp=%08X",
            (unsigned)(c->r[4] & 0xFF), c->r[5], c->r[6], c->r[7], c->r[29]);
   gen_func_8008CE8C(c);   // super-call: the original body, unmodified
+  cfg_logf("cdarg", "CD cmd-send LEAVE: v0=%08X a0=%02X s1=%08X",
+           c->r[2], (unsigned)(c->r[4] & 0xFF), c->r[17]);
 }
 
 // Installed from the registerOverrides hook. Diagnostic overrides are gated on their channel so a

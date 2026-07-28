@@ -151,34 +151,39 @@ and it indexes a command-name table at `0x800B3B38 + cmd*4` for a debug print ga
 with `a0` = **0x01 Getstat, 0x01, 0x0A Init, 0x0C Demute** — every one of which the framework's
 model implements. (Thirteen call sites exist in total; see the enumeration below.)
 
-**Measured with an override at the callee entry (`PSXPORT_DEBUG=cdarg`), which is immune to both
-confounds below:** the command-send routine is entered **17x with a0=0x01 and 17x with a0=0x0A, and
-never with 0**. So this routine never sends command 0, and its store carries 1 or 0x0A as the
-translation says it should.
+**Measured with an override at the callee entry (`PSXPORT_DEBUG=cdarg`, INST-08), bracketed by
+ENTER/LEAVE markers so containment is proven rather than inferred from timing:**
 
-**Therefore the observed `cmd 0x00` does not come from the command-send routine at all** — and the
-earlier host-backtrace attribution to `gen_func_8008D4E4 -> gen_func_8008CE8C` is **disproven by
-contradiction**, which is the sibling-call frame-collapse caveat (INST-07) confirmed empirically
-rather than merely suspected.
+| observation | count |
+|---|---|
+| command-send routine ENTERed | 26 |
+| entry `a0` values seen | only `0x01` and `0x0A` — never `0` |
+| writes to the command register `0x1801` | 26 — **every one `0x00`** |
 
-**Every reference to the command-register pointer `0x800B3DDC` is now accounted for, and none of them
-is the writer:**
+The 1:1 ratio is the key number. Each call performs exactly one command-register write, and it is
+always zero. So this **is** the routine's own command store — not a nested callee's, and not another
+site elsewhere. The writes fall between ENTER and LEAVE, so containment is established.
 
-| site | what it does | bank |
-|---|---|---|
-| `0x8008C480` | READS the response FIFO (same address, opposite direction) | — |
-| `0x8008D030` | the command store — carries `0x01`/`0x0A`, measured | 0 |
-| `0x8008D2E4` | CD-to-SPU volume register write | 3 |
-| `0x8008D4A4` | CD-to-SPU volume register write | 3 |
+**This reopens the recompiler-mistranslation hypothesis, which the previous revision of this entry
+closed too early.** That closure was based on reading only two emitted lines — the entry
+(`c->r[17] = c->r[4]`) and the store (`c->mem_w8(c->r[2], c->r[17])`) — both of which are faithful.
+But faithful endpoints do not make a faithful PATH: `s1` is `0x01`/`0x0A` at entry and `0` at the
+store, so something between them zeroes it, and a static scan of writes to `s1` inside the function
+finds only the entry assignment, one `andi` AFTER the store, and the epilogue reload. None explains
+it.
 
-**So the next lead is a narrow one:** the store that lands on `0x1F801801` at bank 0 with value 0
-does NOT go through the `0x800B3DDC` pointer. It reaches the address some other way — a hardcoded
-`0x1F801801`, a different pointer global, or a computed address. Find that store; do not re-examine
-the four sites above, they are eliminated.
+Note the guest saves the caller's `s1` to its frame at `0x8008CEB0` — *before* the entry assignment —
+so the stack slot holds `0`. Any path that reloads `s1` from that slot before the store would produce
+exactly this. That is a hypothesis, not a finding.
 
-Note this also weakens (does not yet refute) the "framework acks an invalid command" mechanism: that
-analysis still holds for whatever *does* issue the zero, but the issuer is no longer believed to be
-libcd's command-send path.
+**Next step — localise the zeroing, do not re-derive it.** Install entry/exit overrides logging `s1`
+on the functions the command-send routine calls, and bisect until the call that zeroes it is named.
+If no nested call is responsible, the fault is in the emitted body itself and belongs in the
+recompiler (framework), not the game.
+
+Ruled out and not to be re-examined: all four references to the command-register pointer
+`0x800B3DDC` (one response-FIFO read, the measured command store, two bank-3 volume writes), and the
+idea that some *other* site issues the zero — the 26:26 correspondence excludes it.
 
 **Two corrections to earlier entries in this file, both now settled:**
   * An earlier revision said the chain `0x8008A1FC -> 0x8008D4E4 -> 0x8008CE8C` came from the
