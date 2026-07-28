@@ -52,13 +52,35 @@ VSync is RE'd) plus its own VSync, and reports both.
 
 ---
 
-## WART-02 — The boot FMV player hardcodes the reference consumer's movie path — **worked around**
+## WART-02 — The boot FMV player hardcoded the reference consumer's movie path — **FIXED upstream**
 
-`native_boot_run` plays `MOVIE/LOGO.STR` at boot. This game's movies are under `CINEMAS/`, so the
-open fails and emits an error on every boot.
+`native_boot_run` played `MOVIE/LOGO.STR` at boot — the first consumer's file, which does not exist
+on this disc — so the open failed and emitted an error on every boot.
 
-*Handled here by:* `run.sh` defaulting `PSXPORT_NO_FMV=1`. Wiring this game's own FMV path is
-`re-frontier` RE-07.
+*The workaround is gone, not just the error.* This was previously "handled" by `run.sh` defaulting
+`PSXPORT_NO_FMV=1`, which suppressed the message by disabling FMV wholesale — a strictly worse state,
+because it also masked any real FMV problem. Both the hardcoded path and that default are now removed.
+
+*Fix:* `GameConfig::bootFmv` — a NULL-terminated, ordered list of boot movies. The framework plays
+what the game names and nothing otherwise; an all-null list is a real answer ("this game's boot plays
+no movie natively"), so it logs at info rather than warning. The native `.STR` player itself needed
+no change: it resolves ISO9660 paths and decodes BS/MDEC entirely in framework code, so it was never
+the game-specific part.
+
+*This port leaves the list empty, deliberately.* Spider-Man's boot runs on the recompiled substrate,
+so the GUEST plays its movies — the framework must not invent an intro it was never asked for.
+
+*Verified:* with FMV explicitly forced on (`PSXPORT_NO_FMV=0`), the boot now reports
+`no boot FMV configured (GameConfig::bootFmv is empty) — nothing to play` where it previously
+reported `could not resolve MOVIE/LOGO.STR on disc`. `psxport_smoke` still links standalone.
+
+*What this port DID establish about its movies* (recorded at the `bootFmv` definition, with
+provenance): a 24-byte-stride descriptor table at `0x80097DEC` —
+`{ +0 path, +4 u16 w, +6 u16 h, +8 u16 frames, +0xC u32 frameBytes, +0x10 u8 flag }` — read out of
+the indexing routine at `0x8002B0F4`. Self-consistent: `CINEMAS/ATVILOGO.STR` is 320×240 with
+`frameBytes = 0x25800 = 320*240*2`. **Which ID the boot plays is NOT established** — both callers of
+`0x8002B0F4` pass it in a register, and the port stalls in `CdInit` long before a movie is reached.
+That is `re-frontier` RE-07.
 
 ---
 

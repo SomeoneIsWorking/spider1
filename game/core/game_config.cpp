@@ -57,6 +57,25 @@ static const GameConfig g_spiderman_cfg = {
     // -looking log. Not RE — a port fact — but it belongs here because the framework must not know it.
     /* discEnvVar     */ "PSXPORT_SPIDERMAN_DISC",
 
+    // --- boot intro movies ------------------------------------------ deliberately EMPTY, and why --
+    // Not a gap. This port's boot runs on the recompiled substrate, so movies are played by the
+    // GUEST, not by the framework's boot sequencer. The framework used to hardcode the reference
+    // consumer's MOVIE/LOGO.STR here, which does not exist on this disc.
+    //
+    // This game's movies ARE reverse-engineered: a 24-byte-stride descriptor table at 0x80097DEC,
+    //   { +0 const char* path, +4 u16 width, +6 u16 height, +8 u16 frames, +0xC u32 frameBytes,
+    //     +0x10 u8 flag }
+    // indexed by a movie ID. Read from the indexing routine at 0x8002B0F4, which masks the ID to a
+    // byte and computes ID*24 (`sll 1; addu; sll 3`) against that base, then loads +4/+6/+8/+0xC/
+    // +0x10. Self-consistent: entry 0 is CINEMAS/ATVILOGO.STR at 320x240 with frameBytes 0x25800 =
+    // 320*240*2, entry 1 CINEMAS/LOGO.STR at 320x192 with 0x1E000 = 320*192*2.
+    //
+    // What is NOT established is which ID the boot plays: both callers of 0x8002B0F4 (0x8002AAB8 and
+    // 0x8003D2EC) pass the index in a REGISTER, not as a constant, and the port stalls in CdInit
+    // long before any movie is reached, so it cannot be observed either. Naming one here would be a
+    // guess wearing a citation. That is RE-07.
+    /* bootFmv        */ { nullptr, nullptr, nullptr, nullptr },
+
     // --- everything below: NOT YET REVERSE-ENGINEERED --------------------------------------------
     // Zero is the honest value. Each group is an open step in docs/re-frontier.md; the framework
     // consumers of these fields (native_step_frame's OT/packet-pool dance, PcScheduler, the CD

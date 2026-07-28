@@ -98,11 +98,9 @@ say "launching Spider-Man (native PC port)…"
 # is HEADLESS by default so agent/CI runs that forget the flag fail safe (no intrusive window)
 # rather than popping one. PSXPORT_NOWINDOW keeps run.sh headless.
 if [ -n "${PSXPORT_NOWINDOW:-}" ]; then export PSXPORT_VK_HEADLESS=1; else export PSXPORT_VK_WINDOW=1; fi
-# The framework's boot-time intro FMV player hardcodes the CONSUMER's movie path (Tomba!2's
-# MOVIE/LOGO.STR). This game's cinemas live under CINEMAS/, so that player would fail to open a
-# file here; the front-end FMV path is an open RE step (docs/re-frontier.md RE-06). Skip it by
-# default rather than let it emit a spurious error every boot.
-export PSXPORT_NO_FMV="${PSXPORT_NO_FMV:-1}"
+# (The boot-FMV workaround that used to live here is gone. The framework no longer hardcodes the
+# reference consumer's movie path — it reads GameConfig::bootFmv, which this port leaves empty
+# because its boot runs on the substrate and the guest plays its own movies. Nothing to suppress.)
 # RmlUi debug/mod overlay assets (fonts + menu.rml) ship with the FRAMEWORK, and the overlay loads
 # them relative to PSXPORT_ASSET_DIR (the dir CONTAINING assets/). We run from the repo root, so
 # point it at the submodule.
