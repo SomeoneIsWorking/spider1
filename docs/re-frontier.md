@@ -457,6 +457,24 @@ from or the one BEFORE it.
 **Next:** decompile `0x80087220` and read what it computes, then compare against the seeding of
 `DAT_800b1c5c` on the read-setup path. Both are one grep away in `scratch/decomp/`.
 
+**`CdRead: sector error` is GONE — 38 → 0.** Root cause, found by grepping the decompiled corpus:
+an override must inherit the **bookkeeping** of the routine it replaces, not just its result.
+`CdLastPos()`'s buffer at `0x800B3B2C` has exactly ONE writer in the whole image, and it sits inside
+`CD_cw` — the routine `cdCommand` replaces. The read-setup path seeds its expected-sector counter with
+`CdPosToInt(CdLastPos())`, so with the record skipped it compared every sector header against stale
+bytes. Fixed via `GameConfig::cdLastPosBuf`. A second bug of the same shape: Setloc now invalidates
+the buffered sector, or the cursor keeps popping the previous one.
+
+The game has moved on to reading the **ISO volume descriptor at LBA 16** — filesystem lookup.
+
+**Open, and stated as a HYPOTHESIS rather than a finding:** 38 `CdRead: retry...` remain. That string
+is printed by `0x80089CE4` when it is called with a non-zero argument, which its caller does when
+sectors-remaining has gone negative. With the position check now passing, the remaining setter is the
+**timeout**: `DAT_800b1c58 + 0x4B0 < VSync(-1)`. `DAT_800b1c58` is assigned in only two places, one of
+them an error branch — so if the live path leaves it stale, the comparison is true immediately and
+every read is marked failed regardless of success. **Not yet measured.** Log the two values before
+acting; this port has repeatedly punished acting on a plausible mechanism.
+
 **Still do not poke `0x800B3DF0`.** The handler writes more than that byte (it also fills the block at
 `0x800C637C` from the response FIFO), so a direct poke is a fake completion — and now that the
 handler is known to be argument-free and the registers are already modelled, there is no longer any

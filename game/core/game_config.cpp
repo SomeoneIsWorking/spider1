@@ -157,6 +157,16 @@ static const GameConfig g_spiderman_cfg = {
     // invoking that callback once per sector — no CD interrupt, no ISR chain, no busy-wait.
     /* cdReadyCbPtr   */ 0x800B3B18u,
 
+    // cdLastPosBuf: 0x800B3B2C, the buffer CdLastPos() (0x80086C00) returns. Written in exactly ONE
+    // place in the whole image — inside CD_cw at 0x8008CE8C, which is the routine cdCommand above
+    // replaces. On Setloc it copies the 4-byte position parameter here; on Setmode it stores the
+    // mode byte at +4 (0x800B3B30).
+    //
+    // That is why every read was being rejected: the read-setup path at 0x80089CE4 seeds its
+    // expected-sector counter with CdPosToInt(CdLastPos()), so with the record skipped it compared
+    // the sector header against stale bytes and reported "CdRead: sector error" forever.
+    /* cdLastPosBuf   */ 0x800B3B2Cu,
+
     // --- pad driver (re-frontier: RE-05) ---
     /* padSlot0Buf    */ 0, /* padSlot1Buf */ 0, /* padDriverFn */ 0,
     /* padSlotPtrTable*/ 0,
