@@ -291,6 +291,30 @@ through them is libetc's VBlank element. **libcd never registers a BIOS interrup
 And the polling-gate setter `0x8008BA00` has exactly one caller, `0x8008B998`, on CdInit's
 `longjmp`-recovery path. So neither route to the service routine is open on a normal boot.
 
+**libcd's whole interrupt side is dormant — measured, three probes, all armed.** Entry probes
+(observe-only, super-calling) on the service routine and on BOTH callbacks libcd installs report
+**zero** entries over a 40 s boot, each behind an unconditional ARM line:
+
+| probe | installed by | entries |
+|---|---|---|
+| `0x8008C3E0` service routine | — (4 static call sites) | **0** |
+| `0x8009152C` | CdInit, into descriptor slot `+4`; reached via the thunk `0x8008B89C` | **0** |
+| `0x800913AC` | the registrar, as libcd callback **#3** | **0** |
+
+Entry probes matter here specifically because a `jal`-only call graph **cannot** answer this: libcd
+dispatches indirectly throughout, so "not statically reachable" would be a weak negative. A probe at
+the callee's own entry fires wherever the call came from.
+
+**Falsified along the way — the CD is NOT serviced from the VBlank interrupt.** That was the obvious
+remaining hypothesis, since VBlank is the one element registered with the BIOS. Call-graph
+reachability from the VBlank handler `0x80087660` does not reach `0x8008C3E0`. The graph was
+control-validated first (CdInit reaches 14 nodes; an earlier version of the same query silently
+reached 1 and would have "confirmed" anything asked of it) — but it follows only `jal`, so treat this
+as corroboration of the probes, not as independent proof.
+
+So nothing in this port delivers an interrupt, and nothing else stands in for one. **Interrupt
+delivery is the only remaining route, now by elimination rather than by assumption.**
+
 **Still do not poke `0x800B3DF0`.** The handler writes more than that byte (it also fills the block at
 `0x800C637C` from the response FIFO), so a direct poke is a fake completion — and now that the
 handler is known to be argument-free and the registers are already modelled, there is no longer any

@@ -31,6 +31,8 @@ extern void gen_func_8008C944(Core*);   // called by the command-send routine be
 extern void gen_func_8008D4E4(Core*);   // CdInit low-level init A — must return 0 for success
 extern void gen_func_8008D3F4(Core*);   // CdInit low-level init B — must return 0 for success
 extern void gen_func_8008C3E0(Core*);   // libcd's CD service routine (the "interrupt handler")
+extern void gen_func_8009152C(Core*);   // installed into the libcd descriptor's +4 slot by CdInit
+extern void gen_func_800913AC(Core*);   // installed as libcd callback #3 by the same routine
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
 // libcd command-send (0x8008CE8C) — `PSXPORT_DEBUG=cdarg`.
@@ -114,7 +116,30 @@ static void diag_cd_isr(Core* c) {
     cfg_logf("cdisr", "0x8008C3E0 call #%u -> v0=%08X", n, c->r[2]);
 }
 
+// `PSXPORT_DEBUG=cdcb` — do libcd's two INSTALLED callbacks ever run? Neither has a static call
+// site: 0x8009152C is stored into the descriptor's +4 slot by CdInit and reached only through the
+// thunk at 0x8008B89C, and 0x800913AC is handed to the registrar as callback #3. A jal-only call
+// graph cannot answer this — libcd dispatches indirectly throughout, so "not statically reachable"
+// is a weak negative. Entry probes are immune to that: they fire wherever the call came from.
+static unsigned g_cb_152C = 0, g_cb_13AC = 0;
+static void diag_cb_152C(Core* c) {
+  const unsigned n = ++g_cb_152C;
+  gen_func_8009152C(c);
+  if (n <= 4 || (n % 500) == 0) cfg_logf("cdcb", "0x8009152C (desc[+4]) call #%u -> v0=%08X", n, c->r[2]);
+}
+static void diag_cb_13AC(Core* c) {
+  const unsigned n = ++g_cb_13AC;
+  gen_func_800913AC(c);
+  if (n <= 4 || (n % 500) == 0) cfg_logf("cdcb", "0x800913AC (callback #3) call #%u -> v0=%08X", n, c->r[2]);
+}
+
 void spiderman_install_diag_overrides(Game* g) {
+  if (cfg_dbg("cdcb")) {
+    engine_set_override_main(0x8009152Cu, diag_cb_152C, gen_func_8009152C);
+    engine_set_override_main(0x800913ACu, diag_cb_13AC, gen_func_800913AC);
+    cfg_logi("cdcb", "libcd installed-callback probes ARMED on 0x8009152C and 0x800913AC — "
+                     "no call lines means neither ever ran");
+  }
   if (cfg_dbg("cdisr")) {
     engine_set_override_main(0x8008C3E0u, diag_cd_isr, gen_func_8008C3E0);
     // Unconditional arm line: this file's own lesson (docs/info/instruments.md) is that a

@@ -132,6 +132,11 @@ zero call lines follow, so **the routine genuinely never runs** — a real negat
 absent instrument. Counting is decimated after the first 8 entries because the wait loop could
 otherwise call it thousands of times and bury the answer.
 
+*Extended (`PSXPORT_DEBUG=cdcb`):* the same shape now covers libcd's two INSTALLED callbacks,
+`0x8009152C` (descriptor slot `+4`) and `0x800913AC` (callback #3). Neither has a static call site, so
+an entry probe is the only instrument that can see them — and both report zero entries with their arm
+line present.
+
 *Known limit:* it proves the routine was never ENTERED. It says nothing about why its three ungated
 call sites (`0x8008CAAC`, `0x8008CD2C`, `0x8008DA58`) are not reached — that is a separate question.
 
