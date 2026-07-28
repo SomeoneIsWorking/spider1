@@ -124,3 +124,29 @@ knows an interrupt became pending — `cdc_native.c`'s queue is the first such s
 `I_MASK` modelled far enough that the handler's own acknowledge sequence clears the condition.
 Everything the CD handler needs on the register side is already present (`cdc_state.h`, dispatched
 from `mem.cpp:160/204`); the missing piece is only the dispatch into guest code.
+
+---
+
+## WART-06 — The disc resolver hardcoded the reference consumer's env key — **FIXED upstream (psxport 4177ccf3)**
+
+*What it was:* `disc.c`'s `resolve_disc_path()` looked for `PSXPORT_TOMBA2_DISC`, then the generic
+`PSXPORT_DISC`, then a `*.chd` drop-in. This port sets `PSXPORT_SPIDERMAN_DISC` (run.sh, `.env`,
+README), so **the framework never saw it and every run booted with no media** while the CD model
+answered from an empty disc backend.
+
+*Why it went unnoticed for so long:* the only signal was one `cfg_logi` line, `[disc] no disc image
+(PSXPORT_TOMBA2_DISC/PSXPORT_DISC/.env)`, sitting in the middle of ordinary boot output at info
+level. Nothing downstream failed loudly — `disc_read_sector` just returned 0. This is the
+silence-is-not-a-negative trap again, in the framework's own logging.
+
+*Fix:* `GameConfig::discEnvVar` carries the consuming game's key; `Game()` copies it into
+`DiscState::env_key`; the resolver tries that first, then the generic key, each from the environment
+and then from `.env`, then the drop-in scan. The not-found path is now a **warning** that names the
+key it looked for and states that the CD model will run with no media.
+
+*Verified:* `[disc] opened /…/Spider-Man (USA).chd (38783 hunks, 8 frames/hunk)` where the same
+command previously logged `no disc image`.
+
+*Caveat on the RE-03 measurements taken before this:* they were all made with no disc mounted. The
+RE-03 root cause (no interrupt delivery) is unaffected — the handler is never called either way — but
+any future measurement of what libcd *reads back* must be re-taken now that media is present.

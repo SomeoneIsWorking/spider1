@@ -204,6 +204,14 @@ and invoke it from the point where `cdc_native` queues an interrupt, with `I_STA
 well enough that the handler's acknowledge sequence clears it. Then the guest's own `0x8008C3E0`
 runs, sets `0x800B3DF0` itself, and the wait exits through the path the hardware would have used.
 
+**Measurement caveat, found while confirming the above:** every RE-03 measurement up to this point
+was taken with **no disc mounted** — the framework's disc resolver only knew the reference consumer's
+env key (WART-06, fixed in psxport `4177ccf3`). The root cause is unaffected, because the handler is
+never called with or without media, but anything about what libcd *reads back* must be re-measured.
+Related, from the same pass: BIOS `A(13h) setjmp` was unimplemented, so `CdInit`'s choice between its
+normal path and its `longjmp` recovery path was made on a **stale `$v0`** and varied run to run. It
+now returns 0 deterministically, which means the polling gate is definitively shut.
+
 **Still do not poke `0x800B3DF0`.** The handler writes more than that byte (it also fills the block at
 `0x800C637C` from the response FIFO), so a direct poke is a fake completion — and now that the
 handler is known to be argument-free and the registers are already modelled, there is no longer any

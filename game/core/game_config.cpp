@@ -51,6 +51,12 @@ static const GameConfig g_spiderman_cfg = {
     /* recMainLo      */ REC_MAIN_LO,   // 0x00010000  (PS-X EXE load address)
     /* recMainHi      */ REC_MAIN_HI,   // 0x000C6800  (load + text size 0x000B6800)
 
+    // --- disc key ------------------------------------------------------- this port's own env name --
+    // The framework's disc resolver used to hardcode the FIRST consumer's variable, so run.sh set
+    // PSXPORT_SPIDERMAN_DISC, nothing read it, and every boot ran with NO MEDIA behind an ordinary
+    // -looking log. Not RE — a port fact — but it belongs here because the framework must not know it.
+    /* discEnvVar     */ "PSXPORT_SPIDERMAN_DISC",
+
     // --- everything below: NOT YET REVERSE-ENGINEERED --------------------------------------------
     // Zero is the honest value. Each group is an open step in docs/re-frontier.md; the framework
     // consumers of these fields (native_step_frame's OT/packet-pool dance, PcScheduler, the CD
