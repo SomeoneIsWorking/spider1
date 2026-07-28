@@ -125,6 +125,31 @@ knows an interrupt became pending — `cdc_native.c`'s queue is the first such s
 Everything the CD handler needs on the register side is already present (`cdc_state.h`, dispatched
 from `mem.cpp:160/204`); the missing piece is only the dispatch into guest code.
 
+**MEASURED 2026-07-28 — the two facts a delivery model needs, both from the run rather than an SDK
+header** (`PSXPORT_DEBUG=bios`, which now dumps the element at registration):
+
+1. **`InterruptElement` layout.** Spider-Man registers exactly one element, priority 2, at
+   `0x800C1528`, deq-then-enq from `0x80087828`:
+   `[+0] next = 0 · [+4] = 0x80087660 · [+8] = 0x800875F8 · [+C] = 0`.
+   Disassembly assigns the roles unambiguously by shape: **`+8` is the verifier** — it tests two bits
+   and returns `1` or `0` on every path — and **`+4` is the handler**, which is longer and returns no
+   flag. So: `{ next, handler, verifier, pad }`.
+
+2. **Verifiers gate on `I_STAT`/`I_MASK`, which this framework does not model at all.** The verifier
+   loads its register base from `*0x800B12C4`, and the executable ships that global as
+   **`0x1F801070`** — `I_STAT`. It tests `[+4] & 1` (`I_MASK`, IRQ0) then `[+0] & 1` (`I_STAT`,
+   IRQ0), i.e. this is libetc's **VBlank** element. `mem.cpp` has no case for `0x1F801070`/`0x74`, so
+   both reads return 0 through the unmapped-I/O path and **every verifier rejects unconditionally**.
+
+Note what this changes about the plan: the element that gets registered here is **VBlank**, not CD —
+libcd went through `B(19h) HookEntryInt` instead (`0x800B28BC`, from `0x8008B9B8`). A delivery model
+therefore has to cover both registration routes, not just `SysEnqIntRP`.
+
+*Honesty constraint on the I_STAT work:* the registers are easy to add, but only sources the
+framework ACTUALLY models may assert a bit. `cdc_native`'s pending queue is a real source for bit 2.
+Bit 0 (VBlank) has no modelled source yet, and asserting it from a free-running timer would be
+fabricating an event — the thing this frontier exists to prevent.
+
 ---
 
 ## WART-06 — The disc resolver hardcoded the reference consumer's env key — **FIXED upstream (psxport 4177ccf3)**

@@ -59,6 +59,32 @@ forward past the data resumes normal output.
 
 ---
 
+## INST-09 — `PSXPORT_DEBUG=bios` (every BIOS call, handled or not) — **trusted**
+
+*What it shows:* one line per A0/B0/C0 dispatch — table, function number, the four argument
+registers, and `$ra`. The BIOS stubs are tail jumps (`li $t2,0xA0; jr $t2`), so `$ra` survives as the
+real call site. For `SysEnqIntRP`/`SysDeqIntRP` it also dumps the guest `InterruptElement`'s four
+words.
+
+*Why it exists:* the pre-existing `UNIMPL` log only fires for calls that fall THROUGH the dispatcher,
+which answers "what is missing" but not "what does this game use" — and the second question is the
+one that decides which BIOS subsystem a port must model next. It was also the fastest way to settle
+a structure layout that no header could be trusted for.
+
+*Validated:* it distinguishes — 21 distinct function numbers over one boot, with counts that match
+independent expectations (`A0:0x39 InitHeap` exactly once from crt0; `B0:0x08 OpenEvent` eight times
+against eight `B0:0x0C EnableEvent`; `C0:0x03` immediately before `C0:0x02` on the same element, the
+standard deq-then-enq idiom). Cross-checked against the binary: the element words it printed
+(`0x80087660`, `0x800875F8`) disassemble as a handler/verifier pair, and the register base the
+verifier loads (`*0x800B12C4`) reads `0x1F801070` in the load image — the address `I_STAT` should be.
+Uniform or empty output would have been the tell; it produced neither.
+
+*Known limit:* it sees only calls that reach `Hle::dispatchBios`. A BIOS routine the guest reaches by
+some other route — an address baked into a table, a driver vtable it filled itself — does not appear.
+Absence here is not proof the guest never used a facility.
+
+---
+
 ## INST-04 — `tools/go_public.py scan` — **trusted, but it CAN report a false green**
 
 *What it shows:* pre-publication scan of the git HISTORY for copyrighted/binary assets (section A),
