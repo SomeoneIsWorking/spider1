@@ -555,12 +555,37 @@ never completed, and the status bit stayed set.
 **Measured, not inferred:** with the predicate honoured and drops reported, the log says
 `input FIFO full after 1 of 32 word(s)` — the decoder was receiving **one word of a 32-word block**.
 
-**NOT FIXED, stated plainly.** The guard turns silent corruption into a named error where it happens;
-it does not make the decode work. This model cannot stall a DMA mid-transfer the way the hardware
-channel does. Either DMA0 must interleave (push what fits, let the decoder step and drain, continue)
-or MDEC-in must be driven natively. The FIFO reporting full after ONE word points at the decoder not
-being ready to accept input — most likely its OUTPUT is undrained — so establish the in/out ordering
-before rewriting the transfer loop.
+**FIXED — the decoder was never being driven.** Beetle's MDEC consumes input and produces output
+only inside `MDEC_Run()`, and nothing in the runtime ever called it. So the input FIFO filled on the
+first word and the rest were dropped, while the output side returned an empty drain. Real DMA0/DMA1
+get this free by stalling while the decoder works; this model advances the decoder instead and
+re-checks. Wedged decoders are now reported with exact counts rather than truncating silently.
+
+**Verified:** mdec errors 0 (was `input FIFO full after 1 of 32 word(s)`), and the guest's
+`MDEC_in_sync timeout:` is gone from its own output entirely.
+
+---
+
+## RE-03d — XA / CD streaming still expects HARDWARE-level CD data — `next`
+
+The boot now stalls in the CD **streaming** poller (`0x80085000`, via the wrapper `0x800860B4`),
+waiting on the DMA helper `0x80085948` — which it calls with **channel 3**, i.e. DMA3, the CD→RAM
+channel (`FUN_80085948(3, buf, 0, 8, 0x11000000, …)`).
+
+That is a direct consequence of the design choice made in RE-03, and worth stating rather than
+discovering twice: **the file-read path is now fully HLE'd, so `cdc`'s sector FIFO has no source.**
+DMA3 drains that FIFO. The streaming path bypasses `CdRead` entirely and moves data at the hardware
+level, so the two halves of the CD now disagree about which layer owns the transfer.
+
+Wiring `cdSync` (`0x80086C60`) did **not** move it — recorded so the next session does not retry it.
+
+Two coherent options, and the choice should be made deliberately rather than by patching:
+1. **Own streaming natively too** — override the streaming reader so XA/STR data is served from the
+   disc image like everything else. Consistent with the rest of the CD, and with the directive that
+   the PC owns subsystems.
+2. **Feed `cdc` from the HLE path** — have the native CD layer push sectors into the controller's
+   FIFO so DMA3 has something real to drain. Keeps the hardware path working for any game that uses
+   it, at the cost of maintaining both.
 
 ---
 

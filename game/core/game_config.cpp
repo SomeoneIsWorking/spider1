@@ -126,7 +126,12 @@ static const GameConfig g_spiderman_cfg = {
     // i.e. the guest is left inside a critical section it never exits. Implementing COP0 Status
     // (psxport, same session) did not clear it, so the restore is happening by some route still not
     // modelled. Find that, then set this back to 0. See docs/re-frontier.md RE-03.
-    /* cdInit         */ 0, /* cdCommand */ 0x8008CE8Cu, /* cdSync */ 0, /* cdReadPrim */ 0,
+    /* cdInit         */ 0, /* cdCommand */ 0x8008CE8Cu,
+    // cdSync: 0x80086C60, stock libcd's CdSync(mode, result) — a thin wrapper over 0x8008CBC4. The
+    // CD streaming poller at 0x80085000 calls it in a loop and only proceeds when the result is not
+    // 5 (disk error); the framework handler reports complete, which is true here because every CD
+    // operation this port performs has already finished synchronously by the time it is asked.
+    /* cdSync */ 0x80086C60u, /* cdReadPrim */ 0,
     /* cdFileLoad     */ 0, /* cdAsyncRead */ 0,
     /* voicePlay      */ 0, /* voiceStop */ 0, /* lastSectorTracker */ 0,
     /* cdInlineLoad   */ 0,
