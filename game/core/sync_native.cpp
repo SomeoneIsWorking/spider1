@@ -112,6 +112,11 @@ static void vblank_advance(Core* c) {
 }
 
 static void spiderman_vsync(Core* c) {
+  // `PSXPORT_DEBUG=vsyncregs` — does this handler preserve the guest's callee-saved registers?
+  // It is an HLE standing in for a guest leaf, so its caller expects the guest ABI to hold across
+  // it. But it presents frames, and presenting can run framework and guest code against the SAME
+  // c->r[] array — so "native handler" does not imply "register-transparent".
+  const uint32_t _s1_in = c->r[17], _s0_in = c->r[16], _s2_in = c->r[18];
   vblank_advance(c);   // the ISR's job: the counter tracks real time on EVERY call, query or wait
 
   const int32_t mode = (int32_t)c->r[4];
@@ -148,6 +153,9 @@ static void spiderman_vsync(Core* c) {
   (void)c->mem_r32(kGpuStatPtr);   // the guest's status read has no side effect on our GPU
 
   c->r[2] = ret;
+  if (cfg_dbg("vsyncregs") && (c->r[17] != _s1_in || c->r[16] != _s0_in || c->r[18] != _s2_in))
+    cfg_logf("vsyncregs", "CLOBBERED across VSync: s0 %08X->%08X  s1 %08X->%08X  s2 %08X->%08X",
+             _s0_in, c->r[16], _s1_in, c->r[17], _s2_in, c->r[18]);
 }
 
 // Install this game's sync primitives. Called from main() INSTEAD of PlatformHle::initBuiltins().

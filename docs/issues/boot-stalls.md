@@ -85,3 +85,43 @@ chain needs `1`.
 *Deliberately left to hang.* A fabricated success return would make the boot appear to progress with
 the CD subsystem unconfigured and the three callback pointers null, which is far harder to diagnose
 later than a clean stop.
+
+---
+
+## STALL-04 — The render/present path corrupts guest RAM — **OPEN, and it outranks RE-03**
+
+*Symptom:* a callee-saved guest register is silently zeroed across a call, corrupting whatever the
+caller was holding. Surfaced as libcd's command byte arriving at the hardware as `0x00`, but the
+mechanism is general and nothing about it is CD-specific.
+
+*Chain of measurement, each step ruling out the previous suspect:*
+
+1. The command-send routine is entered 26x with `a0` = `0x01`/`0x0A`, never 0, yet all 26 of its
+   command-register writes are `0x00` (1:1, so it IS that routine's store).
+2. The emitted C is faithful at both ends — entry `c->r[17] = c->r[4]`, store
+   `c->mem_w8(c->r[2], c->r[17])` — so the recompiler is not dropping the value.
+3. The value is lost across a nested call: `0x8008C944` fails to preserve `s1` **25 times**
+   (`1 -> 0`, `0x0A -> 0`).
+4. That callee's save and restore are BOTH emitted, at the SAME frame offset (28), matching the
+   disassembly. So it is not a translation or control-flow fault.
+5. Reading the frame slot after the call shows it holds `0` — **the guest STACK ITSELF was
+   overwritten** during the call. The restore did its job; the saved data was already destroyed.
+
+*What is doing it:* `0x8008C944` calls VSync immediately after its register saves, and this port's
+native VSync presents frames. A/B over one boot: **with presenting 22 clobbers, with presenting
+suppressed 4**. So the present path is the dominant source. (The native VSync handler itself is
+register-transparent — separately measured at 0 clobbers — so it is what presenting *runs*, not the
+handler's own code.)
+
+*Why this outranks RE-03:* psxport's porting guide states the rule directly — the render overlay MUST
+NOT write guest RAM, because a guest write from render breaks the byte-compare. This is that rule
+being violated in practice, and the blast radius is not one CD command: ANY live callee-saved
+register across ANY call that presents can be corrupted. Chasing the CD symptom further is chasing a
+downstream effect.
+
+*Residual, do not forget it:* suppressing presenting removed most but NOT all clobbers (4 remain).
+There is a second source. Counts across the two runs are not strictly comparable (timing differs), so
+treat "22 vs 4" as "dominant, not sole" rather than as a ratio.
+
+*Next:* find what in the present path writes guest RAM. Then re-check whether the CD `cmd 0x00`
+survives at all once it stops — a good part of RE-03 may simply dissolve.

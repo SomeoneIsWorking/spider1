@@ -176,7 +176,17 @@ Note the guest saves the caller's `s1` to its frame at `0x8008CEB0` — *before*
 so the stack slot holds `0`. Any path that reloads `s1` from that slot before the store would produce
 exactly this. That is a hypothesis, not a finding.
 
-**Next step — localise the zeroing, do not re-derive it.** Install entry/exit overrides logging `s1`
+**LOCALISED — and it is not a CD problem.** The command byte is destroyed by guest-RAM corruption
+from the render/present path, not by anything in libcd. Full measurement chain in
+`docs/issues/boot-stalls.md` STALL-04, which now outranks this step: `0x8008C944` fails to preserve
+`s1` 25 times, its save/restore are correctly emitted at a matching frame offset, and the frame slot
+is found holding 0 afterwards — the guest stack was overwritten mid-call. Suppressing frame
+presentation drops the clobbers from 22 to 4.
+
+Work STALL-04 first. Re-check whether `cmd 0x00` survives at all once the corruption stops; a good
+part of this step may dissolve with it.
+
+**(superseded) Next step — localise the zeroing, do not re-derive it.** Install entry/exit overrides logging `s1`
 on the functions the command-send routine calls, and bisect until the call that zeroes it is named.
 If no nested call is responsible, the fault is in the emitted body itself and belongs in the
 recompiler (framework), not the game.
