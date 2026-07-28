@@ -1,0 +1,138 @@
+# RE frontier — Spider-Man (PSX, SLUS_008.75)
+
+The ordered reverse-engineering dependency chain toward a faithful reimplementation. Its one job is
+to record, per step, whether the port's behaviour there comes from **real RE of the binary** or from
+a **hack that jumped ahead of the RE** — because a hack makes a broken port *look* finished and
+blocks the real work.
+
+Consult `next` at the START of a task and work THAT step, not a downstream one. Update in the same
+commit that changes a step.
+
+**Status vocabulary**
+- `re-verified` — ground truth taken from the binary AND verified on real data.
+- `re-partial` — some of it is RE'd; the remainder is named below.
+- `blocked` — cannot start until a listed prerequisite lands.
+- `⛔ hack` — debt. Something stands in for a mechanism that has not been RE'd. **This list must
+  shrink.** There are currently **zero** entries, and that is deliberate: where the RE is not done,
+  the port hangs or aborts loudly rather than fabricating behaviour.
+
+---
+
+## RE-00 — Provision + statically recompile the executable — `re-verified`
+
+The disc carries ONE executable (`SLUS_008.75`, booted directly by `SYSTEM.CNF`), the packed archive
+`CD.WAD`, `COMPILED.XA`, and the `CINEMAS/*.STR` movies. There are **no overlay modules** — confirmed
+both by the ISO tree (`discdump list`) and by the recompiler reporting `0 overlay module(s)`.
+
+`tools/ensure_recomp.py` extracts the executable and runs the framework recompiler, hash-gated on the
+inputs so every machine builds an identical substrate.
+
+**Evidence:** PS-X EXE header — entry `0x8008739C`, load `0x80010000`, text `0x000B6800`.
+1580 functions emitted across 8 shards from 355 seeds via `jal` discovery.
+
+**Expires if:** a different region/revision of the disc is used (the addresses below are US-retail).
+
+---
+
+## RE-01 — crt0 / boot seam — `re-verified`
+
+The standard Sony crt0 at `0x8008739C`. Every value in `GameConfig`'s boot group is taken from it
+instruction by instruction; the mapping is documented in full in `game/core/game_config.cpp`.
+
+The framework's own generic `crt0_setup` reproduces this exact sequence (BSS-zero, `sp` from a
+stack-top global minus 8, heap base at end-of-BSS, heap size `(sp - sizeglobal) - heapBase`, then
+`InitHeap`), so the mapping is a structural match rather than an approximation.
+
+**Evidence:** `bssZero 0x800B5994..0x800C65D4`, `gp 0x800B47F4`, `libcInit 0x8008DC98`
+(BIOS `A(39h)` InitHeap stub), `gameMain 0x8002C354`. Verified live: the port boots through crt0 and
+into the guest's own `main`, which runs real translated code.
+
+**Expires if:** a `rec_dispatch` MISS or a wild guest write appears during crt0 — that would mean one
+of these globals is not what it is recorded as.
+
+---
+
+## RE-02 — libetc `VSync` — `re-verified`
+
+`VSync(int mode)` at `0x80084BE0`, reimplemented natively in `game/core/sync_native.cpp`.
+
+Identified from ground truth, not inference: its only-caller wait helper (`0x80084D58`) emits the
+string at `0x80096020`, which reads `VSync: timeout`. Full control flow, the guest globals it
+touches, and the tail stores are documented at the implementation.
+
+**The measured finding that shaped it:** instrumenting every call over a 60 s boot
+(`PSXPORT_DEBUG=vsync`) gives **427,643 `VSync(-1)` (query) against exactly one blocking `VSync(0)`**,
+from graphics init. This game does not pace with blocking VSync — it polls the free-running vblank
+counter and times itself against it. So the counter must advance with real time at the NTSC field
+rate (60000/1001 Hz), which is what the native handler does; a counter advanced only inside blocking
+calls left the poll loop spinning forever. See `docs/info/claims.md` CLAIM-02.
+
+**Verified on real data:** the pre-fix hang (a deterministic spin in `_vsync_wait`) is gone; the run
+proceeds past graphics init into libcd.
+
+---
+
+## RE-03 — libcd sync primitives — `blocked` on nothing; **this is `next`**
+
+Where the port currently stops. The boot reaches the CD chain and blocks:
+
+```
+main 0x8002C354 -> 0x8006BF9C -> 0x800649E4 -> 0x8008A16C -> 0x8008A1FC
+                -> 0x8008D4E4 -> 0x8008CE8C -> (polls VSync forever)
+```
+
+`0x8008CE8C` polls the vblank counter as a timeout while waiting on a CD operation that never
+completes, because this game's CD sync primitives are not yet identified or wired.
+
+To do: RE this game's `CdReadSync` / `CdDataSync` / the low-level `CdInit` reset handshake and
+register native handlers alongside `VSync` in `game/core/sync_native.cpp`. The framework's own CD
+natives (`Cd::overridesInit`) supply drive-ready and by-LBA reads; the missing half is the sync
+leaves. Note this game's data layout is a single packed archive (`CD.WAD`) rather than ISO files, so
+the loader path is likely to differ substantially from an SDK-file-per-asset game.
+
+---
+
+## RE-04 — Per-frame OT / packet-pool layout — `blocked` on RE-03
+
+`GameConfig`'s OT/packet-pool group is entirely zero. The framework's `native_step_frame` iterates
+these to run a native frame loop; until they are RE'd this port does not use that loop at all — the
+guest's own `main` loop drives, on the substrate. Blocked because the frame loop cannot be observed
+until the boot gets past the CD stall.
+
+---
+
+## RE-05 — Scheduler task layout — `blocked` on RE-03
+
+`taskTableBase` / `taskSlotStride` / `taskCount` / `curTaskPtr` and the stage entry PCs are zero.
+`PcScheduler` is correspondingly unused; the `schedStageBody` / `schedFreshEntry` hooks fail fast if
+ever reached. Neversoft's engine may not use the SDK task model at all — establish that first rather
+than assuming a Tomba-shaped scheduler exists here.
+
+---
+
+## RE-06 — Pad driver — `blocked` on RE-03
+
+`padSlot0Buf` / `padSlot1Buf` / `padDriverFn` / `padSlotPtrTable` are zero. The framework's native
+pad override is installed but has no game-side buffer addresses to write into, so input is not yet
+wired.
+
+---
+
+## RE-07 — Intro FMV / front-end — not started
+
+The movies live under `CINEMAS/` on this disc. The framework's boot-time FMV player hardcodes the
+reference consumer's path (`MOVIE/LOGO.STR`), so it is disabled by default in `run.sh` rather than
+left to fail. Wiring this game's FMV path is downstream of the front-end coming up at all.
+
+---
+
+## RE-08 — Render: GTE tap → native depth — not started
+
+The highest-leverage generic capability per the framework's porting guide: a single GTE choke point
+yields per-primitive world coordinates, from which native depth, widescreen, and per-object
+interpolation all follow. Nothing game-specific is needed to *start* it, but there is no picture to
+verify against until RE-03 unblocks the boot.
+
+**Frame-rate note (design, not RE):** this game declares no target frame rate — see RE-02. Any
+interpolation tier is therefore a PORT decision to be made against the achieved logic rate once the
+game runs, and recorded here when it is made.
