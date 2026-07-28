@@ -85,6 +85,28 @@ Absence here is not proof the guest never used a facility.
 
 ---
 
+## INST-10 — `PSXPORT_DEBUG=irq` (interrupt-controller traffic) — **trusted**
+
+*What it shows:* every `I_STAT`/`I_MASK` read and write with `$ra`, the before/after value on an
+acknowledge, and an explicit line each time the CD controller raises IRQ2.
+
+*Validated — and the first version FAILED this, which is why the entry exists.* A run with only the
+read/write logging produced **35 lines and not one CD-raise**, because the raise was latched lazily
+on the next `I_STAT` read and nothing in this boot reads `I_STAT`. That is the file's own rule biting:
+the probe could not fire, so its silence meant nothing. Moving the latch to where the controller
+actually raises made the same boot report **152 raises**. It also distinguishes values rather than
+printing a constant — `I_MASK` is observed as `0x000`, `0x001` and `0x00D` at different points, and
+acknowledges print a real before→after transition.
+
+*What it settled immediately:* the guest's `I_MASK` reaches **`0x00D`** — VBlank, CDROM and DMA all
+enabled — so this game does want the CD interrupt, and the remaining gap is delivery, not masking.
+
+*Known limit:* `I_STAT` bit 2 is the only bit any source asserts, because it is the only interrupt
+source the framework models. A zero in any other bit means "no source implemented", not "the hardware
+was quiet". Do not read this log as evidence that VBlank or DMA interrupts did not occur.
+
+---
+
 ## INST-04 — `tools/go_public.py scan` — **trusted, but it CAN report a false green**
 
 *What it shows:* pre-publication scan of the git HISTORY for copyrighted/binary assets (section A),

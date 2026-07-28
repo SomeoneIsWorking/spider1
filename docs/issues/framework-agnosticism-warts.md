@@ -145,6 +145,24 @@ Note what this changes about the plan: the element that gets registered here is 
 libcd went through `B(19h) HookEntryInt` instead (`0x800B28BC`, from `0x8008B9B8`). A delivery model
 therefore has to cover both registration routes, not just `SysEnqIntRP`.
 
+**LANDED 2026-07-28 (psxport, next commit) — the interrupt CONTROLLER, not yet the delivery.**
+`I_STAT`/`I_MASK` are now modelled in `mem.cpp` against per-Game state in `Hle`, with the PSX's real
+acknowledge semantic (a bit written as **0** is cleared; write-1-to-clear would be wrong). Bit 2 is
+latched from a new `CdcState::irq_edge`, set where the controller raises — in `cdc_irq()`, and again
+when acking one response makes a QUEUED one current, which is a fresh interrupt rather than a
+continuation of the acked one.
+
+*Latching where it is raised, not lazily on the next I_STAT read,* was a deliberate second pass: the
+lazy version was correct-looking but **unobservable** in a run where nothing reads I_STAT, which is
+exactly this boot. Code that cannot be seen firing is code that has not been verified.
+
+*Verified on real data* (`PSXPORT_DEBUG=irq`, 40 s boot): **152 `CD raised IRQ2` latches**, and the
+guest's own `I_MASK` reads **`0x00D`** — bits 0 (VBlank), 2 (CDROM) and 3 (DMA) all enabled. So the
+game does want the CD interrupt; the only thing still missing is the dispatch into guest code.
+
+*Still missing, and it is the whole remaining wart:* nothing calls the registered handlers. The chain
+from `SysEnqIntRP` is still discarded and `hle.int_handler` is still never read.
+
 *Honesty constraint on the I_STAT work:* the registers are easy to add, but only sources the
 framework ACTUALLY models may assert a bit. `cdc_native`'s pending queue is a real source for bit 2.
 Bit 0 (VBlank) has no modelled source yet, and asserting it from a free-running timer would be
