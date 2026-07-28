@@ -30,6 +30,38 @@ and CLAIM-04. Nothing else depended on the figure.
 
 ---
 
+## CLAIM-06 — "Nothing fills the CD dispatch table at `*0x800B390C`" — **FALSIFIED the same day**
+
+*Was claimed (committed 2026-07-28):* the pointer at `0x800B390C` ships as `0`, no instruction ever
+writes it, and the descriptor it should point at is one the BIOS is expected to install — making that
+the next RE step, upstream of interrupt delivery.
+
+*What falsified it:* `*0x800B390C` reads **`0x800B38EC`** in the load image (`ram.bin` offset
+`0xB390C`, regenerable via `tools/redump_ram.py`), pointing at a fully populated struct that ships in
+`.data` immediately before it. It is libcd's own low-level dispatch table — slot `+0` points at the
+rcsid string for `intr.c`, so the binary names it. Confirmed live too: the `0x800B3DF0` store watch
+reports hits with `pc=0x8008BBD0`, which is slot `+0x08`.
+
+*How the error was made, which matters more than the error:* the "zero stores" measurement was real
+and correctly performed, with a validated positive control. **The failure was interpretation** —
+zero stores plus loads that work is the signature of static linker initialisation, and I read it as
+a missing publisher. Worse, the supporting sentence "the load image ships it as `0`" was **never
+measured**. I asserted it and then reasoned from it, and everything downstream inherited the error:
+the claim that `CdInit`'s stores land in low RAM was inference from that assumption, not observation.
+
+*Second error, independent:* the two `CdInit` stores were attributed to the wrong `jal`. Both sit in
+**branch delay slots** and therefore store the `$v0` from before their call. See WART-05.
+
+*Who relied on it — checked:* one commit (the frontier's "next RE step is that vtable") and the
+WART-05 section; both corrected in the same pass. No code was written against it — the sequencing
+rule of working the frontier's `next` step is what limited the damage to documentation.
+
+*Lesson worth keeping:* **state which sentences are measured and which are inferred.** A single
+unmeasured assertion, laundered through a real measurement, produced a confident wrong conclusion
+that then set the project's next step.
+
+---
+
 ## CLAIM-04 — The substrate is now seeded only from this game's own binary — **holds**
 
 *Claimed:* the current recomp contains no foreign seed, so every recompiled function entry is one the

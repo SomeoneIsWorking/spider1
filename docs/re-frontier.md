@@ -198,6 +198,12 @@ only two mentions of the symbol in the whole runtime are its declaration and tha
 `C(02h)/C(03h) SysEnqIntRP/DeqIntRP` return `$a1` and record nothing. So a guest that waits on any
 interrupt-delivered completion waits forever; libcd is simply the first one this port reached.
 
+> **CORRECTION (same day):** the paragraph below ends by sending the next step to the driver vtable
+> at `*0x800B390C`. That was **wrong** — see `docs/info/claims.md` CLAIM-06. The table is libcd's own,
+> ships fully populated in `.data`, and is already dispatched through at runtime. Nothing is missing
+> there. The frontier reverts to **interrupt delivery**. Everything else in the paragraph — the
+> `B(19h)` identification and the mid-function `ra` — was measured and still holds.
+
 **UPDATED after measuring `B(19h)` — the CD interrupt arrives by NEITHER route this port can see.**
 `B(19h)` is `SetCustomExitFromException`, and its buffer resolves to a `longjmp` target **mid-way
 through `CdInit`** (`ra=0x8008B990`, the instruction after the `setjmp` call) — libcd's error

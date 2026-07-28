@@ -196,21 +196,44 @@ Three things fall out, and the third is the one that matters:
 through `SysEnqIntRP` — Spider-Man registers exactly one element there and it is libetc's VBlank.
 libcd reaches its own service routine `0x8008C3E0` through an indirect call on a driver vtable at
 `*0x800B390C`, which is zero in the load image and filled at runtime by BIOS machinery this framework
-stubs out (`A(71h) _96_init` and friends return 0). **MEASURED: nothing ever fills that vtable.** A store watch over
-`[0x800B390C, 0x800B3910)` for a 35 s boot reports **zero** stores, and the probe is validated — the
-identical instrument on `0x800B3DF0` in the same session reports 241. The address also sits *below*
-`bssZeroLo` (`0x800B5994`), so it is `.data`, and the load image ships it as `0`. Six instructions
-reference it and **all six are loads**; there is no store anywhere in the text.
+stubs out (`A(71h) _96_init` and friends return 0). **~~MEASURED: nothing ever fills that vtable.~~ FALSIFIED within the hour — see CLAIM-06.** The
+"zero stores" observation was real, but the conclusion drawn from it was wrong, and the supporting
+claim that "the load image ships it as `0`" was **never measured at all** — it was asserted.
 
-So `*0x800B390C` is a pointer the BIOS is expected to have filled before the game ever looks — the
-CD driver descriptor installed by the BIOS's own CD-ROM init, which this framework stubs to a
-constant 0 (`A(71h) _96_init` and friends). Every indirect call libcd makes through it
-(`0x8008B86C`, `0x8008B89C`, `0x8008B8CC`, and the two in `CdInit` at `0x8008B9C8`/`0x8008B9D8`)
-therefore dereferences a null descriptor.
+`*0x800B390C` reads **`0x800B38EC`** in the load image, pointing at a fully populated struct that
+ships in `.data` immediately before it. Zero stores plus loads that work is the signature of **static
+linker initialisation**, not of a missing publisher. The binary names the structure itself: slot `+0`
+points at `0x80096450`, which is libcd's rcsid string for **`intr.c`** — so this is libcd's own
+low-level dispatch table, the standard Psy-Q "static jump table plus a static pointer to it" idiom,
+present so an alternate backend can be swapped in.
 
-**That is the next RE step**, and it is upstream of interrupt delivery: what descriptor does the BIOS
-install, and what does libcd call through it? Until that is known, writing chain-walk dispatch would
-be building for a route this game does not use.
+```
++0x00 0x80096450 -> "$Id: intr.c,v 1.75 ..."   +0x10 0x8008BD18
++0x04 0            (written by CD_init)         +0x14 0            (written by CD_init)
++0x08 0x8008BBD0                                +0x18 0x8008BDB8
++0x0C 0x8008B928  (CD_init core)                +0x1C 0x800B2884   (libcd status block)
+[0x800B390C] = 0x800B38EC   then 0x1F801070 I_STAT, 0x1F801074 I_MASK, 0x1F8010F0 DPCR
+```
+
+Confirmed live as well as statically: the store watch on `0x800B3DF0` reports hits with
+`pc=0x8008BBD0`, which is slot `+0x08` — so the port is already dispatching through this table.
+
+**There is nothing for the framework to provide here.** The structure ships in the executable and the
+loader already covers it. Publishing that pointer would be fabricating a mechanism that does not
+exist.
+
+**Dead end recorded — a delay-slot misread.** The two stores in `CdInit` were read as
+`descriptor[+0x14] = <ret of 0x80091360>` and `descriptor[+4] = <ret of A(72h)>`. Both are in
+**branch delay slots**, so they store the value of `$v0` from *before* their `jal`: `desc[+4]` gets
+`0x8009152C` (the return of `0x80091360`, a real function — which is why the thunk at `0x8008B89C`
+can `jalr` through it) and `desc[+0x14]` gets the return of `0x8008C290`. `_96_remove`'s return is
+discarded. **MIPS delay slots execute before the call they follow; a store in one belongs to the
+previous instruction's result.**
+
+**So the frontier reverts to interrupt delivery**, which this detour did not change. The table
+carrying `I_STAT`/`I_MASK`/`DPCR` pointers at `+0x24`/`+0x28`/`+0x2C` is direct evidence of what its
+ISR glue polls, and libcd's every-command `-1` alongside its own `intr timeout(...)` diagnostic is
+exactly what a CD interrupt that never fires produces.
 
 *Honesty constraint on the I_STAT work:* the registers are easy to add, but only sources the
 framework ACTUALLY models may assert a bit. `cdc_native`'s pending queue is a real source for bit 2.
