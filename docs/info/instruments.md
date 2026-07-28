@@ -70,6 +70,23 @@ are empty here.
 
 ---
 
+## INST-07 — `PSXPORT_DEBUG=cdcw,cdcbt` (CD register writer) — **trusted, with one hard caveat**
+
+*What it shows:* every write to a CD controller register with the register, value, current bank, and
+guest `pc`/`ra` (`cdcw`); plus a host backtrace on the command-register write (`cdcbt`).
+
+*Validated:* it distinguishes answers — different registers, values and banks per line, and it
+resolved a caller chain that a blind instrument (INST-06) could not, then that chain was corroborated
+against the disassembly (`0x8008D4E4` really does call `0x8008CE8C`, from four sites).
+
+*THE CAVEAT — the `pc`/`ra` fields lie under recompiled execution.* The recomp does not refresh guest
+`pc`/`ra` on static gen-to-gen calls. This instrument's very first output attributed a CD command
+write to `0x8008B900`, which disassembles as a three-instruction getter (load halfword, return) that
+touches no CD register. `ra=0` is the tell. **Use `cdcbt`'s host backtrace for identification and
+treat `pc`/`ra` as a hint only** — a plausible non-zero `ra` is weak evidence, a zero `ra` is none.
+
+---
+
 ## INST-06 — `PSXPORT_WWATCH` (guest store watch) — **DISTRUSTED — it produced a false zero**
 
 *What it should show:* the guest `pc`/`ra` of any store landing in an address range

@@ -139,25 +139,38 @@ in how the guest reaches that write, is NOT yet established — and (b) changes 
 reference consumer, which may depend on unhandled commands being acked. Determine what the guest
 intends by that write first; do not change the shared CD model on a hunch.
 
-**Attempted and inconclusive (2026-07-28):** the open question was approached by disassembling every
-reference to the CD register-pointer globals `0x800B3DD8/3DDC/3DE0/3DE4`. Two useful facts came out
-of it, both read from the binary:
-  * `0x8008D3F4` (the second init the success path needs) ends by writing the CD-to-SPU **volume**
-    registers at index 2 and 3, then returns 0. Its write to `0x1F801801` is a volume write at
-    index 3, NOT a command — and the framework's model correctly ignores index 2/3 there.
-  * `0x8008C45C` READS `0x1F801801` as the response FIFO (same address, different function by
-    direction), gated on the status register's RSLRRDY bit. Also not a command.
+**Caller chain, established by host backtrace (2026-07-28):**
 
-So no site in the reset path was shown to issue a command, and the origin of the observed `cmd 0x00`
-is **still unknown**. An attempt to settle it with `PSXPORT_WWATCH` over the command register failed:
-that instrument returned zero hits on a control address that is written thousands of times per run,
-so it is distrusted and its results here are void (`docs/info/instruments.md` INST-06). Do not read
-"zero writes observed" as "the guest does not write it".
+```
+0x8008CE8C <- 0x8008D4E4 <- 0x8008A1FC <- 0x8008A16C <- 0x800649E4 <- 0x8006BF9C <- 0x8002C354
+```
 
-**Corrected:** an earlier version of this entry said `0x8008A1FC` descends into
-`0x8008D4E4 -> 0x8008CE8C`, where the handshake spins. That call chain came from the
-seed-contaminated substrate (CLAIM-00) and should not be trusted — `0x8008CE8C` does not appear in
-`0x8008D4E4`'s reset path as disassembled. The chain above is read from the binary directly.
+`0x8008CE8C` is libcd's command-send routine: `a0` = command byte, `a1`/`a2`/`a3` = params/result,
+and it indexes a command-name table at `0x800B3B38 + cmd*4` for a debug print gated on
+`*(0x800B3B1C) >= 2`. `0x8008D4E4` issues four commands through it (`0x8008D628/D650/D664/D680`)
+with `a0` = **0x01 Getstat, 0x01, 0x0A Init, 0x0C Demute** — every one of which the framework's
+model implements.
+
+**The live contradiction, and it is the next thing to resolve:** the model observes `cmd 0x00`,
+which matches none of those four. So either `a0` is not reaching the command-register write, or the
+write is not the one those call sites intend. **A recompiler mistranslation is a real candidate here
+and should be ruled in or out first** — the substrate is generated code, and if `a0` is being lost
+between the call site and the store, that is a framework bug to fix in the recompiler, not a game
+fact to record. Compare the emitted C for `gen_func_8008CE8C` against the disassembly before
+assuming the game is doing something unusual.
+
+**Two corrections to earlier entries in this file, both now settled:**
+  * An earlier revision said the chain `0x8008A1FC -> 0x8008D4E4 -> 0x8008CE8C` came from the
+    contaminated substrate and "should not be trusted". **That was wrong, and the original reading
+    was right.** `0x8008D4E4` does call `0x8008CE8C`, from four sites at `0x8008D628..0x8008D680` —
+    past `0x8008D620`, which is simply where the earlier disassembly stopped. Confirmed by host
+    backtrace on the clean substrate. Distrusting a correct record cost more than the original error.
+  * `PSXPORT_WWATCH` remains distrusted (INST-06) — it is not what produced this chain. The working
+    instrument is `PSXPORT_DEBUG=cdcw,cdcbt` (INST-07).
+
+**Guest `pc`/`ra` are unreliable here.** The recomp does not refresh them on static gen-to-gen calls.
+The first trace attributed the CD command write to `0x8008B900` — a three-instruction getter that
+loads a halfword and returns, with `ra=0`. Only the host backtrace named the real chain.
 
 **Do not fabricate a success return.** Forcing `CdInit` to report 1 without the handshake and the
 callback state would make the boot appear to progress with the CD subsystem unconfigured and the
