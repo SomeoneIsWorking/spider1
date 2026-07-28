@@ -167,6 +167,25 @@ static const GameConfig g_spiderman_cfg = {
     // the sector header against stale bytes and reported "CdRead: sector error" forever.
     /* cdLastPosBuf   */ 0x800B3B2Cu,
 
+    // cdReadStock / cdReadSync: 0x80089ECC and 0x8008A068 — stock libcd's CdRead(sectors, buf, mode)
+    // and CdReadSync(mode, result). Identified from their decompiled bodies and their pairing: the
+    // same three game routines (0x800649E4, 0x80064DA4, 0x80086A6C) call one then the other.
+    // CdRead's argument mapping is explicit in its own code — param_1 -> sector count, param_2 ->
+    // buffer, param_3 -> mode — and the mode picks 0x200/0x249/0x246 words per sector, which the
+    // native handler mirrors.
+    //
+    // Overriding at this level is what makes the CD fully PC-owned: the per-sector callback loop,
+    // the drive-position check, the vblank timeout and the retry path all stop running.
+    /* cdReadStock    */ 0x80089ECCu,
+    /* cdReadSync     */ 0x8008A068u,
+
+    // cdSearchFile: 0x80086170, stock libcd's CdSearchFile(CdlFILE*, name). Identified from the boot
+    // loop at 0x800649E4, which calls it with the literal "\CD_HED;1" and loops re-running CdInit
+    // for as long as it returns 0 — that loop is the boot stall. Its result then feeds
+    // CdControl(CdlSetloc, &loc) and CdRead(ceil(size/2048), buf, 0x80), which confirms the CdlFILE
+    // layout: position at +0, size at +4.
+    /* cdSearchFile   */ 0x80086170u,
+
     // --- pad driver (re-frontier: RE-05) ---
     /* padSlot0Buf    */ 0, /* padSlot1Buf */ 0, /* padDriverFn */ 0,
     /* padSlotPtrTable*/ 0,

@@ -83,7 +83,38 @@ disc-init retry loop (RE-03), which is where it now stops.
 
 ---
 
-## RE-03 — libcd `CdInit` — **PASSED.** The stall is gone; the frontier moves to the CD READ path
+## RE-03 — stock libcd — **PASSED, and the whole CD stack is now PC-native**
+
+The boot no longer stalls on the disc. Every CD operation this game performs is served by the port,
+with the data coming from the real disc image:
+
+| guest entry | address | native replacement |
+|---|---|---|
+| `CD_cw` (command send) | `0x8008CE8C` | acknowledge + record the Setloc/Setmode state it maintained |
+| `CdGetSector(dest,words)` | `0x8008D82C` | sequential sector FIFO from the raw sector |
+| `CdRead(sectors,buf,mode)` | `0x80089ECC` | direct transfer, sector size chosen from the mode |
+| `CdReadSync(mode,result)` | `0x8008A068` | complete — the transfer already happened |
+| `CdSearchFile(loc,name)` | `0x80086170` | native ISO9660 lookup off the disc image |
+
+**Measured:** retries 38 → 0, sector errors 38 → 0, `CD_init` 28 → 1. Files resolve to their real
+extents (`CD.HED` LBA 390 / 12525 bytes, `CD.WAD` LBA 397 / 63213568, the whole `CINEMAS` tree), 7
+sectors of `CD.HED` and 71 of `CD.WAD` load, and the game reaches asset loading — it prints
+`sfx.vab`.
+
+**What actually broke the stall**, worth recording because it was not where the effort went: the loop
+at `0x800649E4` calls `CdSearchFile("\CD_HED;1")` and re-runs `CdInit` for as long as it returns 0.
+Reading that loop in decompiled form named the blocker in seconds. Overriding `CdRead` at the API
+level rather than per-sector then deleted the entire retry/timeout state machine underneath it.
+
+**Two lessons this step paid for twice:**
+1. *An override inherits the BOOKKEEPING of what it replaces*, not just its result — `CdLastPos`'s
+   buffer has exactly one writer and it lives inside the routine `cdCommand` replaced.
+2. *Intercept at the level that removes the machinery*, not the level nearest the symptom. Per-sector
+   interception left the guest's timeout and retry logic running; the API-level one does not.
+
+---
+
+## RE-03 (superseded) — libcd `CdInit` — the earlier investigation
 
 **`CdInit` now succeeds.** Wiring ONE `GameConfig` chokepoint — `cdCommand = 0x8008CE8C`, libcd's
 command-send — cleared it:
