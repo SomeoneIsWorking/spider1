@@ -76,8 +76,28 @@ game's own per-frame COPY of the pad state, and the real driver-filled buffer is
 `0x800A50EE`.
 
 *Who relied on it — checked:* only the `GameConfig` entry and the RE-05 frontier note, both corrected
-in the same pass. No behaviour depended on it: wiring the address changed nothing, because the
-framework's pad fill sits behind `padDriverFn`, which is still zero.
+in the same pass. No behaviour depended on it, because no *correct* address was wired either.
+
+*Correction to this entry's own reasoning (2026-07-29):* the sentence originally here — "wiring the
+address changed nothing, because the framework's pad fill sits behind `padDriverFn`, which is still
+zero" — **is false**, and it is fixed rather than left standing. `Pad::serviceFrame()`
+(`pad_input.cpp:504-519`) writes the packet into `padSlot0Buf`/`padSlot1Buf` **directly**;
+`padDriverFn` gates nothing, and in fact the framework never reads that field at all (WART-07). So
+the wrong address WOULD have taken effect — it would have written pad packets over the game's own
+mirror every frame. That makes the falsification more valuable than this entry first credited it.
+
+*Resolved (2026-07-29) — the correct answer, and how the base-vs-`+2` ambiguity was settled:* pad
+init `0x8006AE34` ends with `FUN_8008afbc(0x800A50EC, 0x800A510E)` = libpad `PadInitDirect(buf0,
+buf1)`; the two arguments are `0x22` apart, the 34-byte direct-buffer size. The per-frame consumer
+`0x8006B27C` confirms the layout independently: it walks 2 slots at stride `0x22` from `0x800A50EC`,
+tests byte `+1` against `0x80` (libpad's multitap type nibble), and on the ordinary-controller path
+copies 8 bytes from the buffer **base** — `{status, type, btn_lo, btn_hi, …}`, exactly the
+framework's `fillBuffer` packet. On the multitap path it instead copies four sub-pads from
+`+2/+10/+18/+26`, which is what made `+2` look like a slot base. So `padSlot0Buf = 0x800A50EC`,
+`padSlot1Buf = 0x800A510E`; `0x800A50EE` is only the button halfword.
+  `python3 external/psxport/tools/disasm.py scratch/bin/spiderman/ram.bin 0x8006AE34 0x8006AE90`
+*Expires if:* the game is ever seen taking the multitap path (buffer byte `+1` == `0x80`), which
+would mean slot 0's real button data moves to `+2` and the port's single-packet fill is incomplete.
 
 *The lesson, and it is the SAME one this project has now learned three times:* **a static scan proves
 nothing about writes through a pointer.** "No callers" for `0x8008DA24` (installed into a table),

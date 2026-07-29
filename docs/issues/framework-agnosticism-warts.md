@@ -287,3 +287,31 @@ command previously logged `no disc image`.
 *Caveat on the RE-03 measurements taken before this:* they were all made with no disc mounted. The
 RE-03 root cause (no interrupt delivery) is unaffected — the handler is never called either way — but
 any future measurement of what libcd *reads back* must be re-taken now that media is present.
+
+---
+
+## WART-07 — `GameConfig::padDriverFn` is a field the framework never reads
+
+*What it is:* `game_iface.h:159` declares `padDriverFn` alongside `padSlot0Buf` / `padSlot1Buf`. A
+grep across `runtime/` finds **exactly one hit — the declaration itself**. No `.cpp` reads it.
+
+Its intended consumer is `pad_input.cpp:285`, `static void pad_read(Core*)`, which serves the guest's
+per-VBlank SIO pad read natively. But `Pad::overridesInit()` (same file, immediately below) only
+calls `init()` — it registers nothing. `pad_read` is therefore dead static code, and `padDriverFn` is
+an inert field.
+
+*Why it matters more than a tidiness complaint:* the field LOOKS like the seam a new consumer must
+fill to get input working, and this port spent a frontier step planning to RE the guest's per-frame
+pad routine for it. A zero here reads as "not yet RE'd" under this project's own convention, when the
+truth is "wiring it changes nothing". A seam that cannot have an effect is worse than an absent one,
+because it costs RE time to discover that.
+
+*How input actually reaches the guest today:* `Pad::serviceFrame()` (`pad_input.cpp:504-519`) writes
+the 4-byte packet directly into `padSlot0Buf` / `padSlot1Buf` (consulting `padSlotPtrTable` first
+where a port has one). That path needs no driver function at all — which is why nothing noticed.
+
+*Status:* this port sets `padDriverFn` to 0 and says why at the initialiser. Upstream should either
+register `pad_read` at `cfg->padDriverFn` in `overridesInit()` when the field is non-zero, or delete
+both the field and `pad_read` — the no-tombstones rule favours deletion unless a consumer needs the
+override. Not fixed from here: removing a `GameConfig` field would shift every positional initialiser
+in the sibling consumer, and that consumer's schedule is its own call.

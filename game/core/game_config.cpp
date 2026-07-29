@@ -200,27 +200,32 @@ static const GameConfig g_spiderman_cfg = {
     // Nothing announced the DMA completion, because the port performs the transfer synchronously.
     /* cdDmaDoneCbPtr */ 0x800B4394u,
 
-    // --- pad driver (re-frontier: RE-05) ---
     // --- pad driver (re-frontier: RE-05) ---------------------------------------------------------
-    // padSlot0Buf stays ZERO, and the reason is a CORRECTION worth keeping.
+    // The game uses STOCK libpad in direct mode. Pad init 0x8006AE34 ends with
     //
-    // 0x800A5130 was wired here on the strength of the pad-polling routine reading its buttons from
-    // 0x800A5132 (+2, active-low — the framework's documented contract), plus a scan of the
-    // decompiled corpus that found READS ONLY and no writes. That scan was wrong: a runtime store
-    // watch shows 0x800A5130 written 62,114 times, from 0x8006B3C8. The write goes through a
-    // POINTER, which a static text scan cannot see — the same trap that has caught this project
-    // before with "no callers" for a table-installed function.
+    //     FUN_8008afbc(0x800A50EC, 0x800A510E);   // PadInitDirect(buf_slot0, buf_slot1)
+    //     FUN_8008ad08();                          // PadStartCom
     //
-    // So 0x800A5130 is the game's own COPY, refreshed every frame; writing it from the port would be
-    // overwritten immediately. 0x8006B3C8 is an 8-byte copy whose SOURCE is the real driver-filled
-    // buffer at 0x800A50EE (per-slot, stride 8), with the region registered from the pad-init
-    // routine 0x8006AE34.
+    // and the two arguments are exactly 0x22 apart — the 34-byte libpad direct buffer. Disassembly:
+    //   tools/redump_ram.py && external/psxport/tools/disasm.py scratch/bin/ram.bin 0x8006AE34 0x8006AE90
     //
-    // Left at zero rather than swapped to 0x800A50EE: the region base (0x800A50EC) and slot 0's data
-    // (0x800A50EE) differ by 2, and which one satisfies the framework's buf[2] contract has not been
-    // established. A guess here writes pad packets to a wrong address. Confirm against 0x8006AE34
-    // first — see docs/re-frontier.md RE-05.
-    /* padSlot0Buf    */ 0, /* padSlot1Buf */ 0, /* padDriverFn */ 0,
+    // The per-frame consumer 0x8006B27C confirms the same layout INDEPENDENTLY: it walks 2 slots at
+    // stride 0x22 from 0x800A50EC, tests byte +1 against 0x80 (libpad's multitap type nibble), and on
+    // the ordinary-controller path copies 8 bytes from the buffer BASE — i.e. {status, type, btn_lo,
+    // btn_hi, …}, which is precisely the framework's fillBuffer packet. On the multitap path it
+    // instead copies four sub-pads from +2/+10/+18/+26, so +2 is a sub-record, NOT the slot base.
+    //   external/psxport/tools/disasm.py scratch/bin/ram.bin 0x8006B27C 0x8006B3C8
+    //
+    // That resolves the base-vs-+2 ambiguity recorded against CLAIM-07: the framework's buf[0] is the
+    // status byte, so the buffer base is 0x800A50EC. 0x800A50EE is only its button halfword, and
+    // 0x800A5130 is the game's own per-frame mirror (the 62,114 writes from 0x8006B3C8 that falsified
+    // the earlier guess) — writing either from the port would be wrong.
+    //
+    // padDriverFn is left at zero because the FRAMEWORK NEVER READS IT: the field is declared in
+    // game_iface.h and consumed nowhere; its intended handler (pad_input.cpp `pad_read`) is a static
+    // function that overridesInit() does not register. Recorded as a wart, not a gap in this port's
+    // RE — see docs/issues/framework-agnosticism-warts.md.
+    /* padSlot0Buf    */ 0x800A50ECu, /* padSlot1Buf */ 0x800A510Eu, /* padDriverFn */ 0,
     /* padSlotPtrTable*/ 0,
     // Byte distance between consecutive slots' pointers. 0 is read as 4 by the framework, which is
     // the correct default; stated explicitly so this initialiser lists every field the struct has.

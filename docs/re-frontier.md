@@ -626,35 +626,64 @@ hypotheses.
 
 ---
 
-## RE-05 — **It is INPUT, not asset loading** — `re-partial`
+## RE-05 — Input buffers RE'd; the stall is now the **vblank callback** — `re-partial`
 
 The stall after `ring.psx` is not a loading failure. `0x8006B514` is the **pad-polling** routine and
 `0x8006B208` is its per-button **edge detector** — the masks handed to it are the standard PSX bits
-(`0x10` up, `0x20` right, `0x40` down, `0x80` left, `1`/`2`/`4`/`8` face). The game has finished its
-initial load and is sitting on a screen waiting for a button press.
+(`0x10` up, `0x20` right, `0x40` down, `0x80` left, `1`/`2`/`4`/`8` face).
 
-Measured wedged, not slow: 14 guest lines at 30 s, still 14 at 75 s with the watchdog disabled.
+### The pad buffers — settled, `re-verified`
 
-**`padSlot0Buf` is back to ZERO — the address wired last tick was WRONG.** See `docs/info/claims.md`
-CLAIM-07. `0x800A5130` looked right (buttons at +2, active-low, matching the framework's contract)
-and a corpus scan found no writes to it — but a runtime store watch reports **62,114 writes** from
-`0x8006B3C8`. The write goes through a pointer, which a static scan cannot see. So `0x800A5130` is
-the game's own per-frame COPY, and writing it from the port would be overwritten immediately.
+`padSlot0Buf = 0x800A50EC`, `padSlot1Buf = 0x800A510E`. Pad init `0x8006AE34` ends with
 
-`0x8006B3C8` is an 8-byte copy whose SOURCE is the real driver-filled buffer at `0x800A50EE`
-(per-slot, stride 8), with the region registered from the pad-init routine `0x8006AE34`.
+    FUN_8008afbc(0x800A50EC, 0x800A510E);   // libpad PadInitDirect(buf0, buf1)
+    FUN_8008ad08();                          // PadStartCom
 
-**Deliberately NOT swapped to `0x800A50EE`.** The region base (`0x800A50EC`) and slot 0's data
-(`0x800A50EE`) differ by 2, and which satisfies the framework's `buf[2]` contract is not established.
-A wrong value here writes pad packets to an arbitrary guest address. Confirm against `0x8006AE34`
-first.
+and the arguments are `0x22` apart — the 34-byte libpad direct buffer. The per-frame consumer
+`0x8006B27C` confirms the layout independently: 2 slots at stride `0x22` from `0x800A50EC`, byte `+1`
+tested against `0x80` (libpad's multitap type nibble), and on the ordinary-controller path an 8-byte
+copy from the buffer **base** — `{status, type, btn_lo, btn_hi, …}`, precisely the framework's
+`fillBuffer` packet. The multitap path instead copies four sub-pads from `+2/+10/+18/+26`, which is
+what made `+2` look like a slot base and produced the falsified CLAIM-07.
 
+    python3 tools/redump_ram.py
+    python3 external/psxport/tools/disasm.py scratch/bin/spiderman/ram.bin 0x8006AE34 0x8006AE90
+    python3 external/psxport/tools/disasm.py scratch/bin/spiderman/ram.bin 0x8006B27C 0x8006B3C8
 
-**Not sufficient on its own, and the measurement says so:** wiring the buffer changed nothing. The
-framework's pad fill lives behind `padDriverFn`, which is still zero, so nothing ever writes the
-buffer. **That is the next step:** find the guest's pad-read routine — the one libpad calls each
-frame to refresh `0x800A5130` — and put it in `GameConfig::padDriverFn`.
+`padDriverFn` stays **zero, and that is final, not pending** — the framework never reads the field
+(WART-07). The earlier frontier note claiming "the framework's pad fill lives behind `padDriverFn`"
+was wrong: `Pad::serviceFrame()` writes the buffers directly. No RE is owed here.
 
+### The actual blocker: nothing invokes the game's vblank callback
+
+`FUN_8006BF9C` registers one, then busy-waits on the counter it bumps:
+
+    FUN_8008b8cc(FUN_8005e510);          // VSyncCallback(f)
+    iVar1 = DAT_800b5468;
+    ...
+    while ((uint)(DAT_800b5468 - iVar1) < 300 && ...) { FUN_8006b514(); }
+
+- `0x8008B8CC` is the VSyncCallback registrar: `a1 = a0` (fn ptr), `a0 = 4` (selector, hardcoded),
+  then an indirect call through `*(*0x800B390C + 0x14)` — libapi's hook-installer table.
+- `0x8005E510` unconditionally does `gp+0xC74 += 1`. With `gp = 0x800B47F4` that is **`0x800B5468`**,
+  exactly the counter the loop tests. It also conditionally bumps `gp+0xC78 = 0x800B546C`, which is
+  the timebase `0x8006B514` uses for its own timers — so the pad routine is frozen too.
+
+Nothing in the port ever calls the registered callback, so both counters are frozen and the loop
+cannot terminate. Confirmed: a 45 s run wedges with the innermost live frame in `gen_func_8006B514`
+under `gen_func_8006BF9C`.
+
+    python3 external/psxport/tools/disasm.py scratch/bin/spiderman/ram.bin 0x8008B8CC 0x8008B900
+    python3 external/psxport/tools/disasm.py scratch/bin/spiderman/ram.bin 0x8005E510 0x8005E5A0
+
+**This is an architecture question, not an RE gap.** `native_boot_run` calls the guest entry once and
+the guest runs this whole boot as one straight-line call, so the framework's native per-frame loop
+never gets a turn while the guest spins. There is currently no point at which the host can advance
+time during a guest busy-wait. `Timing::vsyncCallback()` exists but is a no-op that discards the
+pointer, and is registered nowhere. Choosing the yield seam is the next step; it must not become
+interrupt emulation (project directive) and must not be paced by an arbitrary call-count quantum.
+
+---
 
 ## RE-04 — Per-frame OT / packet-pool layout — `blocked` on RE-03
 
@@ -674,11 +703,18 @@ than assuming a Tomba-shaped scheduler exists here.
 
 ---
 
-## RE-06 — Pad driver — `blocked` on RE-03
+## RE-06 — Pad driver — **superseded by RE-05**, `re-partial`
 
-`padSlot0Buf` / `padSlot1Buf` / `padDriverFn` / `padSlotPtrTable` are zero. The framework's native
-pad override is installed but has no game-side buffer addresses to write into, so input is not yet
-wired.
+This step was written when the whole pad group was zero. It no longer is: `padSlot0Buf` /
+`padSlot1Buf` are RE'd and verified against two independent routines (see RE-05), `padDriverFn` is
+permanently zero because the framework never reads it (WART-07), and `padSlotPtrTable` stays zero
+because this game uses libpad direct mode — it has no per-slot pointer table, so the framework
+correctly falls back to the fixed buffers.
+
+What is NOT yet demonstrated is that input *reaches the game*: the packet is written every native
+frame, but the guest's consumer `0x8006B27C` runs off a vblank-callback timebase that is currently
+frozen (RE-05). Until that is unblocked, "input works" cannot be measured — do not mark this step
+verified on the buffer addresses alone.
 
 ---
 
