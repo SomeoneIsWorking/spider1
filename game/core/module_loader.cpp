@@ -95,6 +95,15 @@ void module_load(Core* c) {
   char name[32];
   guest_name_upper(c, c->r[4], name, sizeof name);
 
+  if (cfg_dbg("module")) {
+    // Where did the name come from? A pointer INTO the module slot is the suspect case: all modules
+    // share one address, so a name string living in module A's data reads as module B's bytes once B
+    // has loaded over it.
+    const uint32_t p = c->r[4];
+    const char* where = (s_slot && p >= s_slot && p < s_slot + kSlotSize) ? "  <-- INSIDE THE SLOT"
+                      : (p >= 0x80000000u && p < 0x80200000u) ? "" : "  <-- OUTSIDE 2MB RAM";
+    cfg_logf("module", "load('%s') name@0x%08X ra=0x%08X%s", name, p, c->r[31], where);
+  }
   if (s_depth < kMaxDepth) s_allocSeq[s_depth] = 0;
   ++s_depth;
   // Set residency BEFORE the body runs: the guest calls the module's entry point from inside this
