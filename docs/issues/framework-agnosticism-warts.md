@@ -315,3 +315,34 @@ register `pad_read` at `cfg->padDriverFn` in `overridesInit()` when the field is
 both the field and `pad_read` — the no-tombstones rule favours deletion unless a consumer needs the
 override. Not fixed from here: removing a `GameConfig` field would shift every positional initialiser
 in the sibling consumer, and that consumer's schedule is its own call.
+
+---
+
+## WART-08 — Main RAM is not mirrored, so a legal guest address reads as "UNMAPPED"
+
+*What it is:* the framework maps main RAM once at `0x80000000` and reports anything above the 2 MB
+window as unmapped:
+
+    [mem:error] UNMAPPED RAM read32 @ 0x80800000 — access is being DISCARDED. This is a memory-model
+    gap, not a stray I/O poke: guest writes here vanish and reads return 0.
+
+The message is right that it is a memory-model gap. On real hardware the PSX's 2 MB of RAM is
+**mirrored four times** across `0x80000000..0x807FFFFF` (KSEG0), so `0x80800000` is not an invalid
+address at all — physical address `0x00800000 & 0x1FFFFF` = 0, i.e. the start of RAM.
+
+*How this port hit it, which is the part worth keeping:* Spider-Man ships the **devkit** stack-top
+constant, `*0x800B3E70 = 0x00800000` (8 MB). crt0 computes `heap = (sp - sizeglobal) - heapBase`, so
+the guest's allocator believes it owns 7.5 MB on a 2 MB console. Its free-list walk therefore runs off
+the end of real RAM, and the sequential reads from `0x80800000` upward in the boot logs are exactly
+that walk. The game's own guard (`FUN_8006BF9C`: `if (0x801FDFFF < heap_ptr) print(...)`) shows the
+developers knew the real ceiling.
+
+*Why it matters beyond the log noise:* a discarded write followed by a zero read is silent
+corruption. It is also actively misleading during RE — the address looks like a wild pointer and
+invites a hunt for the bug that produced it, when it is a legal mirrored access.
+
+*Fix:* mask main-RAM accesses to the 2 MB window (`addr & 0x1FFFFF`) across the whole `0x80000000..
+0x807FFFFF` KSEG0 range rather than treating the upper mirrors as unmapped, and keep the loud
+diagnostic for addresses genuinely outside RAM. Not fixed from here yet: it changes the framework's
+memory model for every consumer, and this port has not yet needed a mirrored access to be CORRECT —
+only to stop being reported as an error. Establish that need first.

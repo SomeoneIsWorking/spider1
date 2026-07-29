@@ -850,13 +850,30 @@ what the `.rel` file is for. Choosing where one lands exercises the format's own
 fabricating behaviour. Pin every module to one canonical slot, recompile each at that base, let the
 router pick the resident one.
 
-**Where the slot comes from — the part that must not be fudged.** It cannot be a heap allocation: its
-address has to be a BUILD-TIME constant (the modules are compiled at it), and a runtime allocation's
-address is not. Carve it instead out of the TOP of the heap at crt0 time — this port already owns the
-crt0 values in `GameConfig`, and the heap size is computed as `(sp - sizeglobal) - heapBase`. Lowering
-the heap top by the slot size makes the region port-owned, never allocated by the game, and a
-constant chosen rather than measured. Net memory cost is near zero: modules were coming out of that
-same heap anyway, and the slot only needs to fit the LARGEST of them (`shell`, 112912 bytes).
+**Where the slot comes from — first design was WRONG, and the measurement that killed it.** The plan
+recorded on 2026-07-29 was to carve the slot off the TOP of the heap, since crt0 computes the heap as
+`(sp - sizeglobal) - heapBase` and this port owns those `GameConfig` values. **That top does not
+exist.** Reading the globals from the load image:
+
+    *0x800B3E70 (stack-top)  = 0x00800000     <- 8 MB, the DEVKIT value
+    *0x800B3E6C (stack-size) = 0x00008000
+    => heap = 0x800C65D4 .. 0x807F7FF8, i.e. 7.5 MB on a 2 MB console
+
+The game itself knows better: `FUN_8006BF9C` guards with `if (0x801FDFFF < heap_ptr) print(...)`, so
+the real ceiling is ~`0x801FE000`. Carving at `0x807DBFF8` would have put the slot in address space
+that holds no RAM — and it would have *looked* fine until a module was written there and read back as
+zeros.
+
+**Corrected design: reserve the FIRST heap block.** Take the slot from the guest allocator
+immediately after `InitHeap`, before anything else allocates. Its address is then determined by
+`heapBase` plus the allocator's header — derivable at build time, verifiable at runtime, and the
+allocator genuinely owns the block so nothing else can be handed it. Cost: every later allocation
+shifts up by the slot size versus stock, which is a real difference from hardware but a harmless one.
+The slot need only fit the LARGEST module (`shell`, 112912 bytes).
+
+*Verify before building on it:* confirm the first-allocation address empirically rather than deriving
+it from an assumed 8-byte header — the allocator (`FUN_800651C8`) has arenas, free lists and a
+small-block path, and which one serves the first request is not obvious from a skim.
 
 Open work, in order:
 1. Carve the slot at crt0 and confirm the game still boots with the smaller heap (it may be tight).
