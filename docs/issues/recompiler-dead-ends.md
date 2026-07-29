@@ -39,9 +39,11 @@ epilogue and leaks 4 bytes of guest stack per call. The **fix** is a discovery-p
 a `jal` target an internal subroutine rather than a function? — and three criteria have now failed.
 Recorded so the next attempt starts from attempt 4.
 
-The emitter side was NOT the hard part and worked first time: with the target demoted, the leak site
+The emitter side produced the RIGHT-LOOKING code first time — with the target demoted, the leak site
 became `goto L_8002A478`, a `jal` to an in-body label became `link + goto`, and `jr $ra` in a body
 that loads `$ra` as data became a switch over that body's labels with `default: return;`.
+**Correction (attempt 4): "right-looking" was not "right". The emitter side is where the remaining
+bug is.**
 
 **Attempt 1 — "no prologue AND fall-through reachable".** Demoted **78** targets in MAIN and broke the
 link: it took `StGetNext` (`0x80086B10`) with it, a real library function the port itself super-calls
@@ -74,3 +76,34 @@ started fail-fasting where it had rendered the menu. Reverted.
 been assessed as too high, and it played out exactly as predicted — a regression, then a revert. The
 diagnosis being certain does not make the fix low-risk when the fix is a heuristic over function
 discovery.
+
+### Attempt 4 — the discovery criterion is SOLVED; the emitter side is not
+
+Ran the criterion as a standalone script against `generated/rec_decls.h` + the RAM image, asserting
+set membership **before** regenerating — the method DE-02 said to adopt. It cost seconds per iteration
+instead of a build, and it found the answer immediately.
+
+**Why attempt 3 demoted the wrong function:** `0x8002A478`'s three `jal` callers resolve to hosts
+`0x8002A338`, `0x8002A5F4`, `0x8002A5F4` — and `0x8002A5F4` is ITSELF a spurious entry inside the
+same real body. Spurious entries cluster, and each one hides the next.
+
+**The criterion, now correct:** no prologue **AND** fall-through reachable **AND** every `jal` to it
+resolves to the same host — with the candidate excluded from the host lookup, iterated to a
+**FIXPOINT**. On this binary it converges in 2 iterations and yields exactly
+`{0x8002A5F4, 0x8002A478}`: the target RE-16 needs is in, and `StGetNext` (`0x80086B10`) is out.
+Both membership assertions pass.
+
+**And the port still regressed.** With that exact set demoted, the build is clean but the
+`PSXPORT_FORCE_BUTTONS=0040` run fail-fasts twice and renders no frame. Reverted.
+
+So the remaining defect is in **one of the three emitter changes**, not in discovery:
+1. branch/`j` to an in-body label → `goto`
+2. `jal` to an in-body label → `link + goto`
+3. `jr $ra` → switch over the body's labels when the body writes `$ra` as data
+
+**Attempt 5 should isolate which**, by landing them ONE AT A TIME against the regression gate rather
+than together. Suspicion, untested: (3) is the most likely — the switch is emitted over *every* label
+in the body and `default: return;`, so a `$ra` that legitimately holds a caller address whose low
+bits happen to collide with an in-body label would jump into the middle of this function instead of
+returning. A tighter version would switch only over labels that are actually reachable as resume
+points (the instruction after each in-body `jal`), which for this body is a set of 3, not 35.
