@@ -107,3 +107,26 @@ in the body and `default: return;`, so a `$ra` that legitimately holds a caller 
 bits happen to collide with an in-body label would jump into the middle of this function instead of
 returning. A tighter version would switch only over labels that are actually reachable as resume
 points (the instruction after each in-body `jal`), which for this body is a set of 3, not 35.
+
+### Attempt 5 — the `jr $ra` breadth was NOT the cause either
+
+DE-02 recorded an untested suspicion: the `jr $ra` switch covered every label in the body with
+`default: return;`, so a `$ra` legitimately holding a caller address whose low bits collided with an
+in-body label would jump into the middle of the function. Tested by restricting the switch to genuine
+RESUME POINTS only — the instruction after each in-body `jal`, which for `0x8002A338` is 3 addresses
+rather than 35.
+
+**Still regresses.** Clean build, correct demotion set (`0x8002A478`, `0x8002A5F4`), and the
+`FORCE_BUTTONS=0040` run still fail-fasts and renders no frame. Suspicion falsified — do not retry it.
+
+So of the three emitter changes, the remaining defect is in (1) branch/`j` → `goto` or (2) `jal` →
+`link + goto`, or in an interaction none of the three isolates. Attempt 6 should land them
+**individually**, which requires a way to demote WITHOUT the other two — e.g. demote and emit only the
+branch change, accepting that the `jal` sites will fail-fast at runtime, and check whether the
+*earlier* part of the boot still renders. A fail-fast at a known later point is a usable signal; a
+regression that renders nothing is not.
+
+*Method note that keeps paying off:* the standalone set-assertion (attempt 4) reduced a build-cycle
+question to seconds. The equivalent for the emitter side would be to diff the generated C for
+`gen_func_8002A338` between builds and read what actually changed, rather than inferring from a
+run — that diff has never been examined, and it is the obvious next cheap instrument.
