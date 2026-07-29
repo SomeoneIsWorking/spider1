@@ -24,6 +24,7 @@
 #include "game.h"
 #include "cfg.h"
 #include "override_registry.h"
+#include <execinfo.h>   // TEMP-PROBE
 
 // The recompiled bodies this file wraps. Declared with the signature the recompiler emits.
 extern void gen_func_8008CE8C(Core*);   // libcd command-send: a0 = command byte
@@ -34,6 +35,78 @@ extern void gen_func_8008C3E0(Core*);   // libcd's CD service routine (the "inte
 extern void gen_func_8009152C(Core*);   // installed into the libcd descriptor's +4 slot by CdInit
 extern void gen_func_800913AC(Core*);   // installed as libcd callback #3 by the same routine
 extern void gen_func_800651C8(Core*);   // the game's allocator: (size, arena, flag) -> block ptr
+extern void gen_func_80069A60(Core*);   // TEMP-PROBE: script-VM "load resource by inline name"
+extern void gen_func_8005C7EC(Core*);   // TEMP-PROBE: the script bytecode VM (a0 = script pointer)
+
+// TEMP-PROBE (remove): the script VM and its resource-load opcode.
+static unsigned g_vm_calls = 0;
+static void diag_vm(Core* c) {
+  char b[64]; unsigned n = 0; const uint32_t p = c->r[4];
+  for (; n < 32; n++) { unsigned v = c->mem_r8(p + n); b[n*2] = "0123456789ABCDEF"[v>>4]; b[n*2+1] = "0123456789ABCDEF"[v&15]; }
+  b[64-1] = 0;
+  cfg_logf("vm", "VM#%u enter script=%08X a1=%08X bytes=%.62s", ++g_vm_calls, p, c->r[5], b);
+  gen_func_8005C7EC(c);
+  cfg_logf("vm", "VM#%u leave", g_vm_calls);
+}
+extern void gen_func_8001B990(Core*);   // TEMP-PROBE: module loader (natively overridden by the port)
+extern void gen_func_80010008(Core*);   // TEMP-PROBE: overlay-module entry dispatcher
+static void diag_s1_loader(Core* c) {
+  const uint32_t b = c->r[17];
+  gen_func_8001B990(c);
+  cfg_logf("vm", "    LOADER 0x8001B990 a0=%08X s1 %08X -> %08X%s", c->r[4], b, c->r[17], b==c->r[17]?"":"  <<< CLOBBERED");
+}
+static void diag_ovl_store(Core*, uint32_t a, uint32_t v, uint32_t w) {
+  cfg_logf("vm", "      SLOT WRITE [%08X]=%08X w%u", a, v, w);
+  void* bt[24]; int n = backtrace(bt, 24); backtrace_symbols_fd(bt, n, 2);
+}
+static void diag_s1_ovl(Core* c) {
+  const uint32_t b = c->r[17], fn = c->r[4];
+  const uint32_t slot = (c->r[29] - 0x20u) + 0x14u;
+  const uint32_t sb = c->mem_r32(slot);
+  c->storeWatchCb = diag_ovl_store;
+  c->wwatch_arm(slot, slot + 4u);
+  gen_func_80010008(c);
+  c->wwatch_arm(0, 0);
+  c->storeWatchCb = nullptr;
+  cfg_logf("vm", "    OVLCALL 0x80010008 fn=%08X sp=%08X slot=%08X s1 %08X -> %08X | slot %08X -> %08X%s",
+           fn, c->r[29], slot, b, c->r[17], sb, c->mem_r32(slot), b==c->r[17]?"":"  <<< CLOBBERED");
+}
+// TEMP-PROBE: generic callee-saved / sp preservation checker.
+#define DIAG_PRES(A) \
+  extern void gen_func_##A(Core*); \
+  static void diag_pres_##A(Core* c) { \
+    const uint32_t s1 = c->r[17], sp = c->r[29]; \
+    gen_func_##A(c); \
+    if (c->r[17] != s1 || c->r[29] != sp) \
+      cfg_logf("vm", "    !! 0x%08X did NOT preserve: s1 %08X->%08X  sp %08X->%08X  ra_out=%08X v0=%08X", \
+               (unsigned)0x##A, s1, c->r[17], sp, c->r[29], c->r[31], c->r[2]); \
+  }
+DIAG_PRES(80010080)
+DIAG_PRES(8002AA0C)
+DIAG_PRES(800101CC)
+DIAG_PRES(80017A84)
+DIAG_PRES(80017920) DIAG_PRES(8002A2EC) DIAG_PRES(8002A914) DIAG_PRES(8002B0F4)
+DIAG_PRES(8002B18C) DIAG_PRES(8002B1FC) DIAG_PRES(8002B430) DIAG_PRES(80048464)
+DIAG_PRES(8006AFEC) DIAG_PRES(8006B048) DIAG_PRES(8006B1B0)
+DIAG_PRES(8006B514) DIAG_PRES(80082000) DIAG_PRES(80085B24) DIAG_PRES(80085BA0)
+DIAG_PRES(80085BC0) DIAG_PRES(80085FB0) DIAG_PRES(80086CA8) DIAG_PRES(80086F18)
+DIAG_PRES(8002B3CC) DIAG_PRES(8002A338) DIAG_PRES(800872AC)
+DIAG_PRES(80087064) DIAG_PRES(8008710C) DIAG_PRES(8008735C) DIAG_PRES(80084BE0)
+#define DIAG_ARM(A) engine_set_override_main(0x##A##u, diag_pres_##A, gen_func_##A);
+
+extern void gen_func_8005C2C8(Core*);   // TEMP-PROBE: VM cursor advance (skip inline string, 2-align)
+static void diag_adv(Core* c) {
+  const uint32_t in = c->r[4];
+  gen_func_8005C2C8(c);
+  cfg_logf("vm", "    adv %08X -> %08X  nextop=%04X", in, c->r[2], (unsigned)c->mem_r16(c->r[2]));
+}
+static void diag_res(Core* c) {
+  char b[80]; unsigned n = 0; const uint32_t p = c->r[4];
+  for (; n < 24; n++) { unsigned v = c->mem_r8(p + n); b[n*3] = "0123456789ABCDEF"[v>>4]; b[n*3+1] = "0123456789ABCDEF"[v&15]; b[n*3+2] = ' '; }
+  b[24*3-1] = 0;
+  cfg_logf("vm", "  RES load namep=%08X a1=%08X raw=%s", p, c->r[5], b);
+  gen_func_80069A60(c);
+}
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
 // libcd command-send (0x8008CE8C) — `PSXPORT_DEBUG=cdarg`.
@@ -190,6 +263,25 @@ void spiderman_install_diag_overrides(Game* g) {
     engine_set_override_main(0x800651C8u, diag_alloc, gen_func_800651C8);
     cfg_logi("alloc", "allocator probe ARMED on 0x800651C8 — logs the first 12 allocations "
                       "(RE-09 needs the FIRST block's address)");
+  }
+  if (cfg_dbg("vm")) {   // TEMP-PROBE (remove)
+    engine_set_override_main(0x8005C7ECu, diag_vm, gen_func_8005C7EC);
+    engine_set_override_main(0x80069A60u, diag_res, gen_func_80069A60);
+    engine_set_override_main(0x8005C2C8u, diag_adv, gen_func_8005C2C8);
+    engine_set_override_main(0x80010008u, diag_s1_ovl, gen_func_80010008);
+    (void)diag_s1_loader;
+    engine_set_override_main(0x80010080u, diag_pres_80010080, gen_func_80010080);
+    engine_set_override_main(0x8002AA0Cu, diag_pres_8002AA0C, gen_func_8002AA0C);
+    engine_set_override_main(0x800101CCu, diag_pres_800101CC, gen_func_800101CC);
+    engine_set_override_main(0x80017A84u, diag_pres_80017A84, gen_func_80017A84);
+    DIAG_ARM(80017920) DIAG_ARM(8002A2EC) DIAG_ARM(8002A914) DIAG_ARM(8002B0F4)
+    DIAG_ARM(8002B18C) DIAG_ARM(8002B1FC) DIAG_ARM(8002B430) DIAG_ARM(80048464)
+    DIAG_ARM(8006AFEC) DIAG_ARM(8006B048) DIAG_ARM(8006B1B0)
+    DIAG_ARM(8006B514) DIAG_ARM(80082000) DIAG_ARM(80085B24) DIAG_ARM(80085BA0)
+    DIAG_ARM(80085BC0) DIAG_ARM(80085FB0) DIAG_ARM(80086CA8) DIAG_ARM(80086F18)
+    DIAG_ARM(8002B3CC) DIAG_ARM(8002A338) DIAG_ARM(800872AC)
+    DIAG_ARM(80087064) DIAG_ARM(8008710C) DIAG_ARM(8008735C) DIAG_ARM(80084BE0)
+    cfg_logi("vm", "TEMP script-VM probes armed on 0x8005C7EC / 0x80069A60");
   }
   (void)g;
 }

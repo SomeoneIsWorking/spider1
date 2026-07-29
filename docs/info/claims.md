@@ -107,6 +107,35 @@ by a runtime instrument. **Reach for the store watch before concluding anything 
 
 ---
 
+## CLAIM-08 — The offline module relocation reproduces the guest's own loader exactly — **holds**
+
+*Claim:* `tools/extract_modules.py` — which reads the `CD.HED` index, pulls a module out of `CD.WAD`,
+and applies the `.rel` relocation stream — produces byte-for-byte the image the RUNNING GAME produces
+in RAM after its own loader has relocated the same module.
+
+*Evidence, and it is a single decisive check rather than an argument:* relocating `shell.bin` offline
+at its load base and comparing against a live RAM dump matches on **all 112912 bytes**, with the
+`.rel` stream consuming exactly its 8416 bytes and terminating cleanly on its `0xFFFFFFFF`.
+
+That one comparison validates four separate things at once — the `CD.HED` index walk (name,
+`(nul+4)&~3` alignment, offset/size pair), the `CD.WAD` byte offsets, the relocation format
+(`R_MIPS_32` / `HI16`+addend / `LO16` / `26`, type in the low 2 bits), and the load base. Any one of
+them being wrong would have produced a mismatch.
+
+*Reproduce:*
+
+    python3 tools/extract_modules.py scratch/wad/CD.HED scratch/wad/CD.WAD scratch/overlays
+    # then compare scratch/overlays/shell.bin against a RAM dump at the module's base
+
+*Expires if:* a module is ever seen whose `.rel` stream does not terminate cleanly, or whose relocated
+image diverges from guest RAM — which would mean the format has a case this implementation does not
+handle (only types 0-3 are known to occur; a type outside that set would be the tell).
+
+*Why it matters:* every one of the 30 modules is recompiled from this offline relocation. If it were
+subtly wrong, the substrate would be built from bytes the game never actually executes.
+
+---
+
 ## CLAIM-04 — The substrate is now seeded only from this game's own binary — **holds**
 
 *Claimed:* the current recomp contains no foreign seed, so every recompiled function entry is one the
@@ -186,16 +215,24 @@ gameplay loop pace differently, and the "no declared rate" conclusion would only
 
 ---
 
-## CLAIM-03 — Spider-Man has no overlay modules — **holds**
+## CLAIM-03 — "Spider-Man has no overlay modules" — **FALSIFIED 2026-07-29**
 
-*Claimed:* the recompiler needs exactly one input executable; there is no overlay/stage module set to
-extract, and `GameConfig::overlaySlots` is genuinely empty rather than un-RE'd.
+*Was claimed:* the disc carries one executable (`SLUS_008.75`) plus the packed archive `CD.WAD`, the
+ISO tree shows no per-stage `.BIN` images, and the recompiler reported `0 overlay module(s)`. All
+three statements were TRUE and the conclusion drawn from them was FALSE.
 
-*Evidence:* two independent sources agree. The ISO tree (`discdump list`) shows only `SLUS_008.75`,
-`SYSTEM.CNF`, `CD.HED`, `CD.WAD`, `COMPILED.XA`, and `CINEMAS/*.STR` — no per-stage `.BIN` images.
-The recompiler independently reports `0 overlay module(s)`.
+*What falsified it:* the game loads **30 further code modules** at runtime out of `CD.WAD`, as
+`<name>.bin` + `<name>.rel` pairs, relocated in place by its own loader `FUN_8001B990`. Boot reaches
+them within seconds — the first call into `shell` aborted with a recomp MISS on `0x8014D5AC`, which
+is past the executable's text end.
 
-*Expires if:* a guest call resolves into an address range outside the recompiled `.text`
-(`0x00010000..0x000C6800`), which would mean code is being paged in from `CD.WAD` at runtime — a
-possibility this claim does **not** rule out. It rules out SDK-style overlay *files*, not
-archive-resident loadable code.
+*The reasoning error, which is the part worth keeping:* "no overlay FILES on the disc" was read as
+"all code is in the executable". Those are different claims, and the evidence only supported the
+first. The recompiler's `0 overlay module(s)` was not independent corroboration either — it only
+means the recompiler was never handed any, which was a consequence of the same assumption.
+
+*Who relied on it — checked and corrected:* `game/recomp_seeds.json` (said overlays were N/A),
+`game/core/recomp_register.cpp` (asserted the table was empty "not a gap"), `GameConfig::overlaySlots`
+(same), and RE-00 in the frontier. All four now say the opposite, and all 30 modules are recompiled
+and routed. See RE-09.
+
