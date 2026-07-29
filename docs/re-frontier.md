@@ -635,15 +635,20 @@ initial load and is sitting on a screen waiting for a button press.
 
 Measured wedged, not slow: 14 guest lines at 30 s, still 14 at 75 s with the watchdog disabled.
 
-**`padSlot0Buf = 0x800A5130` — RE'd and wired.** The polling routine forms its mask as
-`~CONCAT11(DAT_800A5132, DAT_800A5133) & 0xFFFF`; the inversion is the giveaway, since PSX pads
-report active-low and that is exactly the framework's documented contract (`buf[2]` = button low
-byte, active-low). A button halfword at +2 puts the base at `0x800A5130`. Confirmed as the
-DRIVER-filled buffer rather than a game copy: a full scan of the decompiled corpus finds **reads
-only**, no writes.
+**`padSlot0Buf` is back to ZERO — the address wired last tick was WRONG.** See `docs/info/claims.md`
+CLAIM-07. `0x800A5130` looked right (buttons at +2, active-low, matching the framework's contract)
+and a corpus scan found no writes to it — but a runtime store watch reports **62,114 writes** from
+`0x8006B3C8`. The write goes through a pointer, which a static scan cannot see. So `0x800A5130` is
+the game's own per-frame COPY, and writing it from the port would be overwritten immediately.
 
-`padSlot1Buf` stays **zero** — port 2's buffer is not RE'd, and a guessed stride would be a
-fabricated address.
+`0x8006B3C8` is an 8-byte copy whose SOURCE is the real driver-filled buffer at `0x800A50EE`
+(per-slot, stride 8), with the region registered from the pad-init routine `0x8006AE34`.
+
+**Deliberately NOT swapped to `0x800A50EE`.** The region base (`0x800A50EC`) and slot 0's data
+(`0x800A50EE`) differ by 2, and which satisfies the framework's `buf[2]` contract is not established.
+A wrong value here writes pad packets to an arbitrary guest address. Confirm against `0x8006AE34`
+first.
+
 
 **Not sufficient on its own, and the measurement says so:** wiring the buffer changed nothing. The
 framework's pad fill lives behind `padDriverFn`, which is still zero, so nothing ever writes the

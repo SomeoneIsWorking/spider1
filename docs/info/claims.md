@@ -62,6 +62,31 @@ that then set the project's next step.
 
 ---
 
+## CLAIM-07 — "0x800A5130 is the driver-filled pad buffer" — **FALSIFIED within the hour**
+
+*Was claimed (committed 2026-07-29):* `padSlot0Buf = 0x800A5130`, on the strength of two things —
+the pad-polling routine reads its button mask from `0x800A5132` (+2, active-low, which matches the
+framework's documented `buf[2]` contract exactly), and a scan of the decompiled corpus found **reads
+only, no writes**, which was taken as confirming a driver-filled buffer rather than a game copy.
+
+*What falsified it:* a runtime store watch (`PSXPORT_WWATCH`) reports **62,114 writes** to
+`0x800A5130`, all from `0x8006B3C8`. The write goes through a POINTER, so a static text scan for
+writes to that address could never have seen it. `0x8006B3C8` is an 8-byte copy; `0x800A5130` is the
+game's own per-frame COPY of the pad state, and the real driver-filled buffer is its SOURCE at
+`0x800A50EE`.
+
+*Who relied on it — checked:* only the `GameConfig` entry and the RE-05 frontier note, both corrected
+in the same pass. No behaviour depended on it: wiring the address changed nothing, because the
+framework's pad fill sits behind `padDriverFn`, which is still zero.
+
+*The lesson, and it is the SAME one this project has now learned three times:* **a static scan proves
+nothing about writes through a pointer.** "No callers" for `0x8008DA24` (installed into a table),
+"`*0x800B390C` ships as 0" (linker-initialised `.data`), and now "no writes to `0x800A5130`". Every
+one was an absence-of-evidence read as evidence-of-absence, and every one was settled in a single run
+by a runtime instrument. **Reach for the store watch before concluding anything about writes.**
+
+---
+
 ## CLAIM-04 — The substrate is now seeded only from this game's own binary — **holds**
 
 *Claimed:* the current recomp contains no foreign seed, so every recompiled function entry is one the

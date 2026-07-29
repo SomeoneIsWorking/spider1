@@ -201,22 +201,26 @@ static const GameConfig g_spiderman_cfg = {
     /* cdDmaDoneCbPtr */ 0x800B4394u,
 
     // --- pad driver (re-frontier: RE-05) ---
-    // padSlot0Buf: 0x800A5130 — the controller buffer for port 1.
+    // --- pad driver (re-frontier: RE-05) ---------------------------------------------------------
+    // padSlot0Buf stays ZERO, and the reason is a CORRECTION worth keeping.
     //
-    // RE'd from the game's own read at 0x8006B514, the pad-polling routine: it forms its button mask
-    // as `~CONCAT11(DAT_800A5132, DAT_800A5133) & 0xFFFF`, and feeds the individual bits to the
-    // edge-detector at 0x8006B208 with the standard PSX masks (0x10 up, 0x20 right, 0x40 down,
-    // 0x80 left, and 1/2/4/8 for the face buttons). The inversion is the giveaway: PSX pads report
-    // active-low, which is the framework's documented buffer contract (pad_input.cpp: buf[2] =
-    // button mask low byte, active-low). Button halfword at +2 puts the buffer base at 0x800A5130.
+    // 0x800A5130 was wired here on the strength of the pad-polling routine reading its buttons from
+    // 0x800A5132 (+2, active-low — the framework's documented contract), plus a scan of the
+    // decompiled corpus that found READS ONLY and no writes. That scan was wrong: a runtime store
+    // watch shows 0x800A5130 written 62,114 times, from 0x8006B3C8. The write goes through a
+    // POINTER, which a static text scan cannot see — the same trap that has caught this project
+    // before with "no callers" for a table-installed function.
     //
-    // Nothing in the game's own code WRITES that buffer — a full scan of the decompiled corpus finds
-    // reads only — which is what confirms it is the driver-filled buffer rather than a game copy the
-    // port would be overwriting.
+    // So 0x800A5130 is the game's own COPY, refreshed every frame; writing it from the port would be
+    // overwritten immediately. 0x8006B3C8 is an 8-byte copy whose SOURCE is the real driver-filled
+    // buffer at 0x800A50EE (per-slot, stride 8), with the region registered from the pad-init
+    // routine 0x8006AE34.
     //
-    // padSlot1Buf stays ZERO: port 2's buffer has not been RE'd, and guessing it at a fixed stride
-    // would be a fabricated address.
-    /* padSlot0Buf    */ 0x800A5130u, /* padSlot1Buf */ 0, /* padDriverFn */ 0,
+    // Left at zero rather than swapped to 0x800A50EE: the region base (0x800A50EC) and slot 0's data
+    // (0x800A50EE) differ by 2, and which one satisfies the framework's buf[2] contract has not been
+    // established. A guess here writes pad packets to a wrong address. Confirm against 0x8006AE34
+    // first — see docs/re-frontier.md RE-05.
+    /* padSlot0Buf    */ 0, /* padSlot1Buf */ 0, /* padDriverFn */ 0,
     /* padSlotPtrTable*/ 0,
     // Byte distance between consecutive slots' pointers. 0 is read as 4 by the framework, which is
     // the correct default; stated explicitly so this initialiser lists every field the struct has.
