@@ -25,7 +25,12 @@ drift from the substrate.
 
 ---
 
-## RE-00 — Provision + statically recompile the executable — `re-verified`
+## Frontier
+
+### RE-00 — Provision + statically recompile the executable
+- status: re-verified
+- evidence: PS-X EXE header: entry 0x8008739C, load 0x80010000, text 0xB6800; 1561 fns from 335 seeds (game/recomp_seeds.json is empty by design)
+
 
 The disc carries ONE executable (`SLUS_008.75`, booted directly by `SYSTEM.CNF`), the packed archive
 `CD.WAD`, `COMPILED.XA`, and the `CINEMAS/*.STR` movies. There are **no overlay module FILES** —
@@ -59,7 +64,11 @@ region/revision of the disc is used (the addresses below are US-retail).
 
 ---
 
-## RE-01 — crt0 / boot seam — `re-verified`
+### RE-01 — crt0 / boot seam
+- status: re-verified
+- deps: RE-00
+- evidence: crt0 0x8008739C decoded instruction-by-instruction: bssZero 0x800B5994..0x800C65D4, gp 0x800B47F4, libcInit 0x8008DC98, gameMain 0x8002C354; boots into the guest's own main
+
 
 The standard Sony crt0 at `0x8008739C`. Every value in `GameConfig`'s boot group is taken from it
 instruction by instruction; the mapping is documented in full in `game/core/game_config.cpp`.
@@ -77,7 +86,11 @@ of these globals is not what it is recorded as.
 
 ---
 
-## RE-02 — libetc `VSync` — `re-verified`
+### RE-02 — libetc VSync
+- status: re-verified
+- deps: RE-01
+- evidence: wait helper 0x80084D58 emits the string at 0x80096020 = 'VSync: timeout'; 427,643 VSync(-1) vs 1 blocking VSync(0) over a 60s boot (CLAIM-02)
+
 
 `VSync(int mode)` at `0x80084BE0`, reimplemented natively in `game/core/sync_native.cpp`.
 
@@ -98,7 +111,11 @@ disc-init retry loop (RE-03), which is where it now stops.
 
 ---
 
-## RE-03 — stock libcd — **PASSED, and the whole CD stack is now PC-native**
+### RE-03 — stock libcd — the whole CD stack is PC-native
+- status: re-verified
+- deps: RE-02
+- evidence: retries 38->0, sector errors 38->0, CD_init 28->1; CD.HED LBA 390/12525B and CD.WAD LBA 397 resolve to real extents; boot reaches asset loading
+
 
 The boot no longer stalls on the disc. Every CD operation this game performs is served by the port,
 with the data coming from the real disc image:
@@ -129,7 +146,9 @@ level rather than per-sector then deleted the entire retry/timeout state machine
 
 ---
 
-## RE-03 (superseded) — libcd `CdInit` — the earlier investigation
+### HIST-03a — libcd CdInit — the earlier investigation
+- status: skip-by-design
+
 
 **`CdInit` now succeeds.** Wiring ONE `GameConfig` chokepoint — `cdCommand = 0x8008CE8C`, libcd's
 command-send — cleared it:
@@ -165,7 +184,9 @@ arbitrary guest buffer.
 
 ---
 
-## RE-03 (superseded detail below) — libcd `CdInit` — the investigation that got here
+### HIST-03b — libcd CdInit — the investigation that got here
+- status: skip-by-design
+
 
 The `cmd 0x00` mystery that dominated this step is **gone, and it was never a CD problem**. It was a
 framework memory-mapping defect: the guest stack lived in an unmodelled RAM mirror, so stack writes
@@ -531,7 +552,11 @@ measured) but re-derive nothing from the `cmd 0x00` framing.
 
 ---
 
-## RE-03b — SPU upload wait — `re-verified`
+### RE-03b — SPU upload wait
+- status: re-verified
+- deps: RE-03
+- evidence: SPU transfer-complete event delivered via DMA4 completion; the upload wait no longer spins
+
 
 The boot reached `sfx.vab` and then spun forever in a `TestEvent` loop
 (`0x80089790` ← `0x8006366C` ← `0x800633CC` ← guest `main`). The guest opens the SPU event
@@ -546,7 +571,10 @@ is the PSX's fixed class, so it belongs in the framework rather than `GameConfig
 
 ---
 
-## RE-03c — MDEC decode — `next`
+### RE-03c — MDEC decode
+- status: todo
+- deps: RE-03
+
 
 The boot now reports the guest's own `MDEC_in_sync timeout:` and stalls at `0x80085948`
 (← `0x80085000` ← `0x800860B4` ← `0x80086CA8`).
@@ -581,7 +609,11 @@ re-checks. Wedged decoders are now reported with exact counts rather than trunca
 
 ---
 
-## RE-03d — XA / CD streaming — `re-verified`
+### RE-03d — XA / CD streaming
+- status: re-verified
+- deps: RE-03
+- evidence: ring slots reach status 2 and the stream runs; boot loads game assets through the stock libcd path
+
 
 The streaming poller spun forever, and the reason was **upstream of the DMA it was preparing**. Its
 helper `0x80085948` waits on the CD status register's **DRQSTS bit (0x40)** — "data FIFO not empty" —
@@ -609,7 +641,11 @@ never have been reached. The evidence picked the other option.
 
 ---
 
-## RE-04 — Movie / streaming playback — `re-verified`
+### RE-04 — Movie / streaming playback
+- status: re-verified
+- deps: RE-03d
+- evidence: movie descriptor table at 0x80097DEC (24-byte stride) read from the indexing routine 0x8002B0F4; entry 0 frameBytes 0x25800 = 320*240*2 is self-consistent
+
 
 **The stream runs and the boot reaches asset loading.** The guest plays the movie itself through
 libcd's sector ring (`StGetNext` `0x80086B10`, `StFreeRing` `0x800872AC`), decoded via the MDEC path
@@ -641,7 +677,11 @@ hypotheses.
 
 ---
 
-## RE-05 — Input buffers + the host-turn seam — `re-verified`
+### RE-05 — Input buffers + the host-turn seam
+- status: re-verified
+- deps: RE-03
+- evidence: pad buffers confirmed 3 ways (PadInitDirect args 0x22 apart at 0x8006AE34; consumer 0x8006B27C walks stride 0x22; libpad itself inits that range at runtime). Host turn: title wait terminates, pad writes 4 -> 1660
+
 
 The stall after `ring.psx` is not a loading failure. `0x8006B514` is the **pad-polling** routine and
 `0x8006B208` is its per-button **edge detector** — the masks handed to it are the standard PSX bits
@@ -756,7 +796,10 @@ backlog over 16 fields is capped WITH a warning, never silently.
 
 ---
 
-## RE-04 — Per-frame OT / packet-pool layout — `blocked` on RE-03
+### RE-12 — Per-frame OT / packet-pool layout
+- status: todo
+- deps: RE-03
+
 
 `GameConfig`'s OT/packet-pool group is entirely zero. The framework's `native_step_frame` iterates
 these to run a native frame loop; until they are RE'd this port does not use that loop at all — the
@@ -765,7 +808,10 @@ until the boot gets past the CD stall.
 
 ---
 
-## RE-05 — Scheduler task layout — `blocked` on RE-03
+### RE-13 — Scheduler task layout
+- status: todo
+- deps: RE-03
+
 
 `taskTableBase` / `taskSlotStride` / `taskCount` / `curTaskPtr` and the stage entry PCs are zero.
 `PcScheduler` is correspondingly unused; the `schedStageBody` / `schedFreshEntry` hooks fail fast if
@@ -774,7 +820,10 @@ than assuming a Tomba-shaped scheduler exists here.
 
 ---
 
-## RE-06 — Pad driver — **superseded by RE-05**, `re-partial`
+### RE-06 — Pad driver — superseded by RE-05
+- status: re-partial
+- deps: RE-05
+
 
 This step was written when the whole pad group was zero. It no longer is: `padSlot0Buf` /
 `padSlot1Buf` are RE'd and verified against two independent routines (see RE-05), `padDriverFn` is
@@ -789,7 +838,11 @@ verified on the buffer addresses alone.
 
 ---
 
-## RE-09 — Runtime-loaded code (`CD.WAD`) — `re-verified`
+### RE-09 — Runtime-loaded code (CD.WAD)
+- status: re-verified
+- deps: RE-05
+- evidence: shell.bin relocated offline at its load base reproduces the RUNNING game's RAM byte-for-byte over all 112912 bytes, .rel consuming exactly 8416 bytes (CLAIM-08); 30 modules emit at one slot, zero recomp misses
+
 
 **SLUS_008.75 is not the whole game.** Further CODE lives in `CD.WAD` as `<name>.bin` + `<name>.rel`
 pairs, loaded and relocated at runtime. **30 such module pairs exist** — the front-end plus the
@@ -917,7 +970,11 @@ it boots.
 
 ---
 
-## RE-10 — Tight guest spin loops starve the host turn — `re-verified`
+### RE-10 — Tight guest spin loops starve the host turn
+- status: re-verified
+- deps: RE-05, RE-11
+- evidence: field-wait 0x8005E748 owned natively; with the back-edge gate the main() spin completes and boot reaches a third module load
+
 
 The host turn is taken at recompiled-FUNCTION ENTRY. A guest loop that calls nothing never reaches
 one, so a wait inside it can never complete. Spider-Man's boot has two: the field-wait primitive
@@ -948,7 +1005,11 @@ Two hypotheses were falsified on the way and must not be re-tried:
 
 ---
 
-## RE-11 — Branch-and-link was mistranslated — `re-verified`
+### RE-11 — Branch-and-link was mistranslated
+- status: re-verified
+- deps: RE-00
+- evidence: 0x8007C7CC is bltzal $t0,0x8007D160; 0x8007D160 ends in jr $ra; substrate contained 16 'goto L_8007D160' whose body ended in 'return;'. After the fix the third module load carries the correct name SHELL@0x800B4FD0
+
 
 **The single defect behind the `$fp` corruption, and it had nothing to do with the host turn.**
 
@@ -986,7 +1047,10 @@ as designed.
 
 ---
 
-## RE-07 — Intro FMV / front-end — not started
+### RE-07 — Intro FMV / front-end
+- status: todo
+- deps: RE-04
+
 
 The movies live under `CINEMAS/` on this disc. The framework's boot-time FMV player hardcodes the
 reference consumer's path (`MOVIE/LOGO.STR`), so it is disabled by default in `run.sh` rather than
@@ -994,7 +1058,10 @@ left to fail. Wiring this game's FMV path is downstream of the front-end coming 
 
 ---
 
-## RE-08 — Render: GTE tap → native depth — not started
+### RE-08 — Render: GTE tap -> native depth
+- status: todo
+- deps: RE-09
+
 
 The highest-leverage generic capability per the framework's porting guide: a single GTE choke point
 yields per-primitive world coordinates, from which native depth, widescreen, and per-object

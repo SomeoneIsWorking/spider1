@@ -12,7 +12,14 @@ progress to `docs/re-frontier.md`, proven results to `docs/info/`.
 
 ## Start here, every non-trivial task
 
-1. `docs/re-frontier.md` — work the step that is `next`, not a downstream one.
+1. `docs/re-frontier.md` — work the step that is `next`, not a downstream one. Query it with
+
+       RE_FRONTIER_ROADMAP=docs/re-frontier.md python3 <claude-dir>/skills/re-frontier/re_frontier.py next
+
+   **The env var is required.** Without it the skill resolves its roadmap relative to its own
+   directory, which is only correct when the tool lives at `<repo>/tools/` — see `docs/info/`
+   `instruments.md` INST-14, where a bare invocation reported OK over an empty parse for a whole
+   session.
 2. `docs/codemap.md` — where the subsystem lives and its honest status.
 3. `docs/issues/` — has this symptom been hit before? Has this cause been ruled out?
 4. `docs/info/claims.md` + `instruments.md` — is the thing you are about to rely on actually proven,

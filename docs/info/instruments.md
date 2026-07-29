@@ -277,38 +277,50 @@ entry via a framework override + super-call rather than reading frames.
 
 ---
 
-## INST-14 — `re_frontier.py check` — **DISTRUSTED 2026-07-29: it validates NOTHING here**
+## INST-14 — `re_frontier.py check` — **FIXED 2026-07-29; my first diagnosis was WRONG**
 
-*What it claims:* "re-frontier OK: no unknown deps, no cycles, every re-verified step cites
-evidence." It printed exactly that on every run this session, including immediately after edits that
-introduced a contradiction.
+*What it claimed:* "re-frontier OK: no unknown deps, no cycles, every re-verified step cites
+evidence." It printed that on every run for a whole session, including right after edits that
+introduced a contradiction, because it was parsing **zero entries**.
 
-*What it actually does on THIS repo:* parses **zero entries**. The skill's parser
-(`<claude-dir>/skills/re-frontier/re_frontier.py`, `load()`) recognises a step as
+*The cause I recorded first, and it was not the main one.* I wrote that the skill's parser wants
+`### <ID> — <title>` with `- status:` fields while this file used `## RE-05 — … — <status>`, so every
+step was being read as an AREA. That IS a real defect and the file did need converting — but it was
+the SECOND problem, and fixing it alone changed nothing.
 
-    ### <ID> — <title>
-    - status: <status>
-    - deps: <ids>
+**The primary cause was that the tool was reading a file that does not exist.** `ROADMAP` defaults to
+`<parent-of-script>/docs/re-frontier.md`, which is correct only when the tool lives at
+`<repo>/tools/`. Running from the global skill dir it resolved to
+`<claude-dir>/skills/docs/re-frontier.md` — a path that never exists. And `load()` opened with
 
-but `docs/re-frontier.md` writes its steps as `## RE-05 — <title> — ` + a backticked status. A `##`
-heading is parsed as an AREA, so every step in this file is invisible to the tool. Proof, on the
-current file: `re_frontier.py tree` prints NOTHING and `next` reports "(none — every unblocked step is
-done…)" while the document contains ~15 steps, several of them explicitly `next`.
+    if not os.path.exists(ROADMAP):
+        return {}, []
 
-*Why this is the dangerous kind of broken:* the failure is SILENT and the output is **uniform** — a
-pass with no entries is textually identical to a pass over a healthy file. It is the exact tell this
-page exists to catch, and it caught me: `check` was cited repeatedly this session as if it had
-verified the frontier edits. It had verified nothing. A green check that cannot go red is worse than
-no check, because work gets built on it.
+so a missing roadmap was **indistinguishable from a healthy one**: zero entries, then a green check
+over nothing. That silent early-return is the worst failure a validator can have, and it is what made
+the output uniform.
 
-*It can be shown to be blind, cheaply:* `tree` on a file with steps must print steps. It prints
-nothing. That is the "can it report the OTHER answer" test, failed.
+*Fixed, in both places:*
+- the skill (`<claude-dir>/skills/re-frontier/re_frontier.py`) now **exits non-zero** with the path it
+  looked for and the `RE_FRONTIER_ROADMAP` override to set — the early-return is deleted;
+- this project's `docs/re-frontier.md` is converted to the machine-readable schema, with duplicate
+  IDs resolved (`RE-03` appeared three times, `RE-04`/`RE-05` twice each on *different* topics —
+  the OT/packet-pool and scheduler steps are now `RE-12`/`RE-13`, and the two superseded `CdInit`
+  investigations are `HIST-03a`/`HIST-03b`, `skip-by-design`).
 
-*Do not cite `check` until this is fixed.* The fix is to give each step a machine-readable
-`### ID — title` header plus `- status:` / `- deps:` fields (prose can stay underneath), or to teach
-the skill this file's heading dialect. Until then the frontier's dependency graph and its `⛔ hack`
-debt list are maintained by hand and by reading — which is how the HACK-01 entry was found to be
-invisible to `hacks` in the first place.
+**Invoke it with the path — the bare command is still wrong for this repo:**
+
+    RE_FRONTIER_ROADMAP=docs/re-frontier.md python3 <claude-dir>/skills/re-frontier/re_frontier.py check
+
+*Validated, and it can now show the OTHER answer — which is the whole bar:* with no roadmap it exits
+1 and says so; with the roadmap it rendered the full dependency tree, listed 5 RE-ready steps, and
+**immediately failed with 11 real problems** (re-verified steps whose evidence lived only in prose,
+with no machine-readable `- evidence:` field). Those are now filled and it passes. A tool that could
+only ever print OK produced none of that.
+
+*The reusable lesson, and it is the same one this page keeps teaching:* I diagnosed a uniform-output
+instrument from its OUTPUT FORMAT and stopped there. The cheap check I skipped was "does the input
+file it reads actually exist" — one `os.path.isfile` away.
 
 ---
 
