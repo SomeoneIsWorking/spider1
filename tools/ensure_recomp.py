@@ -35,18 +35,35 @@ import re
 import subprocess
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import extract_modules  # noqa: E402  (same directory; see MODULE_SRCS)
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # The recompiler lives in the psxport framework submodule. A change to any of these modules changes
 # the emitted C, so they are hash inputs alongside the game executable.
 RECOMP_DIR = "external/psxport/tools/recomp"
 RECOMP_SRCS = [f"{RECOMP_DIR}/emit.py", f"{RECOMP_DIR}/decode.py", f"{RECOMP_DIR}/psexe.py"]
+# The module extractor decides the CONTENT of every overlay the recompiler is fed (which bytes, and
+# what base they are relocated to), so it is as much a recomp input as emit.py itself.
+MODULE_SRCS = ["tools/extract_modules.py"]
 
 EXE_NAME = "SLUS_008.75"          # the retail US boot executable, per SYSTEM.CNF
 EXE = f"scratch/bin/spiderman/{EXE_NAME}"
 # The recompiler seed set is a GAME fact, supplied by this repo — the framework ships none. A change
 # to it changes the emitted function set, so it is a hash input like the executable itself.
 SEEDS = "game/recomp_seeds.json"
+
+# Runtime-loaded code modules. SLUS_008.75 is NOT the whole game: further CODE lives in the packed
+# archive CD.WAD as <name>.bin + <name>.rel pairs, loaded and relocated at runtime by the game's own
+# loader (FUN_8001B990). tools/extract_modules.py is the offline half of that loader — it reads the
+# CD.HED index, pulls each module out of CD.WAD, and applies the .rel relocations at the module's
+# load base, producing an image the recompiler can treat as an ordinary overlay. Without this, the
+# first call into a module aborts with a recomp MISS. See docs/re-frontier.md RE-09.
+HED_NAME = "CD.HED"
+WAD_NAME = "CD.WAD"
+WAD_DIR = "scratch/wad"
+OVERLAY_DIR = "scratch/overlays"
 GEN_DIR = "generated"
 GEN_MAIN = "generated/spiderman_rec.c"
 HASH_FILE = "generated/.recomp.hash"
@@ -137,8 +154,14 @@ def input_hash():
 
     feed(EXE_NAME, os.path.join(ROOT, EXE))
     feed(SEEDS, os.path.join(ROOT, SEEDS))
-    for src in RECOMP_SRCS:
+    for src in RECOMP_SRCS + MODULE_SRCS:
         feed(src, os.path.join(ROOT, src))
+    # The relocated module images are recomp INPUTS exactly like the executable: change a load base
+    # or a module's disc contents and the emitted substrate must change with it.
+    ov = os.path.join(ROOT, OVERLAY_DIR)
+    for name in sorted(os.listdir(ov)) if os.path.isdir(ov) else []:
+        if name.endswith(".bin"):
+            feed(f"{OVERLAY_DIR}/{name}", os.path.join(ov, name))
     return h.hexdigest()
 
 
@@ -157,7 +180,8 @@ def run_emit():
     say("recompiling SLUS_008.75 -> C (the execution substrate)…")
     cmd = [sys.executable, os.path.join(ROOT, f"{RECOMP_DIR}/emit.py"),
            os.path.join(ROOT, EXE), os.path.join(ROOT, GEN_MAIN),
-           "--seeds", os.path.join(ROOT, SEEDS)]
+           "--seeds", os.path.join(ROOT, SEEDS),
+           "--overlays", os.path.join(ROOT, OVERLAY_DIR)]
     if subprocess.run(cmd).returncode != 0:
         die("emit.py failed")
 
@@ -168,6 +192,16 @@ def main():
     discdump = find_discdump()
 
     extract(discdump, disc, EXE_NAME, "scratch/bin/spiderman")
+
+    # Runtime-loaded modules: extract + relocate BEFORE the hash is taken, since the relocated images
+    # are recomp inputs. Both archive files are large-ish, so extract() caches them in scratch/.
+    hed = extract(discdump, disc, HED_NAME, WAD_DIR)
+    wad = extract(discdump, disc, WAD_NAME, WAD_DIR)
+    say("extracting runtime-loaded code modules from CD.WAD…")
+    try:
+        extract_modules.extract(hed, wad, os.path.join(ROOT, OVERLAY_DIR))
+    except (KeyError, ValueError, OSError) as e:
+        die(f"could not prepare the runtime-loaded modules: {e}")
 
     os.makedirs(os.path.join(ROOT, GEN_DIR), exist_ok=True)
     want = recomp_version() + ":" + input_hash()

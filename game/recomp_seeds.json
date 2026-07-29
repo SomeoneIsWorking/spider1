@@ -22,9 +22,29 @@
 // Schema:
 //   main                  [addr, ...]          resident-module seeds
 //   main_reentry          [addr, ...]          mid-body re-entry points
-//   overlay_bases         {STEM: addr}         overlay load addresses      — N/A: this game has none
-//   overlay_seeds         {STEM: [addr, ...]}  per-overlay seeds           — N/A: this game has none
+//   overlay_bases         {STEM: addr}         overlay load addresses
+//   overlay_seeds         {STEM: [addr, ...]}  per-overlay seeds
+//
+// RUNTIME-LOADED MODULES (corrected 2026-07-29 — this file previously said "this game has none").
+// SLUS_008.75 is not the whole game: further CODE lives in CD.WAD as <name>.bin + <name>.rel pairs,
+// loaded and relocated at runtime by FUN_8001B990. tools/extract_modules.py performs that load
+// offline (CD.HED index -> extract -> apply the .rel relocations) and writes a relocated image the
+// recompiler consumes as an ordinary overlay. The earlier "no overlays" reading came from the ISO
+// tree having no overlay FILES, which is true and was quietly taken as a claim about code coverage.
+//
+// The base below is MEASURED, not read out of the binary — the game allocates the module from its
+// own heap, so no static address exists to cite. It is the value observed at the module's entry
+// call, identical across runs, and the port RE-CHECKS it at load time and aborts if the module ever
+// lands elsewhere (game/core/module_loader.cpp). Confirmed by relocating offline at this base and
+// matching the running game's memory byte-for-byte over all 112912 bytes (CLAIM-08).
 {
   "main": [],
-  "main_reentry": []
+  "main_reentry": [],
+  "overlay_bases": { "SHELL": "0x8014D5AC" },
+
+  // The module's ENTRY POINT is its base address, and nothing `jal`s to it: the loader calls it
+  // through a pointer (`(*(code *)node[1])(node)` at the tail of FUN_8001B990), which is invisible
+  // to jal-discovery. Without this seed the emitted set starts at 0x8014D5D4 — the SECOND function
+  // in the module — and the very first call into the module fails with a recomp MISS on its base.
+  "overlay_seeds": { "SHELL": ["0x8014D5AC"] }
 }
