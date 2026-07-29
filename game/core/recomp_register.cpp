@@ -10,9 +10,13 @@ extern void shard_set_override(uint32_t, void (*)(Core*));   // generated/shard_
 static const RecompRegistry g_spiderman_recomp = {
     /* main_dispatch        */ main_dispatch,
     /* rec_func_index       */ rec_func_index,
-    // Spider-Man has NO overlay modules — one executable (SLUS_008.75) plus the packed archive
-    // CD.WAD. emit.py reports "0 overlay module(s)", so the generated table is empty and the two
-    // overlay-specific setters have nothing to point at. Null here is the accurate value, not a gap.
+    // Spider-Man DOES have overlay modules — corrected 2026-07-29. This comment used to say it had
+    // none, on the strength of the ISO tree carrying no overlay FILES. That was true and misleading:
+    // the game loads further CODE at runtime out of CD.WAD as <name>.bin + <name>.rel pairs, which
+    // tools/extract_modules.py now relocates offline so the recompiler can emit them (RE-09). The
+    // table below is populated (currently: SHELL). The two overlay-specific setters stay null because
+    // they are for games whose overlays share a FIXED slot and need per-slot override installation;
+    // these modules load to distinct heap addresses and are routed by content signature instead.
     /* overlays             */ g_rec_overlays,
     /* overlay_count        */ g_rec_overlay_count,
     /* shard_set_override   */ shard_set_override,

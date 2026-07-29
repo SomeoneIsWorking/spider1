@@ -40,12 +40,14 @@ VERIFIED, not inferred: relocating shell.bin offline at its observed load base r
 running game's memory image byte-for-byte over all 112912 bytes, with the .rel stream consuming
 exactly its 8416 bytes and terminating cleanly. See docs/info/claims.md CLAIM-08.
 
-THE LOAD BASE IS A MEASUREMENT, AND THE PORT CHECKS IT. The module's address comes from the game's
-own allocator, not from a fixed slot, so it cannot be read out of the binary — it is observed, and
+THE LOAD BASE IS A MEASUREMENT, AND IT IS CHECKED. The module's address comes from the game's own
+allocator, not from a fixed slot, so it cannot be read out of the binary — it is observed, and
 observed to be identical across runs. That makes it exactly the kind of constant this project
-distrusts, so it is not merely written down: the port verifies at load time that the module landed
-where the substrate was built for and aborts loudly if it did not (game/core/module_loader.cpp).
-A silently-wrong base would mean executing one module's recompiled code against another's data.
+distrusts, so it is not merely written down. The framework's overlay router (overlay_router.cpp)
+compares a 32-byte content signature — baked into generated/overlay_table.c at emit time — against
+guest RAM at the base, and an address with no matching resident overlay fails fast in
+rec_dispatch_miss. A wrong base therefore surfaces as a loud MISS rather than as one module's
+recompiled code silently running against another's data.
 """
 import os
 import struct

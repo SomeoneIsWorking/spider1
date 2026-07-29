@@ -34,9 +34,12 @@
 //
 // The base below is MEASURED, not read out of the binary — the game allocates the module from its
 // own heap, so no static address exists to cite. It is the value observed at the module's entry
-// call, identical across runs, and the port RE-CHECKS it at load time and aborts if the module ever
-// lands elsewhere (game/core/module_loader.cpp). Confirmed by relocating offline at this base and
-// matching the running game's memory byte-for-byte over all 112912 bytes (CLAIM-08).
+// call, identical across runs. It is not merely trusted: the framework's overlay router compares a
+// 32-byte CONTENT SIGNATURE (baked into generated/overlay_table.c at emit time) against guest RAM at
+// this base, and an address with no matching resident overlay fails fast in rec_dispatch_miss rather
+// than routing to the wrong code. So a wrong base shows up as a loud MISS, not as silent corruption.
+// Confirmed by relocating offline at this base and matching the running game's memory byte-for-byte
+// over all 112912 bytes (CLAIM-08).
 {
   "main": [],
   "main_reentry": [],

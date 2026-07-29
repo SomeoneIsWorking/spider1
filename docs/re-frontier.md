@@ -782,33 +782,89 @@ verified on the buffer addresses alone.
 
 ---
 
-## RE-09 — Runtime-loaded code (`CD.WAD`) — `next`
+## RE-09 — Runtime-loaded code (`CD.WAD`) — `re-partial`
 
-**The current boot blocker, and the first one that is not a stub or a seam.** Boot now proceeds
-through pad init, the title wait, and into `FUN_8002C354 -> FUN_8001B990`, where it aborts:
+**SLUS_008.75 is not the whole game.** Further CODE lives in `CD.WAD` as `<name>.bin` + `<name>.rel`
+pairs, loaded and relocated at runtime. **30 such module pairs exist** — the front-end plus the
+per-character / per-enemy / per-level-script modules:
 
-    [hle:warn] [recomp-MISS 0] no recompiled fn for 0x8014D5AC
-               (caller ra=0x8001BB20, a0=0x80149D34, c->pc=0x80064FA0)
+    blackcat carnage chopper cop docock hostage jonah l2a1lsc l5a5lsc l5a6lsc l5a7lsc
+    l6a1lsc l6a2lsc l6a3lsc lizard lizman mj mysterio rhino scorpion shell simby
+    spclone submarin superock thug torch training turret venom
 
-`0x8014D5AC` is above this executable's text (`0x800C6800`), so it is code the game LOADED at
-runtime — the static recompiler has no entry for it and fails fast rather than fabricating a call.
-That fail-fast is the framework behaving correctly; the missing work is real RE.
+### The loader, RE'd end to end — `re-verified`
 
-The call is indirect and table-driven: `[miss-node s0] +0x1c(handler)=0x00016090` is an OFFSET, not
-an address, which points at a relocatable module loaded at a base — `0x8014D5AC - 0x16090` gives a
-candidate base of `0x801,3751C`. Establish the loader first (who reads `CD.WAD` into `0x8014xxxx`,
-and what the module's header looks like) rather than guessing the base from one sample.
+| routine | what it does |
+|---|---|
+| `FUN_8001B990(name)` | loads `<name>.bin` to a heap allocation, loads `<name>.rel`, relocates in place, frees the `.rel`, then calls the module's **base** as its entry point |
+| `FUN_80064B3C(name)` | the `CD.HED` index: NUL-terminated name, cursor to `((nul+4) & ~3)`, then u32 offset + u32 size into `CD.WAD` |
+| `FUN_8001BF58(rel, base)` | a flat u32 relocation stream, `0xFFFFFFFF` terminating, type in the low 2 bits: `R_MIPS_32` / `HI16` (with a following addend word) / `LO16` / `26` |
 
-Open questions, in order:
-1. Which routine loads it, and from where in `CD.WAD`? `0x80064FA0` is the live `c->pc` at the miss.
-2. Is it one module or several? RE-00's `0 overlay module(s)` means the recompiler was never told.
-3. Can the recompiler take it as an additional input (the framework already has an overlay-table
-   concept, `generated/overlay_table.c`, currently empty), or does it need a hybrid interpreter path?
+`tools/extract_modules.py` performs that load offline and is wired into the hash-gated recomp step.
 
-**Do NOT stub the call to get past it.** A fabricated return here would make a broken port look like
-it boots, which is exactly the debt the `⛔ hack` list exists to prevent.
+**Verified against real data:** relocating `shell.bin` offline at its load base reproduces the RUNNING
+GAME's memory **byte-for-byte over all 112912 bytes**, with the `.rel` stream consuming exactly its
+8416 bytes and terminating cleanly. One check validates the index parse, the WAD offsets, the
+relocation format and the base together. See `docs/info/claims.md` CLAIM-08.
 
-    scratch/raw/miss_ram.bin        # 2 MB RAM dump written at the miss, base 0x80000000
+**Result:** `shell` recompiles to 232 functions, and boot now RUNS shell-module code calling back
+into MAIN.
+
+### What is NOT solved: the base does not scale — `next`
+
+`shell` works because its load base was MEASURED and pinned in `game/recomp_seeds.json`. That does
+not generalise, and it must not be repeated 29 more times:
+
+- the base comes from the game's own heap allocator, so it depends on **load order and heap state**;
+- a module loaded per-level will not land at the same address every time it is loaded;
+- boot already reaches a **second** module at a different base (`0x8018E648`), so this is live now,
+  not hypothetical.
+
+**The intended design, and why it is not a hack.** These modules are RELOCATABLE BY CONSTRUCTION —
+that is what the `.rel` file is for. Choosing where one lands is exercising the format's own freedom,
+not fabricating behaviour. The framework already supports exactly this shape: mutually-exclusive
+overlays that share ONE slot base, with the resident module identified by a 32-byte **content
+signature** against guest RAM (`overlay_router.cpp`, `overlay_base_patterns` in the seed schema). So:
+pin the modules to a canonical slot, recompile each at that base, and let the router pick the
+resident one.
+
+The open work is the loader seam that makes it true — overriding `FUN_8001B990` so a module is placed
+at the canonical base instead of a heap allocation, WITHOUT desynchronising the game's own heap
+bookkeeping (the allocator must still believe that memory is spoken for). Establish that before
+adding any more measured bases.
+
+**Do NOT stub a module call to get past it.** A fabricated return would make a broken port look like
+it boots.
+
+---
+
+## RE-10 — Tight guest spin loops starve the host turn — `re-partial`
+
+The host turn (RE-05) is taken at recompiled-FUNCTION ENTRY. A guest loop that calls nothing
+therefore never yields, and any wait inside one cannot complete.
+
+**First instance, fixed:** `FUN_8005E748(n)` — the game's "wait n display fields" primitive, 15 call
+sites. Its spin at `0x8005E760..0x8005E76C` calls nothing, so the counter it waits on (bumped only by
+the vblank callback, which only a host turn dispatches) could never advance. Measured before the fix:
+the counter advanced 412 times over 20 s instead of the ~1200 the field rate implies, and the run
+wedged on entering an unexpired wait.
+
+Now owned natively in `sync_native.cpp`, same shape as the blocking-VSync path (pace, advance,
+re-check) so both waits share one clock.
+
+*Read the disassembly, not the decompiler:* Ghidra renders this routine as `while (c < c + n)` — an
+apparent infinite loop — because it re-reads the counter on both sides. The instructions show the
+target is a snapshot computed once.
+
+*Seam note worth keeping:* `platform_hle.register_` **REFUSED** this address — it is gated to the
+declared BIOS-library window and this is game logic. That gate is correct and was NOT worked around by
+widening the window; engine functions go through the recomp override table
+(`psxport_recomp()->shard_set_override`) instead.
+
+**The general limitation remains.** Any other call-free guest spin loop starves the host the same
+way. The general fix is to emit the gate on loop BACK-EDGES as well as function entry — a real
+recompiler change with a real cost on every loop, not justified by one wait primitive. **If a second
+such loop turns up, take the general fix rather than adding a second special case.**
 
 ---
 

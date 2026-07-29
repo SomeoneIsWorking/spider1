@@ -23,6 +23,7 @@
 #include "game.h"
 #include "cfg.h"
 #include "game_iface.h"
+#include "recomp_iface.h"
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
 // VSync — SLUS_008.75 0x80084BE0. libetc's VSync(int mode).
@@ -97,6 +98,42 @@ static constexpr unsigned kFieldRateMilliHz = 59940u;
 
 // The callback the guest registered, or 0 if it has not called VSyncCallback yet.
 static uint32_t s_vsync_cb = 0;
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+// FUN_8005E748(n) — "wait n display fields", the game's own delay primitive (15 call sites).
+//
+//   8005E748  lw    $v1, 0xc74($gp)      ; v1 = counter
+//   8005E74C  lw    $v0, 0xc74($gp)
+//   8005E750  addu  $v1, $v1, $a0        ; v1 = TARGET, computed ONCE
+//   8005E754  sltu  $v0, $v0, $v1
+//   8005E758  beqz  $v0, 0x8005E774      ; already past the target -> return
+//   8005E760  lw    $v0, 0xc74($gp)      ;  <-- the spin
+//   8005E768  sltu  $v0, $v0, $v1
+//   8005E76C  bnez  $v0, 0x8005E760
+//
+//   python3 external/psxport/tools/disasm.py scratch/bin/spiderman/ram.bin 0x8005E748 0x8005E780
+//
+// (Ghidra renders this as `while (c < c + n)` — an apparent infinite loop — because it re-reads the
+// counter on both sides. The disassembly shows the target is a snapshot. Read the instructions.)
+//
+// WHY IT MUST BE NATIVE. The spin at 0x8005E760..0x8005E76C calls NOTHING. The framework's host turn
+// is taken at recompiled-FUNCTION ENTRY, so a loop that never enters a function starves it: the
+// guest waits on a counter that only a host turn can advance, and no host turn can happen. Measured:
+// the counter still advanced 412 times over 20 s (progress between waits) instead of the ~1200 the
+// field rate implies, and the run wedged the moment it entered a wait that had not yet expired.
+//
+// So this is HLE'd at the same level libetc's VSync is, and for the same reason: it is a WAIT on the
+// field clock, and the port owns the field clock. The loop below is the identical shape to the
+// blocking-VSync path further down — pace, advance, re-check — so both waits share one clock.
+//
+// KNOWN GENERAL LIMITATION, recorded rather than papered over: any OTHER tight guest spin loop with
+// no calls in it would starve the host the same way. The general fix is to emit the gate on loop
+// back-edges too, not just function entry. That is a real change to the recompiler with a real cost
+// on every loop, and it is not justified by one wait primitive — but if a second such loop turns up,
+// take it rather than adding a second special case. See docs/re-frontier.md RE-10.
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+static constexpr uint32_t kVblankWait      = 0x8005E748u;
+static constexpr uint32_t kGameVblankCount = 0x800B5468u;   // gp+0xC74, bumped by the callback
 static constexpr uint32_t kGpuStatPtr   = 0x800B0FA0u;
 static constexpr uint32_t kHCounterPtr  = 0x800B0FA4u;
 static constexpr uint32_t kHBaseline    = 0x800B0FA8u;
@@ -223,6 +260,35 @@ static void spiderman_vsync_callback(Core* c) {
   c->r[2] = 0;   // the guest wrapper's caller discards the return; 0 is the benign value
 }
 
+// FUN_8005E748(n) — wait n fields, natively. Same shape as the blocking-VSync path: pace, advance
+// the field clock (which dispatches the guest's per-vblank callback, which is what actually bumps
+// the counter being waited on), re-check.
+static void spiderman_vblank_wait(Core* c) {
+  const uint32_t n = c->r[4];
+  const uint32_t target = c->mem_r32(kGameVblankCount) + n;
+
+  // Nothing advances kGameVblankCount except the guest's registered per-vblank callback. If the game
+  // has not registered one yet, this wait can never complete and spinning here would look exactly
+  // like a hang with no cause. Say so instead — a wait that cannot finish is a real condition.
+  if (!s_vsync_cb) {
+    cfg_loge("sync", "FUN_8005E748(%u) called before the guest registered a VSyncCallback — nothing "
+                     "can advance 0x%08X, so this wait could never complete. This is an RE gap, not "
+                     "a stall: see docs/re-frontier.md RE-05.", n, kGameVblankCount);
+    c->r[2] = 0;
+    return;
+  }
+
+  // Signed comparison on the difference so the wait still terminates correctly across the counter's
+  // 32-bit wrap, which the guest's own `sltu` against a snapshot does not survive either — but the
+  // guest would take ~2.3 years of fields to get there, so matching its exact wrap behaviour is not
+  // worth reproducing a bug for.
+  while ((int32_t)(c->mem_r32(kGameVblankCount) - target) < 0) {
+    gpu_pace_frame(c);
+    vblank_advance(c);
+  }
+  c->r[2] = 0;
+}
+
 // One host turn: advance the field clock (which presents, and announces each field to the guest),
 // then service input. Both were previously reachable ONLY from the native frame loop, which never
 // runs while the guest executes a straight-line boot — the single cause behind both the frozen
@@ -305,6 +371,12 @@ void spiderman_install_sync_natives(Game* g) {
   g->platform_hle.register_(kVSync, spiderman_vsync);
   cfg_logi("sync", "native VSync installed at 0x%08X (libetc, RE-verified)", kVSync);
   g->platform_hle.register_(kVSyncCallback, spiderman_vsync_callback);
+  // NOT platform_hle: that seam is gated to the declared BIOS-library window and REFUSES a game
+  // address, deliberately — engine logic is owned through the recomp override table instead. The
+  // refusal is a correct gate and was not worked around by widening the window.
+  psxport_recomp()->shard_set_override(kVblankWait, spiderman_vblank_wait);
+  cfg_logi("sync", "native field-wait installed at 0x%08X (game delay primitive, RE-verified)",
+           kVblankWait);
   cfg_logi("sync", "native VSyncCallback installed at 0x%08X (libapi, RE-verified)", kVSyncCallback);
   // Give the host a turn at recompiled-function entry on the field clock. Without this the guest's
   // straight-line boot never yields, so neither the registered vblank callback nor the pad fill can
