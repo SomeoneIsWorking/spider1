@@ -16,17 +16,12 @@ commit that changes a step.
   shrink.** Where the RE is not done, the port hangs or aborts loudly rather than fabricating
   behaviour.
 
-### ⛔ Current debt — 1 entry
+### ⛔ Current debt — none
 
-**HACK-01 — `shell`'s pinned load base (`game/recomp_seeds.json`, `overlay_bases`).**
-The module is recompiled at `0x8014D5AC`, a base MEASURED from a run rather than chosen. It is
-verified (offline relocation reproduces guest RAM byte-for-byte) and it cannot fail silently (the
-overlay router matches a 32-byte content signature and a mismatch is a loud `rec_dispatch_miss`) — so
-it is honest debt, not a fabrication. But it does **not scale**: the address comes from the game's
-heap allocator, so it depends on load order, and the other 29 modules cannot each get one. Boot
-already reaches a second module (`thug`) at a different base.
-*Removed by:* RE-09's canonical-slot design — carve the slot at crt0, pin every module to it, route
-by signature. **Add no further measured bases; that would deepen this debt instead of paying it.**
+**HACK-01 (shell's measured load base) is RETIRED 2026-07-29.** No module base is measured any
+more: the slot is the heap's FIRST block and every one of the 30 modules is emitted at it, with the
+runtime cross-checking the reservation against the generated overlay table so a base change cannot
+drift from the substrate.
 
 ---
 
@@ -794,7 +789,7 @@ verified on the buffer addresses alone.
 
 ---
 
-## RE-09 — Runtime-loaded code (`CD.WAD`) — `re-partial`
+## RE-09 — Runtime-loaded code (`CD.WAD`) — `re-verified`
 
 **SLUS_008.75 is not the whole game.** Further CODE lives in `CD.WAD` as `<name>.bin` + `<name>.rel`
 pairs, loaded and relocated at runtime. **30 such module pairs exist** — the front-end plus the
