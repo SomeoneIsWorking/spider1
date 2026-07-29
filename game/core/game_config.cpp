@@ -201,7 +201,22 @@ static const GameConfig g_spiderman_cfg = {
     /* cdDmaDoneCbPtr */ 0x800B4394u,
 
     // --- pad driver (re-frontier: RE-05) ---
-    /* padSlot0Buf    */ 0, /* padSlot1Buf */ 0, /* padDriverFn */ 0,
+    // padSlot0Buf: 0x800A5130 — the controller buffer for port 1.
+    //
+    // RE'd from the game's own read at 0x8006B514, the pad-polling routine: it forms its button mask
+    // as `~CONCAT11(DAT_800A5132, DAT_800A5133) & 0xFFFF`, and feeds the individual bits to the
+    // edge-detector at 0x8006B208 with the standard PSX masks (0x10 up, 0x20 right, 0x40 down,
+    // 0x80 left, and 1/2/4/8 for the face buttons). The inversion is the giveaway: PSX pads report
+    // active-low, which is the framework's documented buffer contract (pad_input.cpp: buf[2] =
+    // button mask low byte, active-low). Button halfword at +2 puts the buffer base at 0x800A5130.
+    //
+    // Nothing in the game's own code WRITES that buffer — a full scan of the decompiled corpus finds
+    // reads only — which is what confirms it is the driver-filled buffer rather than a game copy the
+    // port would be overwriting.
+    //
+    // padSlot1Buf stays ZERO: port 2's buffer has not been RE'd, and guessing it at a fixed stride
+    // would be a fabricated address.
+    /* padSlot0Buf    */ 0x800A5130u, /* padSlot1Buf */ 0, /* padDriverFn */ 0,
     /* padSlotPtrTable*/ 0,
     // Byte distance between consecutive slots' pointers. 0 is read as 4 by the framework, which is
     // the correct default; stated explicitly so this initialiser lists every field the struct has.

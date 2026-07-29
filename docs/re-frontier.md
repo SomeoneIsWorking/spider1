@@ -626,11 +626,29 @@ hypotheses.
 
 ---
 
-## RE-05 — Asset loading — `next`
+## RE-05 — **It is INPUT, not asset loading** — `re-partial`
 
-The boot now stalls in `0x8006B208` ← `0x8006B514` ← guest `main`, after loading several `.psx`
-asset files. Establish what that routine waits on before changing anything — the pattern all night
-has been that the measured cause is a third possibility, not either of the obvious two.
+The stall after `ring.psx` is not a loading failure. `0x8006B514` is the **pad-polling** routine and
+`0x8006B208` is its per-button **edge detector** — the masks handed to it are the standard PSX bits
+(`0x10` up, `0x20` right, `0x40` down, `0x80` left, `1`/`2`/`4`/`8` face). The game has finished its
+initial load and is sitting on a screen waiting for a button press.
+
+Measured wedged, not slow: 14 guest lines at 30 s, still 14 at 75 s with the watchdog disabled.
+
+**`padSlot0Buf = 0x800A5130` — RE'd and wired.** The polling routine forms its mask as
+`~CONCAT11(DAT_800A5132, DAT_800A5133) & 0xFFFF`; the inversion is the giveaway, since PSX pads
+report active-low and that is exactly the framework's documented contract (`buf[2]` = button low
+byte, active-low). A button halfword at +2 puts the base at `0x800A5130`. Confirmed as the
+DRIVER-filled buffer rather than a game copy: a full scan of the decompiled corpus finds **reads
+only**, no writes.
+
+`padSlot1Buf` stays **zero** — port 2's buffer is not RE'd, and a guessed stride would be a
+fabricated address.
+
+**Not sufficient on its own, and the measurement says so:** wiring the buffer changed nothing. The
+framework's pad fill lives behind `padDriverFn`, which is still zero, so nothing ever writes the
+buffer. **That is the next step:** find the guest's pad-read routine — the one libpad calls each
+frame to refresh `0x800A5130` — and put it in `GameConfig::padDriverFn`.
 
 
 ## RE-04 — Per-frame OT / packet-pool layout — `blocked` on RE-03
