@@ -23,6 +23,7 @@
 #include "core.h"
 #include "game_iface.h"
 #include "cfg.h"
+#include "memcard.h"   // card_overrides_init
 #include <stdlib.h>
 
 // ── boot ────────────────────────────────────────────────────────────────────────────────────────
@@ -55,6 +56,10 @@ static void spiderman_registerOverrides(Game* g) {
   // super-calls the original body, so a run with it enabled executes what a run without it does.
   spiderman_install_cd_stream(g);   // continuous-read (XA/STR) pump — see that file
   spiderman_install_module_loader(g);  // pin runtime-loaded modules to one canonical slot (RE-09)
+  // Memory card. The BIOS dispatch already ROUTES libcard calls (hle.cpp -> card_hle_a0/b0), but the
+  // device is only opened by card_overrides_init — without this the card is absent, and the game's
+  // "CHECKING MEMORY CARD" screen has nothing to answer it.
+  card_overrides_init(g);
   spiderman_install_diag_overrides(g);
 }
 

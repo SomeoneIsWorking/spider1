@@ -317,6 +317,13 @@ static const GameConfig g_spiderman_cfg = {
     // — the display re-scans the same persistent framebuffer every field. After that, the same six
     // presents are 99.4% each.
     /* preserveVramBackdrop */ 1,
+
+    // --- memory card ----------------------------------------------------------------------------
+    // This port's own env key and backing file. The framework's resolver used to hardcode the FIRST
+    // consumer's key and filename, so without these a Spider-Man save would land in the reference
+    // game's card file. Exactly the defect discEnvVar exists to prevent, in a second subsystem.
+    /* cardEnvVar      */ "PSXPORT_SPIDERMAN_CARD",
+    /* cardDefaultPath */ "scratch/saves/spiderman.mcr",
 };
 
 extern void spiderman_install_game_hooks();   // game/core/game_hooks.cpp

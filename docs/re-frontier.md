@@ -1082,6 +1082,37 @@ stale `$v0` is exactly the "fabricate behaviour so it looks like it works" patte
 
 ---
 
+### RE-15 — Memory card
+- status: re-partial
+- deps: RE-06
+- evidence: card device opens and formats (scratch/saves/spiderman.mcr, 1024 frames / 128 KB); the guest reaches its card flow and polls A0:0xAB 214 times in 60s; the "CHECKING MEMORY CARD" screen does NOT complete
+
+**Wired, and the device is real.** The BIOS dispatch already ROUTED libcard calls
+(`hle.cpp` -> `card_hle_a0`/`card_hle_b0`), but nothing opened the device — `card_overrides_init` was
+never called by this port, so the card was simply absent. It is now installed from
+`spiderman_registerOverrides`, and a 128 KB card image is created and formatted on first run.
+
+**Not finished: which SwCARD event spec THIS game treats as completion is not established.** The
+guest opens class `0xF4000001` (SwCARD) with **three** specs:
+
+    B0:0x08(0xF4000001, 0x00008000)
+    B0:0x08(0xF4000001, 0x00002000)
+    B0:0x08(0xF4000001, 0x00000100)
+
+`Memcard::deliverComplete` fires `0x8000` and `0x0004`. So `0x2000` and `0x0100` are never delivered,
+and `0x0004` is one the game never opened. The handler already returns `v0 = 1` and delivers, yet the
+guest keeps polling `A0:0xAB` — so it is waiting on a spec that never arrives.
+
+**Do NOT just deliver all three.** `0x8000` is conventionally `EvSpERROR`; the framework labels it
+"SUCCESS" because that is what the reference consumer's flow wanted. Firing every spec would, on that
+reading, be announcing a card FAULT as well as a completion, and would be a guess dressed as a fix.
+
+*Next step, and it is RE not guesswork:* disassemble the guest's card wait loop (the caller of
+`A0:0xAB`, reachable from the memory-card screen) and read which event it tests with `TestEvent`.
+That names the completion spec directly, the same way the `VSync: timeout` string named RE-02.
+
+---
+
 ### RE-07 — Intro FMV / front-end
 - status: todo
 - deps: RE-04
