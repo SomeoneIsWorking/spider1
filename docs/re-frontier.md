@@ -871,9 +871,41 @@ allocator genuinely owns the block so nothing else can be handed it. Cost: every
 shifts up by the slot size versus stock, which is a real difference from hardware but a harmless one.
 The slot need only fit the LARGEST module (`shell`, 112912 bytes).
 
-*Verify before building on it:* confirm the first-allocation address empirically rather than deriving
-it from an assumed 8-byte header — the allocator (`FUN_800651C8`) has arenas, free lists and a
-small-block path, and which one serves the first request is not obvious from a skim.
+**MEASURED 2026-07-29 — and the caution was justified.** `PSXPORT_DEBUG=alloc` (a super-calling
+probe on `FUN_800651C8`, `game/core/diag_overrides.cpp`) reports the first allocations:
+
+    #1  alloc(size=16384,  arena=1, flag=1) -> 0x800C65EC
+    #2  alloc(size=16384,  arena=1, flag=1) -> 0x800CA5F4
+    #3  alloc(size=94208,  arena=1, flag=1) -> 0x800CE5FC
+    ...
+    #7  alloc(size=454500, arena=1, flag=0) -> 0x800FDAC4
+    #8  alloc(size=153600, arena=1, flag=0) -> 0x800FDAC4     <- same address: #7 was freed
+
+The first block is **`0x800C65EC`** = `heapBase + 0x18`, **not** `heapBase + 8`. Deriving it from an
+assumed 8-byte header — which is what the decompiled `return puVar11 + 2` invites — would have been
+wrong by 16 bytes and put every recompiled module 16 bytes off its data. Measure, do not derive.
+
+**A complication the same trace exposes: the guest FREES.** #7 and #8 returning one address proves
+the allocator recycles, and the module loader's counterpart unloads modules (the `shell` -> `thug`
+transition reuses descriptor node `0x80149D34`). So a slot merely *taken* from the allocator would be
+handed back on the first module unload and then reissued to unrelated data — after which the resident
+module's recompiled code would be executing against someone else's bytes.
+
+So the slot needs an OWNERSHIP rule, not just an early allocation: the port reserves it, and the
+guest's free of that exact pointer must be refused. That is a legitimate ownership boundary (the port
+owns the module slot for the process lifetime) and it is checkable — but it is one more interception,
+and it must be written down rather than discovered later as a corruption bug.
+
+Remaining implementation, unchanged in shape but now with the numbers:
+1. Reserve `0x800C65EC` as the FIRST allocation (size = 0x1C000, ≥ `shell`'s 112912). Verify the
+   probe reports that same address for the port's own first request — the arena/flag differ from #1.
+2. Refuse the guest's free of the slot pointer (`FUN_800654E8`), so an unload cannot reclaim it.
+3. Runtime `CD.WAD` access: read `CD.HED` once, resolve `<name>.bin` / `<name>.rel`.
+4. Override `FUN_8001B990` — load, relocate at the slot base, build the descriptor node through the
+   GUEST allocator so list bookkeeping stays exact, then call the entry.
+5. Recompile all 30 modules at the slot base (`overlay_base_patterns`), routed by content signature.
+
+This retires HACK-01.
 
 Open work, in order:
 1. Carve the slot at crt0 and confirm the game still boots with the smaller heap (it may be tight).

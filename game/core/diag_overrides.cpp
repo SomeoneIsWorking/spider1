@@ -33,6 +33,7 @@ extern void gen_func_8008D3F4(Core*);   // CdInit low-level init B — must retu
 extern void gen_func_8008C3E0(Core*);   // libcd's CD service routine (the "interrupt handler")
 extern void gen_func_8009152C(Core*);   // installed into the libcd descriptor's +4 slot by CdInit
 extern void gen_func_800913AC(Core*);   // installed as libcd callback #3 by the same routine
+extern void gen_func_800651C8(Core*);   // the game's allocator: (size, arena, flag) -> block ptr
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
 // libcd command-send (0x8008CE8C) — `PSXPORT_DEBUG=cdarg`.
@@ -51,6 +52,31 @@ static void diag_cd_command(Core* c) {
   gen_func_8008CE8C(c);   // super-call: the original body, unmodified
   cfg_logf("cdarg", "CD cmd-send LEAVE: v0=%08X a0=%02X s1=%08X",
            c->r[2], (unsigned)(c->r[4] & 0xFF), c->r[17]);
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+// The game's allocator (0x800651C8) — `PSXPORT_DEBUG=alloc`.
+//
+// RE-09 needs ONE number: the address the allocator returns for the FIRST request after InitHeap.
+// The module slot is taken from there, and every runtime-loaded module is recompiled at that base —
+// so it has to be a fact, not a derivation. Deriving it as "heapBase + an assumed 8-byte header"
+// would be a guess: FUN_800651C8 has per-arena free lists AND a separate small-block path (the
+// `size <= 0xA0 && arena == -1` branch that recycles from a cache), and which one serves a given
+// request is not obvious from a skim.
+//
+// Logs the first few calls with their arguments and result, then super-calls, so behaviour with the
+// channel on is identical to behaviour with it off.
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+static void diag_alloc(Core* c) {
+  static unsigned n = 0;
+  const uint32_t size = c->r[4], arena = c->r[5], flag = c->r[6];
+  gen_func_800651C8(c);                       // super-call: the original body, unmodified
+  if (n < 12) {
+    ++n;
+    cfg_logf("alloc", "#%u  alloc(size=%u, arena=0x%X, flag=%u) -> 0x%08X", n, size, arena, flag,
+             c->r[2]);
+  }
 }
 
 // Installed from the registerOverrides hook. Diagnostic overrides are gated on their channel so a
@@ -159,6 +185,11 @@ void spiderman_install_diag_overrides(Game* g) {
   if (cfg_dbg("cdarg")) {
     engine_set_override_main(0x8008CE8Cu, diag_cd_command, gen_func_8008CE8C);
     cfg_logi("cdarg", "diagnostic override installed on 0x8008CE8C (logs a0, then super-calls)");
+  }
+  if (cfg_dbg("alloc")) {
+    engine_set_override_main(0x800651C8u, diag_alloc, gen_func_800651C8);
+    cfg_logi("alloc", "allocator probe ARMED on 0x800651C8 — logs the first 12 allocations "
+                      "(RE-09 needs the FIRST block's address)");
   }
   (void)g;
 }
