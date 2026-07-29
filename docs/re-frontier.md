@@ -820,21 +820,28 @@ than assuming a Tomba-shaped scheduler exists here.
 
 ---
 
-### RE-06 — Pad driver — superseded by RE-05
-- status: re-partial
+### RE-06 — Pad driver
+- status: re-verified
 - deps: RE-05
+- evidence: forced DOWN (PSXPORT_FORCE_BUTTONS=0040) moves the menu selection and the game transitions to the memory-card screen; 24.18% of pixels differ from the baseline frame at the same present index
 
+**Input reaches the game, demonstrated end to end.** This step sat at `re-partial` for a while with
+the right addresses wired but nothing proving they mattered — the buffers were RE'd and
+`Pad::serviceFrame()` filled them, but "the packet is written" is not "the game reads it".
 
-This step was written when the whole pad group was zero. It no longer is: `padSlot0Buf` /
-`padSlot1Buf` are RE'd and verified against two independent routines (see RE-05), `padDriverFn` is
-permanently zero because the framework never reads it (WART-07), and `padSlotPtrTable` stays zero
-because this game uses libpad direct mode — it has no per-slot pointer table, so the framework
-correctly falls back to the fixed buffers.
+The check that settles it is a behavioural A/B rather than a probe. Two runs, identical except for
+`PSXPORT_FORCE_BUTTONS=0040` (DOWN), screenshotted at the SAME present index:
 
-What is NOT yet demonstrated is that input *reaches the game*: the packet is written every native
-frame, but the guest's consumer `0x8006B27C` runs off a vblank-callback timebase that is currently
-frozen (RE-05). Until that is unblocked, "input works" cannot be measured — do not mark this step
-verified on the buffer addresses alone.
+    baseline : main menu, NEW GAME highlighted
+    DOWN     : selection moved, game entered the memory-card screen
+    diff     : 29716 / 122880 px = 24.18%
+
+So the whole chain works: host input -> `padSlot0Buf` -> the guest's edge detector (`0x8006B208`)
+-> menu navigation -> screen transition -> a newly rendered screen. A wired-but-inert buffer could
+not produce a screen change.
+
+*Why an A/B and not a store watch:* a watch proves the port WROTE the packet, which was already
+known and was never the open question. Only the guest acting differently proves it READ it.
 
 ---
 
