@@ -917,33 +917,72 @@ it boots.
 
 ---
 
-## RE-10 — Tight guest spin loops starve the host turn — `re-partial`
+## RE-10 — Tight guest spin loops starve the host turn — `re-verified`
 
-The host turn (RE-05) is taken at recompiled-FUNCTION ENTRY. A guest loop that calls nothing
-therefore never yields, and any wait inside one cannot complete.
+The host turn is taken at recompiled-FUNCTION ENTRY. A guest loop that calls nothing never reaches
+one, so a wait inside it can never complete. Spider-Man's boot has two: the field-wait primitive
+`FUN_8005E748`, and `do {} while (DAT_800b5464)` in its own `main`.
 
-**First instance, fixed:** `FUN_8005E748(n)` — the game's "wait n display fields" primitive, 15 call
-sites. Its spin at `0x8005E760..0x8005E76C` calls nothing, so the counter it waits on (bumped only by
-the vblank callback, which only a host turn dispatches) could never advance. Measured before the fix:
-the counter advanced 412 times over 20 s instead of the ~1200 the field rate implies, and the run
-wedged on entering an unexpired wait.
+**Solved generally, not per-instance:** the recompiler now emits the deferred-work gate at loop
+BACK-EDGE targets as well as function entry (a branch/jump whose target is at or below its own
+address). Forward branches cannot spin, so they are not gated and the hot path is unchanged.
 
-Now owned natively in `sync_native.cpp`, same shape as the blocking-VSync path (pace, advance,
-re-check) so both waits share one clock.
+### The retraction worth keeping
 
-*Read the disassembly, not the decompiler:* Ghidra renders this routine as `while (c < c + n)` — an
-apparent infinite loop — because it re-reads the counter on both sides. The instructions show the
-target is a snapshot computed once.
+This gate was briefly DISABLED on the belief that it corrupted guest state, on a **reproducible A/B**:
+enable it and the game's global-base register `$fp` came out as `0x001C84B0` instead of `0x800B0000`;
+disable it and the same call site was clean. The A/B was real. The attribution was wrong.
 
-*Seam note worth keeping:* `platform_hle.register_` **REFUSED** this address — it is gated to the
-declared BIOS-library window and this is game logic. That gate is correct and was NOT worked around by
-widening the window; engine functions go through the recomp override table
-(`psxport_recomp()->shard_set_override`) instead.
+The gate was not the corruptor. It only lets the host take a turn inside call-free spin loops — which
+is what let the boot run far enough to *consume* an `$fp` that a **branch-and-link mistranslation**
+had already wrecked (RE-11). Fixing that makes the same A/B come out clean with the gate on.
 
-**The general limitation remains.** Any other call-free guest spin loop starves the host the same
-way. The general fix is to emit the gate on loop BACK-EDGES as well as function entry — a real
-recompiler change with a real cost on every loop, not justified by one wait primitive. **If a second
-such loop turns up, take the general fix rather than adding a second special case.**
+**A reproducible A/B proves correlation with the flag, not that the flag is the cause.** A flag can
+simply be what makes an existing bug reachable. This cost a full tick and a wrong entry in this file.
+
+Two hypotheses were falsified on the way and must not be re-tried:
+- register save/restore across the poll — `PSXPORT_DEBUG=pollregs` reports **zero** clobbers of
+  `sp`/`fp`/`gp`/`s0-s7` over a full boot;
+- the host turn ignoring guest critical sections — a real omission, now fixed, but not this bug.
+
+
+---
+
+## RE-11 — Branch-and-link was mistranslated — `re-verified`
+
+**The single defect behind the `$fp` corruption, and it had nothing to do with the host turn.**
+
+MIPS `bltzal`/`bgezal` link AND branch: the target returns via `jr $ra` and execution RESUMES at
+`addr+8`. The recompiler treated them as ordinary conditional branches, so the taken edge became
+either `goto L_<target>` — jumping INTO the subroutine body, whose `jr $ra` is emitted as a bare
+`return;`, so the **enclosing** function exits early, skips its epilogue and **leaks its stack
+frame** — or `call + return`, returning from the enclosing function instead of resuming.
+
+**131 sites** were mis-emitted across this substrate (115 `goto`, 16 `call + return`). Discovery
+compounded it: `discover_funcs` followed only `jal`, so a link target was never a function entry and
+stayed a bare label inside whatever function happened to contain it.
+
+Measured chain: `gen_func_8007C4D8` exited 40 bytes low via `L_8007D160`; its caller applied its own
+`+40` and landed 40 bytes off; an ancestor then reloaded `$fp` from the wrong stack word. `$fp` is a
+**global base register** this game holds at `0x800B0000` — not a frame pointer — so `main` computed a
+module name as `$fp + 0x4FD0` from garbage.
+
+    python3 external/psxport/tools/disasm.py scratch/bin/spiderman/ram.bin 0x8007C7CC 0x8007C7D4
+    python3 external/psxport/tools/disasm.py scratch/bin/spiderman/ram.bin 0x8007D160 0x8007D170
+
+**Verified:** with the fix, the same gate-on A/B that previously produced a garbage module name now
+reaches a third module load with the correct name (`SHELL` @ `0x800B4FD0`), and `main`'s spin loop
+completes.
+
+*Read the disassembly, not the decompiler — twice over.* Ghidra rendered `$fp + 0x4FD0` as the symbol
+`s_shell_800b4fd0`, which hid that the pointer was computed from a register at all and made a
+corrupted REGISTER look like a corrupted STRING. It also gave no hint that `bltzal` links.
+
+*Residual:* only the `0x8007D160` family is proven reached. MAIN.EXE has 41 `bltzal`/`bgezal` with 31
+distinct targets; the rest were the same defect and are now emitted correctly, but their reachability
+is unproven. Splitting functions at link targets also moves boundaries, which can surface
+previously-unreached fall-through paths as new recomp-MISS fail-fasts — that is the framework working
+as designed.
 
 ---
 
