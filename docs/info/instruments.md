@@ -277,6 +277,41 @@ entry via a framework override + super-call rather than reading frames.
 
 ---
 
+## INST-14 — `re_frontier.py check` — **DISTRUSTED 2026-07-29: it validates NOTHING here**
+
+*What it claims:* "re-frontier OK: no unknown deps, no cycles, every re-verified step cites
+evidence." It printed exactly that on every run this session, including immediately after edits that
+introduced a contradiction.
+
+*What it actually does on THIS repo:* parses **zero entries**. The skill's parser
+(`<claude-dir>/skills/re-frontier/re_frontier.py`, `load()`) recognises a step as
+
+    ### <ID> — <title>
+    - status: <status>
+    - deps: <ids>
+
+but `docs/re-frontier.md` writes its steps as `## RE-05 — <title> — ` + a backticked status. A `##`
+heading is parsed as an AREA, so every step in this file is invisible to the tool. Proof, on the
+current file: `re_frontier.py tree` prints NOTHING and `next` reports "(none — every unblocked step is
+done…)" while the document contains ~15 steps, several of them explicitly `next`.
+
+*Why this is the dangerous kind of broken:* the failure is SILENT and the output is **uniform** — a
+pass with no entries is textually identical to a pass over a healthy file. It is the exact tell this
+page exists to catch, and it caught me: `check` was cited repeatedly this session as if it had
+verified the frontier edits. It had verified nothing. A green check that cannot go red is worse than
+no check, because work gets built on it.
+
+*It can be shown to be blind, cheaply:* `tree` on a file with steps must print steps. It prints
+nothing. That is the "can it report the OTHER answer" test, failed.
+
+*Do not cite `check` until this is fixed.* The fix is to give each step a machine-readable
+`### ID — title` header plus `- status:` / `- deps:` fields (prose can stay underneath), or to teach
+the skill this file's heading dialect. Until then the frontier's dependency graph and its `⛔ hack`
+debt list are maintained by hand and by reading — which is how the HACK-01 entry was found to be
+invisible to `hacks` in the first place.
+
+---
+
 ## INST-06 — `PSXPORT_WWATCH` (guest store watch) — **TRUST RESTORED 2026-07-28 — my distrust was wrong**
 
 *What it should show:* the guest `pc`/`ra` of any store landing in an address range

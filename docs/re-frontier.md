@@ -13,8 +13,20 @@ commit that changes a step.
 - `re-partial` — some of it is RE'd; the remainder is named below.
 - `blocked` — cannot start until a listed prerequisite lands.
 - `⛔ hack` — debt. Something stands in for a mechanism that has not been RE'd. **This list must
-  shrink.** There are currently **zero** entries, and that is deliberate: where the RE is not done,
-  the port hangs or aborts loudly rather than fabricating behaviour.
+  shrink.** Where the RE is not done, the port hangs or aborts loudly rather than fabricating
+  behaviour.
+
+### ⛔ Current debt — 1 entry
+
+**HACK-01 — `shell`'s pinned load base (`game/recomp_seeds.json`, `overlay_bases`).**
+The module is recompiled at `0x8014D5AC`, a base MEASURED from a run rather than chosen. It is
+verified (offline relocation reproduces guest RAM byte-for-byte) and it cannot fail silently (the
+overlay router matches a 32-byte content signature and a mismatch is a loud `rec_dispatch_miss`) — so
+it is honest debt, not a fabrication. But it does **not scale**: the address comes from the game's
+heap allocator, so it depends on load order, and the other 29 modules cannot each get one. Boot
+already reaches a second module (`thug`) at a different base.
+*Removed by:* RE-09's canonical-slot design — carve the slot at crt0, pin every module to it, route
+by signature. **Add no further measured bases; that would deepen this debt instead of paying it.**
 
 ---
 
@@ -820,18 +832,41 @@ not generalise, and it must not be repeated 29 more times:
 - boot already reaches a **second** module at a different base (`0x8018E648`), so this is live now,
   not hypothetical.
 
-**The intended design, and why it is not a hack.** These modules are RELOCATABLE BY CONSTRUCTION —
-that is what the `.rel` file is for. Choosing where one lands is exercising the format's own freedom,
-not fabricating behaviour. The framework already supports exactly this shape: mutually-exclusive
-overlays that share ONE slot base, with the resident module identified by a 32-byte **content
-signature** against guest RAM (`overlay_router.cpp`, `overlay_base_patterns` in the seed schema). So:
-pin the modules to a canonical slot, recompile each at that base, and let the router pick the
-resident one.
+**Modules are resident ONE AT A TIME — measured, and it decides the design.** Both observed module
+loads report the SAME descriptor node (`a0=0x80149D34`), so the game unloads before it loads: `shell`
+(the front end, 112912 bytes) is torn down and `thug` (an enemy module, 46484 bytes) is loaded into
+the same descriptor at `0x8018E648`. Identified by relocating each of the 30 candidates at that base
+and matching guest RAM — content, not inference:
 
-The open work is the loader seam that makes it true — overriding `FUN_8001B990` so a module is placed
-at the canonical base instead of a heap allocation, WITHOUT desynchronising the game's own heap
-bookkeeping (the allocator must still believe that memory is spoken for). Establish that before
-adding any more measured bases.
+    python3 - <<'EOF'   # see the commit for the full snippet
+    for each <name>.bin/.rel in CD.HED: relocate at 0x8018E648, compare 64 bytes vs miss_ram.bin
+    EOF
+
+That is exactly the framework's mutually-exclusive overlay shape, so ONE canonical slot suffices,
+with the resident module identified by its 32-byte content signature (`overlay_router.cpp`).
+
+**The design, and why it is not a hack.** These modules are RELOCATABLE BY CONSTRUCTION — that is
+what the `.rel` file is for. Choosing where one lands exercises the format's own freedom rather than
+fabricating behaviour. Pin every module to one canonical slot, recompile each at that base, let the
+router pick the resident one.
+
+**Where the slot comes from — the part that must not be fudged.** It cannot be a heap allocation: its
+address has to be a BUILD-TIME constant (the modules are compiled at it), and a runtime allocation's
+address is not. Carve it instead out of the TOP of the heap at crt0 time — this port already owns the
+crt0 values in `GameConfig`, and the heap size is computed as `(sp - sizeglobal) - heapBase`. Lowering
+the heap top by the slot size makes the region port-owned, never allocated by the game, and a
+constant chosen rather than measured. Net memory cost is near zero: modules were coming out of that
+same heap anyway, and the slot only needs to fit the LARGEST of them (`shell`, 112912 bytes).
+
+Open work, in order:
+1. Carve the slot at crt0 and confirm the game still boots with the smaller heap (it may be tight).
+2. Runtime `CD.WAD` access in the port: read `CD.HED` once, resolve `<name>.bin` / `<name>.rel`.
+3. Override `FUN_8001B990` natively — load, relocate at the slot base, build the descriptor node
+   through the GUEST allocator so the game's list bookkeeping stays exact, then call the entry.
+4. Recompile all 30 modules at the slot base via `overlay_base_patterns`.
+
+Add no further measured bases in the meantime — `shell`'s pinned base is a stopgap that this design
+removes, and it is listed as debt below.
 
 **Do NOT stub a module call to get past it.** A fabricated return would make a broken port look like
 it boots.
