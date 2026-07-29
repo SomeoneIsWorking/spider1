@@ -43,11 +43,30 @@
 {
   "main": [],
   "main_reentry": [],
-  "overlay_bases": { "SHELL": "0x8014D5AC" },
+  // ALL runtime-loaded modules share ONE slot, so they share one base. The port reserves that slot
+  // as the heap's first block (game/core/module_loader.cpp) and intercepts the loader's body
+  // allocation to place every module there; only one is ever resident, and the framework's overlay
+  // router picks it by 32-byte content signature. The base is heapBase(0x800C65D4) + 0x18, MEASURED
+  // with PSXPORT_DEBUG=alloc -- the allocator's `return puVar11 + 2` invites an 8-byte header
+  // assumption and the real offset is 0x18. The runtime re-checks this against the reservation and
+  // refuses to run quietly if they disagree.
+  "overlay_base_patterns": [ [ ".*", "0x800C65EC" ] ],
 
-  // The module's ENTRY POINT is its base address, and nothing `jal`s to it: the loader calls it
+  // Each module's ENTRY POINT is its base address, and nothing `jal`s to it: the loader calls it
   // through a pointer (`(*(code *)node[1])(node)` at the tail of FUN_8001B990), which is invisible
-  // to jal-discovery. Without this seed the emitted set starts at 0x8014D5D4 — the SECOND function
-  // in the module — and the very first call into the module fails with a recomp MISS on its base.
-  "overlay_seeds": { "SHELL": ["0x8014D5AC"] }
+  // to jal-discovery. Without this seed a module's emitted set starts at its SECOND function and the
+  // very first call into it fails with a recomp MISS on its base. Every module needs it, and they
+  // all share the slot base.
+  "overlay_seeds": {
+    "SHELL": ["0x800C65EC"], "THUG": ["0x800C65EC"], "BLACKCAT": ["0x800C65EC"],
+    "CARNAGE": ["0x800C65EC"], "CHOPPER": ["0x800C65EC"], "COP": ["0x800C65EC"],
+    "DOCOCK": ["0x800C65EC"], "HOSTAGE": ["0x800C65EC"], "JONAH": ["0x800C65EC"],
+    "L2A1LSC": ["0x800C65EC"], "L5A5LSC": ["0x800C65EC"], "L5A6LSC": ["0x800C65EC"],
+    "L5A7LSC": ["0x800C65EC"], "L6A1LSC": ["0x800C65EC"], "L6A2LSC": ["0x800C65EC"],
+    "L6A3LSC": ["0x800C65EC"], "LIZARD": ["0x800C65EC"], "LIZMAN": ["0x800C65EC"],
+    "MJ": ["0x800C65EC"], "MYSTERIO": ["0x800C65EC"], "RHINO": ["0x800C65EC"],
+    "SCORPION": ["0x800C65EC"], "SIMBY": ["0x800C65EC"], "SPCLONE": ["0x800C65EC"],
+    "SUBMARIN": ["0x800C65EC"], "SUPEROCK": ["0x800C65EC"], "TORCH": ["0x800C65EC"],
+    "TRAINING": ["0x800C65EC"], "TURRET": ["0x800C65EC"], "VENOM": ["0x800C65EC"]
+  }
 }

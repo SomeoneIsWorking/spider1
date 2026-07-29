@@ -49,7 +49,22 @@ static const GameConfig g_spiderman_cfg = {
     // --- recompiled MAIN .text range (physical) ------------------------- from the recompiler run --
     // Sourced from the generated header so these can never drift from the substrate they describe.
     /* recMainLo      */ REC_MAIN_LO,   // 0x00010000  (PS-X EXE load address)
-    /* recMainHi      */ REC_MAIN_HI,   // 0x000C6800  (load + text size 0x000B6800)
+    // recMainHi is DELIBERATELY the heap base, not REC_MAIN_HI (= load + text size = 0x000C6800).
+    //
+    // The PS-X EXE loads 0xB6800 bytes, but crt0 sets heapBase to the end of BSS, 0x000C65D4 — so the
+    // last 0x22C bytes of the loaded image ARE THE HEAP at runtime and are overwritten by the first
+    // allocation. They are file padding, not code: the recompiler found 36 "functions" up there
+    // (0xC661C..0xC67FC) purely by scanning bytes it had no reason to believe were text.
+    //
+    // Leaving the range at 0x000C6800 makes rec_dispatch claim heap addresses for MAIN. That is not
+    // hypothetical — it broke RE-09: the module slot is the heap's first block (0x000C65EC), so every
+    // call into a runtime-loaded module was routed to MAIN's switch, found no function, and failed as
+    // a dispatch miss WITHOUT ever consulting the overlay router. The router was correct and the
+    // residency was right; the address never reached it.
+    //
+    // A call that genuinely lands in the padding now fails loudly rather than silently resolving to a
+    // padding-derived phantom, which is the better failure of the two.
+    /* recMainHi      */ 0x000C65D4u,   // = heapBase; see above. NOT REC_MAIN_HI (0x000C6800).
 
     // --- disc key ------------------------------------------------------- this port's own env name --
     // The framework's disc resolver used to hardcode the FIRST consumer's variable, so run.sh set
@@ -98,11 +113,22 @@ static const GameConfig g_spiderman_cfg = {
     /* stageStart     */ 0, /* stageDemo */ 0, /* stageGame */ 0,
 
     // --- overlay router slots -------------------------------------------------- N/A for this game --
-    // Spider-Man ships ONE executable and no overlay modules: the disc carries SLUS_008.75 plus the
-    // packed archive CD.WAD, and `discdump list` shows no per-stage .BIN images (contrast Tomba!2's
-    // BIN/START|DEMO|GAME|A00..A0L). The recompiler confirms it: "0 overlay module(s)". So there are
-    // no overlay slots to describe — this is genuinely empty, not un-RE'd.
-    /* overlaySlots   */ {{0, nullptr}, {0, nullptr}, {0, nullptr}},
+    // ONE overlay slot, and it is the port's own (RE-09). The disc carries no per-stage .BIN images
+    // — `discdump list` shows only SLUS_008.75 plus the packed archive CD.WAD, which is what the
+    // comment here used to cite as proof that this game "has no overlay modules". That was a claim
+    // about the ISO layout being read as a claim about code coverage: the game loads 30 further code
+    // modules OUT of CD.WAD as <name>.bin + <name>.rel pairs at runtime.
+    //
+    // Those modules are relocatable, and the port pins every one of them to a single reserved slot
+    // (game/core/module_loader.cpp) so the recompiler can emit them. Only one is ever resident. The
+    // base is the heap's first block, 0x800C65EC — reserved before any guest code runs, and re-checked
+    // at runtime against the base the substrate was actually emitted for.
+    //
+    // Residency is recorded EXACTLY, by name, from the loader — not by content signature. Pinning the
+    // modules to one base makes their signatures collide (30 modules -> 14 distinct 32-byte
+    // signatures; 12 share one), because the entry prologues are identical boilerplate and relocating
+    // them to the same address makes the words identical too. See overlay_router.h.
+    /* overlaySlots   */ {{0x800C65ECu, "MODULE"}, {0, nullptr}, {0, nullptr}},
 
     // --- CD chokepoints ---------------------------------------- deliberately EMPTY, and why --
     // This game runs STOCK Sony libcd (rcsids in the binary: `bios.c` and `intr.c v1.75` at

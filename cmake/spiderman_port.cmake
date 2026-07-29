@@ -26,7 +26,8 @@ set(GAME_SRC
   game/core/recomp_register.cpp   # the generated-substrate seam
   game/core/sync_native.cpp       # RE'd PSX hardware-sync primitives (libetc VSync)
   game/core/cd_stream.cpp         # continuous-read (XA/STR) pump, driven from StGetNext
-  game/core/diag_overrides.cpp)   # observe-only overrides (log + super-call), channel-gated
+  game/core/diag_overrides.cpp    # observe-only overrides (log + super-call), channel-gated
+  game/core/module_loader.cpp)    # pins runtime-loaded CD.WAD modules to one canonical slot (RE-09)
 
 # ---- the recompiled substrate -----------------------------------------------------------------
 # emit.py writes the exact TU list to generated/rec_sources.cmake (GEN_REC_SRCS, basenames).

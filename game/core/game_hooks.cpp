@@ -34,7 +34,12 @@
 //
 // This is Phase 0 of docs/re-frontier.md ("everything on substrate"), NOT a stopgap standing in for
 // a native boot — there is no native boot to stand in for yet.
+extern void spiderman_reserve_module_slot(Core*);     // game/core/module_loader.cpp
+
 static void spiderman_bootInit(Core* c) {
+  // Reserve the runtime-loaded-module slot BEFORE any guest code runs, so it is the heap's first
+  // block and therefore at a known, build-time address. See game/core/module_loader.cpp.
+  spiderman_reserve_module_slot(c);
   cfg_logi("boot", "Phase 0: dispatching guest main() 0x%08X on the recompiled substrate", c->cfg->gameMain);
   rec_dispatch(c, c->cfg->gameMain);
 }
@@ -42,12 +47,14 @@ static void spiderman_bootInit(Core* c) {
 // ── neutral ─────────────────────────────────────────────────────────────────────────────────────
 extern void spiderman_install_diag_overrides(Game*);   // game/core/diag_overrides.cpp
 extern void spiderman_install_cd_stream(Game*);       // game/core/cd_stream.cpp
+extern void spiderman_install_module_loader(Game*);   // game/core/module_loader.cpp
 
 static void spiderman_registerOverrides(Game* g) {
   // No native BEHAVIOUR overrides exist yet — this port owns no game function. The only thing
   // installed here is diagnostic, and only when its channel is on: a wrapper that logs and then
   // super-calls the original body, so a run with it enabled executes what a run without it does.
   spiderman_install_cd_stream(g);   // continuous-read (XA/STR) pump — see that file
+  spiderman_install_module_loader(g);  // pin runtime-loaded modules to one canonical slot (RE-09)
   spiderman_install_diag_overrides(g);
 }
 

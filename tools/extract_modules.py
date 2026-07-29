@@ -55,11 +55,14 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# Modules to extract, and the guest address each is loaded at. See the module note above: these
-# bases are MEASURED from a real run and re-checked at runtime by the port, never assumed.
-MODULES = {
-    "shell": 0x8014D5AC,
-}
+SLOT_BASE = 0x800C65EC   # must equal overlay_base_patterns in game/recomp_seeds.json
+
+# Every module pair in CD.HED, all relocated to the SAME slot base — only one is ever resident and
+# the framework's overlay router identifies it by content signature. Discovered from the index rather
+# than listed by hand, so a module that exists on disc cannot be silently skipped.
+def modules_from_index(index):
+    stems = {n[:-4] for n in index if n.endswith(".bin")} & {n[:-4] for n in index if n.endswith(".rel")}
+    return {s: SLOT_BASE for s in sorted(stems)}
 
 
 def parse_index(hed: bytes):
@@ -134,7 +137,7 @@ def extract(hed_path: str, wad_path: str, out_dir: str, quiet: bool = False) -> 
                 raise ValueError(f"{name}: CD.WAD ended after {len(data)} of {size} bytes")
             return data
 
-        for stem, base in MODULES.items():
+        for stem, base in modules_from_index(index).items():
             img = bytearray(grab(f"{stem}.bin"))
             counts = relocate(img, grab(f"{stem}.rel"), base)
             dest = os.path.join(out_dir, f"{stem}.bin")
