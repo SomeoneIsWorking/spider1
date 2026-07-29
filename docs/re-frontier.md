@@ -644,10 +644,24 @@ The three attempts, recorded so none is repeated:
 3. Both rested on the same unchecked assumption — that streaming starts with a `ReadN` through the
    command path. Checking that first would have skipped all three.
 
-**So the real question is upstream:** what starts this stream, and what stops it after ten sectors?
-The reader is at the register level, so the answer is in `cdc`'s own state — most likely `reading`
-being cleared, or the BFRD advance path not being reached after the tenth sector. Instrument
-`cdc_write`'s request/ack paths and the `reading` flag before touching the pump again.
+**Two findings from a watchdog-disabled run, both new and both concrete:**
+
+1. **The game asks for a movie that is not on the disc.** `CdSearchFile('/CINEMAS/TTSLOGO.STR;1')`
+   fails — and correctly so: the executable's movie table lists `ATVILOGO`, `LOGO`, `TTSLOGO`, but
+   the retail disc contains only the first two (`discdump list` finds no `TTSLOGO`). So the failure
+   is faithful, and the RETAIL GAME must handle it. What this port does after the failed lookup is
+   the open question.
+2. **The stream IS being driven, to the bound.** `stock read did not terminate after 65536 sectors —
+   the guest never issued Pause/Stop`. So the ready callback is pumped 65536 times by
+   `cd_drive_stock_read` and the guest never ends the read. That contradicts the earlier reading that
+   the pump had no trigger — under this configuration `ReadN` does reach the command handler.
+
+With the watchdog disabled the port runs ~90 s without advancing past `sfx.vab`, and the log stops
+growing entirely, so it is genuinely wedged rather than slow.
+
+**Next, in order:** follow what the guest does after the failed `TTSLOGO` lookup — that is a real
+code path the retail game exercises on every boot, and getting it wrong wedges the intro sequence
+regardless of how well the CD works.
 
 **`Cd::pumpStream` is retained** in the framework: the mechanism is correct for a consumer whose
 streaming does go through the command path, and it costs nothing while inactive.
