@@ -1110,32 +1110,72 @@ so a later match OVERWRITES an earlier one — success was set, then replaced by
 
 ---
 
-### RE-16 — Unmapped read at the top of RAM blocks gameplay entry
+### RE-16 — Unconditional intra-function branch emitted as call+return leaks stack
 - status: in-progress
 - deps: RE-15
 
-**The current stopping point.** Advancing past the name-entry screen (forced CROSS) fail-fasts:
+**ROOT-CAUSED and verified; the fix is designed but deliberately NOT yet shipped.**
 
-    FATAL: UNMAPPED RAM read8 @ 0x80800004 (phys 0x00800004)
-    guest: last-fn-entered=0x8008B910 (NOT the faulting pc) ra=0x80064CA4 sp=0x807FFD88
-    args : a0=0x000000F5 a1=0x800BD748 a2=0x60FF0000 a3=0x03FFFFFF v0=0x807FFFFC
-    temps: t0=0x807FFD98 t1=0x00FF0000 t2=0x000000A0 t3=0x800B557C s0=0x807FFFFA s1=0x807FFDD0
+The unmapped read at `0x80800004` is the END of a chain whose first link is one mistranslated
+instruction — the same class as RE-11, whose carve-out was scoped too narrowly.
 
-`0x00800004` is the FIRST address past the mirrored 8 MB window `host_ptr` maps, and `s0`/`v0` sit
-within 8 bytes of the stack top (`0x807FFFF8`) — so something is walking UPWARD off the top of the
-stack. That is the signature of a string walk with no terminator, which on hardware would alias
-around the mirror and eventually find a zero.
+    8002A338  addi $sp, $sp, -4      <- frame allocated ONCE
+    8002A33C  sw   $ra, ($sp)
+    8002A41C  jal  0x8002a478        ; ra = 0x8002A424 (a RESUME point, not a return)
+    8002A43C  bgez $zero, 0x8002a478 ; ALWAYS TAKEN — an unconditional intra-function branch
+    8002A7F4  lw   $ra, ($sp)        <- shared epilogue, releases the frame ONCE
+    8002A7F8  addi $sp, $sp, 4
 
-**The obvious suspect is not confirmed.** The BIOS libc string leaves added in RE-14 (`strcmp`,
-`strncmp`, `strcpy`, `strlen`) each walk byte-by-byte until NUL and would produce exactly this. But
-`a0 = 0x000000F5` is not a pointer, so the register set may not match a string call at all. Confirm
-or refute before fixing.
+emitted (`generated/shard_7.c`) as
 
-**Do not widen the memory mask or clamp a length to make it pass.** The two honest answers demand
-different fixes: if the PSX address space genuinely wraps at 8 MB, `host_ptr` should model that with
-a hardware justification; if the guest relies on mirror aliasing to terminate a walk, the port needs
-to decide what to do that is not a crash and not a silent discard. Reproduce with
-`PSXPORT_FORCE_BUTTONS=4000`.
+    { int _t = ((int32_t)c->r[0] >= 0); ... if (_t) { func_8002A478(c); return; } }
+
+`_t` is `(int32_t)r[0] >= 0` — constant true. So the enclosing function RETURNS without ever reaching
+its epilogue, **leaking 4 bytes of guest stack per call**.
+
+`emit_control` reaches `call_or_dispatch(...) + return;` whenever a branch/jump target is not in
+`labels`, and `0x8002A478` is not because `discover_funcs` seeded it as a function entry (there is a
+`jal` to it at `0x8002A41C`). It is not really a function: no prologue of its own, shares the caller's
+frame, and is fall-through-reachable from `0x8002A474`.
+
+**How 4 bytes becomes a garbage pointer:** the skew propagates up the call graph
+(`80010008 -> 80010080 -> 8002AA0C -> 8002B430 -> 8002A338`), so `0x80010008`'s epilogue reloads
+`$s0/$s1/$ra` one word low. `$s1` is the script VM's bytecode cursor; destroyed, the VM walks text
+until a halfword decodes as an opcode and passes an instruction word as a FILENAME. `FUN_80064B3C`
+(the `CD.HED` name lookup) has **no end-of-table exit** — the only way out is a full match — so an
+unmatched name walks upward until it leaves the mapped window. Faulting instruction is
+`0x80064C3C  lbu $v1, 8($v0)` with `$v0 = 0x807FFFFC`.
+
+**Blast radius, measured:** 16 real sites, all inside `0x8002A338` (14 branch, 2 jump). This is NOT
+substrate-wide — do not brief it like the 131-site link-branch sweep.
+
+### Why it is not fixed yet
+
+The fix is in the recompiler and needs THREE coordinated changes; doing one or two is worse than
+none:
+
+1. **Demote `0x8002A478` out of the function set** — a `jal` target that is fall-through-reachable
+   from inside an already-discovered body is an internal subroutine, not an entry.
+   `merge_early_return_boundaries` already performs this shape of demotion but only for *soft*
+   boundaries, and a `jal` target is hard. That is the precise gap.
+2. **The `jal` at `0x8002A41C` becomes an in-body call:** `r[31] = 0x8002A424u; goto L_8002A478;`.
+3. **`jr $ra` inside the demoted region must stop being `return;`.** Verified directly:
+   `0x8002A390  lw $ra, 0x30($t6)` — **`$ra` is loaded as DATA** in this body, so `jr $ra` there is a
+   computed jump to a resume point. Gating rule: if a body writes `$ra` other than via a `jal` link,
+   its `jr $ra` must use the computed-jump dispatch the emitter already builds for jump tables.
+
+Step 3 changes `jr $ra` semantics for any function that manipulates `$ra`, which is why this is not
+being shipped on a tired pass into a port that currently boots, renders, takes input and completes its
+memory-card check. **The regression gate to hold it against is concrete and cheap:** menu renders at
+99.4% (`PSXPORT_SHOT_AT`), `PSXPORT_FORCE_BUTTONS=0040` still moves the selection, the card check
+still completes, and `PSXPORT_FORCE_BUTTONS=4000` no longer faults.
+
+*Explicitly rejected, with reasons, so they are not retried:*
+- **Widening `host_ptr`'s mask.** `phys 0x00800004` is not a fifth mirror — PSX decodes RAM
+  `0x0..0x1FFFFF` mirrored to `0x7FFFFF`, then nothing until Expansion 1. And with no not-found exit
+  in `FUN_80064B3C`, aliasing would convert a precise fail-fast into a silent infinite scan.
+- **Bounding the scan or skipping the malformed name.** The guest's tail unconditionally dereferences
+  the cursor; there is no return path to invent.
 
 ---
 
