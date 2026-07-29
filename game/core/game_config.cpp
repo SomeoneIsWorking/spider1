@@ -297,6 +297,26 @@ static const GameConfig g_spiderman_cfg = {
         // initBuiltins clobber the real implementation with an abort.
         /* vsyncTrap */ 0,
     },
+
+    // --- present policy -------------------------------------------------------------------------
+    // preserveVramBackdrop = 1, because THIS PORT STILL RUNS THE GUEST'S OWN DRAWING CODE, which is
+    // exactly the condition the field's own documentation names ("Set to 1 while the guest still owns
+    // drawing"): an upload into the display area IS visible on hardware, so upload-only screens —
+    // loading screens, fades, static art that submits no primitives — must not be cleared away.
+    //
+    // HONESTY NOTE, because this was tried as a fix and is NOT one: it does not address the 30 Hz
+    // full-scene/black flicker. That flicker came from presents being paced by the display field
+    // clock while this game builds one ordering table per TWO fields, so every other present rebuilt
+    // the composite from an empty batch. Setting this flag only skips render_geom's CLEAR, while
+    // upload_vram still overwrites the composite with guest VRAM — which for a natively-compositing
+    // port is empty, so the frame came out black regardless. Measured: unchanged at 0.0/99.4/0.0/
+    // 99.4/0.0/99.4% across six consecutive presents.
+    //
+    // The real fix is in the framework: a present carrying no new geometry now re-shows the last
+    // composite instead of rebuilding one (gpu_vk.cpp, geom_batch_empty), which is what hardware does
+    // — the display re-scans the same persistent framebuffer every field. After that, the same six
+    // presents are 99.4% each.
+    /* preserveVramBackdrop */ 1,
 };
 
 extern void spiderman_install_game_hooks();   // game/core/game_hooks.cpp
