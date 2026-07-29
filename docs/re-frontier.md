@@ -594,85 +594,43 @@ never have been reached. The evidence picked the other option.
 
 ---
 
-## RE-04 — Movie playback — `re-partial`; the stream now RUNS
+## RE-04 — Movie / streaming playback — `re-verified`
 
-**Settled: the GUEST plays the movie itself.** `0x8002B3CC` calls `0x80086B10` (libcd's streaming
-getter) and `0x800872AC` walks a sector ring at `DAT_800c1510`. It decodes through the MDEC path
-fixed in RE-03c, so the framework's native `.STR` player is the wrong tool and `GameConfig::bootFmv`
-stays empty — the guest wants sectors, not a replacement player.
+**The stream runs and the boot reaches asset loading.** The guest plays the movie itself through
+libcd's sector ring (`StGetNext` `0x80086B10`, `StFreeRing` `0x800872AC`), decoded via the MDEC path
+from RE-03c — so the framework's native `.STR` player is the wrong tool here and
+`GameConfig::bootFmv` stays empty.
 
-**Three linked defects kept it pinned on one sector** (all fixed, psxport `7916dce0`):
+**The last blocker, found by instrumenting the ring rather than guessing.** Slot states are
+0 free / 1 wrap / 2 ready / 3 DMA-in-flight / 4 in use. The dump showed **ten slots stuck at 3**
+while the consumer, which accepts only 2, spun on a full ring:
 
-1. **Setmode never reached the controller** — the native CD layer forwarded it to the XA streamer
-   only, so `CdcState::mode` stayed 0.
-2. **`load_sector` ignored the whole-sector bit** regardless. Streaming reads the first 8 words of a
-   sector as header + subheader to identify it; it was getting picture data, recognised nothing, and
-   re-requested the same sector forever.
-3. **Advancement had no reachable trigger.** Draining cannot be it — this reader takes 2048 bytes of
-   a 2340-byte FIFO and asks again. The interrupt ACK cannot be it — it drives BFRD directly and
-   never acks. So the trigger is **BFRD itself**: a data request when the current sector is already
-   partly read is a request for the *next* one, remainder discarded, which is what the drive does
-   when it refills per sector.
+```
+prod=0 cons=0 d1514=10 | slots: 3 3 3 3 3 3 3 3 3 3 0 0
+```
 
-Point 3 is worth keeping as a lesson: an earlier revision moved advancement to the ACK path on a
-plausible hardware argument, and this file recorded "do not simply make BFRD advance". Both were
-reasoning from how the hardware is usually described rather than from what this guest does. The
-measurement settled it.
+`0x8008DB44` promotes 3 → 2 and is libcd's **DMA-completion callback**, registered into slot 3 of
+libcd's own table at `0x800B4388` (registrar `0x8009152C` computes `base + index*4`). This port
+performs the transfer synchronously and announced nothing, so no slot was ever promoted.
+`GameConfig::cdDmaDoneCbPtr` names that slot; the callback is dispatched at a function-entry
+boundary, never from inside the store that finished the transfer.
 
-**Verified:** transfers now show BOTH the 8-word header and the 504-word body per sector, and the
-head advances through the stream — **10 distinct LBAs, 128304 → 128313**, where it had been pinned
-at 128304.
+**Verified:** slots reach 2, both indices advance (`prod=7 cons=9`), and the guest proceeds to load
+its own assets — `sfx.vab`, then `webdome2.psx`, `spidey.psx`, `sparmour.psx`, `bits.psx`,
+`costarm.psx`.
 
-**DIAGNOSED — the consumer is fine, and the pump has no trigger.** The ring protocol is correct:
-`StGetNext` (`0x80086B10`) takes a slot whose status is 2 and marks it 4; `StFreeRing`
-(`0x800872AC`) returns slots to 0 and advances `DAT_800c151c`. Sectors simply stop being produced
-after ten.
+**Two attempts before the dump both failed**, and the lesson is the same one: the fault was neither
+of the two things guessed at (producer never marking, consumer misreading) — it was a *third* state
+nobody had considered. The ring dump named it in one run. Instrument before choosing between
+hypotheses.
 
-**Three placements for a stream pump were tried and all three were irrelevant**, for one measured
-reason: **zero `ReadN` commands reach the CD command handler.** That is a consequence of serving
-`CdRead` natively — the guest's finite read state machine no longer issues one — and this game's
-streaming reader drives the CD registers **directly**, poking `0x1F801800`/`0x1F801803` itself rather
-than going through the command entry point. So `Cd::stream_active` is never set and
-`Cd::pumpStream` can never fire, wherever it is called from.
+---
 
-The three attempts, recorded so none is repeated:
-1. **Per-field, from `vblank_advance`** — wrong home regardless: the guest makes only **13 VSync
-   calls in the whole boot** and stops calling it entirely once inside the streaming loop.
-2. **From `StGetNext`**, wrapping the function the spin loop actually calls — right instinct, but the
-   pump underneath it was inert. The wrapper was removed; an override that wraps a hot function to do
-   nothing is worse than none.
-3. Both rested on the same unchecked assumption — that streaming starts with a `ReadN` through the
-   command path. Checking that first would have skipped all three.
+## RE-05 — Asset loading — `next`
 
-**RULED OUT — the missing movie is handled correctly.** `0x8002A858` is the movie-table
-initialiser: it walks all 24 entries, calls `CdSearchFile` on each, and on failure simply marks that
-entry unavailable (`*piVar3 = 0`). `TTSLOGO.STR` is in the executable's table but genuinely absent
-from the retail disc, so the lookup failing is faithful and the game copes. Not the blocker.
-
-**FIXED — the file-read burst was wedging the boot.** `cd_drive_stock_read` drives a FINITE read's
-per-sector callback to completion. Once `CdRead` is served natively a finite read never issues
-`ReadN`, so every `ReadN` arriving at the command handler is a CONTINUOUS read — which has no end for
-the burst to reach. It ran away to its 65536-sector bound. Now gated on `cfg->cdReadStock` (psxport
-`2c94b77b`), so it still serves a consumer whose read machine is the guest's own.
-
-That also explains the two earlier "inert pump" results: they were correct code with an **unmet
-precondition**. With the burst removed, `ReadS` (`cmd 0x1B`) reaches the command handler and
-`stream_active` is set, so the pump on `StGetNext` is live. Restored in `game/core/cd_stream.cpp`.
-
-**Callback targeting CONFIRMED correct:** `FUN_80086030` calls `CdReadyCallback(FUN_800860B4)`, so
-libcd's ready callback IS the streaming poller — which is exactly what `Cd::pumpStream` invokes. And
-`FUN_8008DB44`, called from inside that poller, is what marks a ring slot **ready** (status 2).
-
-**Where it stands:** exactly **10 sectors** are produced, in every configuration tried — which is the
-ring size, not a coincidence. So the producer fills the ring and stops, while the consumer reports
-nothing ready. Slot states are: 0 free, 1 wrap marker, 2 ready, 4 in use; `StGetNext` (`0x80086B10`)
-takes a 2 and marks it 4, `StFreeRing` (`0x800872AC`) returns slots to 0 and advances
-`DAT_800c151c`.
-
-**Next:** instrument the ring directly — dump the 10 slot status words plus the producer index
-(`DAT_800c1518`) and consumer index (`DAT_800c151c`) at the point the spin begins. Whether the slots
-hold 2 or 0 distinguishes "producer never marked them" from "consumer is looking at the wrong slot",
-and those need opposite fixes. Guessing between them has already cost several attempts.
+The boot now stalls in `0x8006B208` ← `0x8006B514` ← guest `main`, after loading several `.psx`
+asset files. Establish what that routine waits on before changing anything — the pattern all night
+has been that the measured cause is a third possibility, not either of the obvious two.
 
 
 ## RE-04 — Per-frame OT / packet-pool layout — `blocked` on RE-03

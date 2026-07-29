@@ -191,6 +191,15 @@ static const GameConfig g_spiderman_cfg = {
     // layout: position at +0, size at +4.
     /* cdSearchFile   */ 0x80086170u,
 
+    // cdDmaDoneCbPtr: 0x800B4394 — libcd's callback table at 0x800B4388, slot 3. Read out of the
+    // registrar at 0x8009152C, which computes `0x800B4388 + index*4` and stores its argument there;
+    // the streaming setup at 0x80086030 registers 0x8008DB44 into slot 3 through that path.
+    //
+    // 0x8008DB44 is what promotes a ring slot from "DMA in flight" (3) to "ready" (2). Measured: the
+    // ring sat with ten slots at 3 while the consumer, which only accepts 2, spun on a full ring.
+    // Nothing announced the DMA completion, because the port performs the transfer synchronously.
+    /* cdDmaDoneCbPtr */ 0x800B4394u,
+
     // --- pad driver (re-frontier: RE-05) ---
     /* padSlot0Buf    */ 0, /* padSlot1Buf */ 0, /* padDriverFn */ 0,
     /* padSlotPtrTable*/ 0,

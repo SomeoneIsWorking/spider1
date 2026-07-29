@@ -17,6 +17,7 @@
 #include "game.h"
 #include "cfg.h"
 #include "override_registry.h"
+#include <cstdio>
 
 // StGetNext(&addr, &header) — 0x80086B10. Returns 0 when it hands back a ready ring slot, non-zero
 // when none is ready. Read from its body: it takes the ring slot at DAT_800c1510 + index*0x20 when
@@ -32,6 +33,29 @@ static void spiderman_stgetnext(Core* c) {
   if (c->r[2] != 0) {
     c->game->cd.pumpStream(c, 1);
     gen_func_80086B10(c);
+  }
+
+  // `PSXPORT_DEBUG=ring` — the sector ring's actual state when the guest finds nothing ready.
+  //
+  // Two opposite faults look identical from outside: the PRODUCER never marking slots ready, and the
+  // CONSUMER reading the wrong slot. They need opposite fixes, and guessing between them has already
+  // cost several attempts. The slot status words settle it: 0 = free, 1 = wrap marker, 2 = ready,
+  // 4 = in use. If they hold 2 the producer is fine and the consumer index is wrong; if they hold 0
+  // the producer never marked them.
+  //
+  // Decimated, because this sits inside a spin loop that runs millions of times.
+  if (c->r[2] != 0 && cfg_dbg("ring")) {
+    static unsigned n = 0;
+    if ((n++ % 200000) == 0) {
+      const uint32_t base = c->mem_r32(0x800C1510u);
+      char line[256]; int o = 0;
+      for (int i = 0; i < 12 && o < (int)sizeof line - 8; i++)
+        o += snprintf(line + o, sizeof line - o, "%d ", (int)(int16_t)c->mem_r16(base + i * 0x20u));
+      cfg_logf("ring", "base=0x%08X prod=%u cons=%u d1514=%u | cb[0..4]=%08X %08X %08X %08X %08X | slots: %s",
+               base, c->mem_r32(0x800C1518u), c->mem_r32(0x800C151Cu), c->mem_r32(0x800C1514u),
+               c->mem_r32(0x800B2888u), c->mem_r32(0x800B288Cu), c->mem_r32(0x800B2890u),
+               c->mem_r32(0x800B2894u), c->mem_r32(0x800B2898u), line);
+    }
   }
 }
 
