@@ -3,8 +3,8 @@
 The orientation map: what is where, what is done, what is missing. Consult at the START of a task to
 avoid re-deriving structure; update in the SAME commit that lands or changes a subsystem.
 
-A subsystem is marked **done** only when VERIFIED on real data. Nothing is marked done to look
-better — an honest "missing" is what makes this file worth reading.
+A subsystem is marked **done** only when VERIFIED on real data, and the verification is named. Nothing
+is marked done to look better — an honest "missing" is what makes this file worth reading.
 
 ---
 
@@ -28,41 +28,57 @@ generated/           the recompiled substrate — REGENERATED, never committed, 
 tools/               provisioning + RE helpers
 cmake/               the port build definition
 docs/                this map, the RE frontier, the issue catalog, the claims/instruments ledgers
-scratch/             all run artifacts (gitignored) — logs, dumps, the extracted executable
+scratch/             all run artifacts (gitignored) — logs, dumps, screenshots, the extracted exe
 ```
 
 ## Subsystem status
 
 | Subsystem | Where | Status |
 |---|---|---|
-| Disc provisioning + static recompilation | `tools/ensure_recomp.py`, `game/recomp_seeds.json` | **done** — hash-gated; 1561 functions, 8 shards, 0 overlays, seeded only from the binary |
-| Build (framework + game + substrate) | `CMakeLists.txt`, `cmake/spiderman_port.cmake` | **done** — configures and links clean |
+| Disc provisioning + static recompilation | `tools/ensure_recomp.py`, `game/recomp_seeds.json` | **done** — hash-gated; MAIN + **30 runtime-loaded modules**, seeded only from the binary |
+| Runtime module extraction + relocation | `tools/extract_modules.py` | **done** — offline half of the guest's own loader; relocating `shell.bin` reproduces guest RAM byte-for-byte (CLAIM-08) |
+| Build (framework + game + substrate) | `CMakeLists.txt`, `cmake/spiderman_port.cmake` | **done** |
 | `GameConfig` boot/crt0 group | `game/core/game_config.cpp` | **done** — RE-verified against the crt0 at `0x8008739C` |
-| `GameConfig` everything else | `game/core/game_config.cpp` | **missing** — deliberately zero; see `docs/re-frontier.md` |
 | Generated-substrate seam | `game/core/recomp_register.cpp` | **done** |
-| `GameHooks` vtable | `game/core/game_hooks.cpp` | **done for Phase 0** — neutral where nothing is owned, fail-fast where a path is not stood up |
-| Boot spine | `game/core/main.cpp` | **done for Phase 0** — boots to the guest's own `main` on the substrate |
-| libetc `VSync` | `game/core/sync_native.cpp` | **done** — RE-verified, native, real-time-driven counter |
-| libcd `CdInit` | — | **missing** — the current stopping point (`re-frontier` RE-03) |
-| Native frame loop / OT | — | **missing** — blocked on RE-03 |
-| Scheduler | — | **missing** — blocked; the SDK task model may not apply to this engine |
-| Input | — | **missing** — framework override installed, no game buffers RE'd |
-| Renderer (native depth / wide / interpolation) | — | **not started** — `re-frontier` RE-08 |
-| Audio | — | framework SPU is up; no game-side music engine is owned |
+| `GameHooks` vtable | `game/core/game_hooks.cpp` | **done for Phase 0** |
+| Boot spine | `game/core/main.cpp` | **done for Phase 0** — the guest's own `main` runs on the substrate |
+| libetc `VSync` + field clock | `game/core/sync_native.cpp` | **done** — RE-verified; counter free-runs at 60000/1001 Hz |
+| VSyncCallback + host turn | `game/core/sync_native.cpp`, framework `host_turn.cpp` | **done** — the port owns the frame clock and dispatches the guest's per-vblank callback |
+| CD stack (stock Sony libcd) | framework `cd_override.cpp` + `GameConfig` | **done** — every CD op served natively from the disc image; retries 38 → 0 |
+| Runtime module loader (slot + routing) | `game/core/module_loader.cpp` | **done** — all 30 modules pinned to one slot, routed by name; SHELL/THUG/COP load and swap |
+| Input (pad) | `GameConfig` pad group | **done** — verified behaviourally: a forced DOWN moves the menu selection and changes the screen |
+| Memory card | `GameConfig` card group + framework `memcard.cpp` | **done** — 128 KB image created/formatted; the card check COMPLETES and the game advances |
+| Rendering (via the framework's VK path) | framework `gpu_native.cpp`, `gpu_vk.cpp` | **done for Phase 0** — the guest's own draw path reaches the screen; menu renders at 99.4% coverage |
+| Native frame loop / OT / packet pool | — | **missing** — that `GameConfig` group is deliberately zero; Phase 0 runs the guest's loop instead (RE-12) |
+| Scheduler | — | **missing** — the SDK task model may not apply to this engine (RE-13) |
+| Renderer: GTE tap → native depth / widescreen | — | **not started** (RE-08) |
+| Audio | — | framework SPU is up; **unverified** — every run so far has used `PSXPORT_NOAUDIO=1` |
+| FMV / intro movies | — | **missing** (RE-07); the boot movie the game asks for is not on this disc |
+| The framework itself | `external/psxport/` | **not this repo's subsystem** — a submodule with its own history and its own codemap. Changes to it are made here but land in that repo; consumers pin their own commit |
+| The recompiled substrate | `generated/` | **not a subsystem** — regenerated output of `tools/ensure_recomp.py`, never committed and never hand-edited. A mistranslation is fixed in the recompiler, not in its output |
 
 ## Where is X
 
 - **The RE'd guest addresses** → `game/core/game_config.cpp`, each cited with its instruction.
-- **Why a value is zero** → `docs/re-frontier.md`, by step.
+- **Why a value is zero** → `docs/re-frontier.md`, by step. Query it with
+  `RE_FRONTIER_ROADMAP=docs/re-frontier.md python3 "$CLAUDE_SKILLS/re-frontier/re_frontier.py" next`
+  — **the env var is required**, or the tool silently validates nothing (INST-14).
 - **What is proven and whether it still holds** → `docs/info/claims.md`.
 - **Whether a measurement tool can be trusted** → `docs/info/instruments.md`.
-- **A bug or a ruled-out cause** → `docs/issues/`.
+- **A bug, a ruled-out cause, or a framework wart** → `docs/issues/`.
 - **How to disassemble a guest address** → `tools/redump_ram.py`, then the framework's `disasm.py`.
-- **Why a recompiler seed exists** → `game/recomp_seeds.json` (empty by design; every entry needs a rationale).
-- **The framework's porting methodology** → `external/psxport/docs/porting-a-new-psx-game.md`.
+  **Read the disassembly, not the decompiler**, for anything control-flow or timing shaped: Ghidra has
+  twice sent this project down a wrong path (it hid that `$fp` was a global base register, and renders
+  a snapshotted wait loop as an infinite one).
+- **A picture of what the port actually draws** → `PSXPORT_SHOT_AT=<present>,...` writes
+  `scratch/screenshots/shot_<n>.ppm`. Prefer this over primitive counters: counters say the pipeline
+  moved data, only an image says what a player sees.
+- **Driving the game without a controller** → `PSXPORT_FORCE_BUTTONS=<hex active-low mask>`
+  (`0040` DOWN, `4000` CROSS, `0008` START).
 
 ## Current state in one line
 
-The port provisions, recompiles, builds, and boots: crt0 → the guest's `main` → graphics init → and
-stops in the game's own disc-init retry loop, because libcd `CdInit` has not been reverse-engineered
-yet. No hacks stand in for that; it hangs honestly.
+The port provisions, recompiles, builds, boots, loads and rotates its 30 runtime code modules,
+renders, and responds to input: **main menu → memory-card check → new game → name entry**, all drawn
+correctly and driven by pad input. It stops on an unmapped read at `0x80800004` when advancing
+further — one address past the mirrored 8 MB window, walking upward off the stack top (RE-16).

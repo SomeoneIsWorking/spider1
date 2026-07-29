@@ -1110,6 +1110,35 @@ so a later match OVERWRITES an earlier one — success was set, then replaced by
 
 ---
 
+### RE-16 — Unmapped read at the top of RAM blocks gameplay entry
+- status: in-progress
+- deps: RE-15
+
+**The current stopping point.** Advancing past the name-entry screen (forced CROSS) fail-fasts:
+
+    FATAL: UNMAPPED RAM read8 @ 0x80800004 (phys 0x00800004)
+    guest: last-fn-entered=0x8008B910 (NOT the faulting pc) ra=0x80064CA4 sp=0x807FFD88
+    args : a0=0x000000F5 a1=0x800BD748 a2=0x60FF0000 a3=0x03FFFFFF v0=0x807FFFFC
+    temps: t0=0x807FFD98 t1=0x00FF0000 t2=0x000000A0 t3=0x800B557C s0=0x807FFFFA s1=0x807FFDD0
+
+`0x00800004` is the FIRST address past the mirrored 8 MB window `host_ptr` maps, and `s0`/`v0` sit
+within 8 bytes of the stack top (`0x807FFFF8`) — so something is walking UPWARD off the top of the
+stack. That is the signature of a string walk with no terminator, which on hardware would alias
+around the mirror and eventually find a zero.
+
+**The obvious suspect is not confirmed.** The BIOS libc string leaves added in RE-14 (`strcmp`,
+`strncmp`, `strcpy`, `strlen`) each walk byte-by-byte until NUL and would produce exactly this. But
+`a0 = 0x000000F5` is not a pointer, so the register set may not match a string call at all. Confirm
+or refute before fixing.
+
+**Do not widen the memory mask or clamp a length to make it pass.** The two honest answers demand
+different fixes: if the PSX address space genuinely wraps at 8 MB, `host_ptr` should model that with
+a hardware justification; if the guest relies on mirror aliasing to terminate a walk, the port needs
+to decide what to do that is not a crash and not a silent discard. Reproduce with
+`PSXPORT_FORCE_BUTTONS=4000`.
+
+---
+
 ### RE-07 — Intro FMV / front-end
 - status: todo
 - deps: RE-04
