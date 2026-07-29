@@ -1083,33 +1083,30 @@ stale `$v0` is exactly the "fabricate behaviour so it looks like it works" patte
 ---
 
 ### RE-15 — Memory card
-- status: re-partial
+- status: re-verified
 - deps: RE-06
-- evidence: card device opens and formats (scratch/saves/spiderman.mcr, 1024 frames / 128 KB); the guest reaches its card flow and polls A0:0xAB 214 times in 60s; the "CHECKING MEMORY CARD" screen does NOT complete
+- evidence: card image created and formatted (scratch/saves/spiderman.mcr, 128 KB); the card check COMPLETES and the game advances through new-game into its name-entry screen
 
-**Wired, and the device is real.** The BIOS dispatch already ROUTED libcard calls
-(`hle.cpp` -> `card_hle_a0`/`card_hle_b0`), but nothing opened the device — `card_overrides_init` was
-never called by this port, so the card was simply absent. It is now installed from
-`spiderman_registerOverrides`, and a 128 KB card image is created and formatted on first run.
+**Wired, and the completion bug found.** The BIOS dispatch already routed libcard calls, but nothing
+opened the device — `card_overrides_init` was never called by this port. It is now installed from
+`spiderman_registerOverrides`, with this port's own `cardEnvVar` / `cardDefaultPath` so saves cannot
+land in the reference game's card file.
 
-**Not finished: which SwCARD event spec THIS game treats as completion is not established.** The
-guest opens class `0xF4000001` (SwCARD) with **three** specs:
+**The reason it hung was a framework bug, not a gap here.** `Memcard::deliverComplete` fired SwCARD
+spec `0x8000` alongside `0x0004`, on a comment calling `0x8000` "SUCCESS". `0x8000` is conventionally
+`EvSpERROR`. This game's card-status routine at `0x80015300` TestEvents all four opened specs IN
+ORDER, writing a status code each time one fires, with no early exit:
 
-    B0:0x08(0xF4000001, 0x00008000)
-    B0:0x08(0xF4000001, 0x00002000)
-    B0:0x08(0xF4000001, 0x00000100)
+    TestEvent(0x0004) -> 1 (I/O end)   TestEvent(0x8000) -> 2 (error)
+    TestEvent(0x0100) -> 3             TestEvent(0x2000) -> 4
 
-`Memcard::deliverComplete` fires `0x8000` and `0x0004`. So `0x2000` and `0x0100` are never delivered,
-and `0x0004` is one the game never opened. The handler already returns `v0 = 1` and delivers, yet the
-guest keeps polling `A0:0xAB` — so it is waiting on a spec that never arrives.
+so a later match OVERWRITES an earlier one — success was set, then replaced by error, every time.
 
-**Do NOT just deliver all three.** `0x8000` is conventionally `EvSpERROR`; the framework labels it
-"SUCCESS" because that is what the reference consumer's flow wanted. Firing every spec would, on that
-reading, be announcing a card FAULT as well as a completion, and would be a guess dressed as a fix.
+    python3 external/psxport/tools/disasm.py scratch/bin/spiderman/ram.bin 0x80015300 0x80015370
 
-*Next step, and it is RE not guesswork:* disassemble the guest's card wait loop (the caller of
-`A0:0xAB`, reachable from the memory-card screen) and read which event it tests with `TestEvent`.
-That names the completion spec directly, the same way the `VSync: timeout` string named RE-02.
+*Note for the next session:* `OpenEvent` returns a DESCRIPTOR (`0xF1000000`+n), not the class, so a
+`TestEvent` log showing `0xF10000xx` is testing card events. That cost a detour.
+
 
 ---
 
