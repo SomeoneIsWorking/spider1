@@ -291,7 +291,7 @@ the SECOND problem, and fixing it alone changed nothing.
 **The primary cause was that the tool was reading a file that does not exist.** `ROADMAP` defaults to
 `<parent-of-script>/docs/re-frontier.md`, which is correct only when the tool lives at
 `<repo>/tools/`. Running from the global skill dir it resolved to
-`<claude-dir>/skills/docs/re-frontier.md` — a path that never exists. And `load()` opened with
+`<skills-dir>/docs/re-frontier.md` — a path that never exists. And `load()` opened with
 
     if not os.path.exists(ROADMAP):
         return {}, []
@@ -301,7 +301,7 @@ over nothing. That silent early-return is the worst failure a validator can have
 the output uniform.
 
 *Fixed, in both places:*
-- the skill (`<claude-dir>/skills/re-frontier/re_frontier.py`) now **exits non-zero** with the path it
+- the global `re-frontier` skill now **exits non-zero** with the path it
   looked for and the `RE_FRONTIER_ROADMAP` override to set — the early-return is deleted;
 - this project's `docs/re-frontier.md` is converted to the machine-readable schema, with duplicate
   IDs resolved (`RE-03` appeared three times, `RE-04`/`RE-05` twice each on *different* topics —
@@ -310,7 +310,7 @@ the output uniform.
 
 **Invoke it with the path — the bare command is still wrong for this repo:**
 
-    RE_FRONTIER_ROADMAP=docs/re-frontier.md python3 <claude-dir>/skills/re-frontier/re_frontier.py check
+    RE_FRONTIER_ROADMAP=docs/re-frontier.md python3 "$CLAUDE_SKILLS/re-frontier/re_frontier.py" check
 
 *Validated, and it can now show the OTHER answer — which is the whole bar:* with no roadmap it exits
 1 and says so; with the roadmap it rendered the full dependency tree, listed 5 RE-ready steps, and

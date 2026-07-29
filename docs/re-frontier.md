@@ -1047,6 +1047,34 @@ as designed.
 
 ---
 
+### RE-14 — BIOS libc string leaves
+- status: re-verified
+- deps: RE-01
+- evidence: 0x80097D10 holds 0x1C001D00 in the load image (never written); font entry 0's name field at 0x80097BBC is all-zero .bss; 0x80084E20 is the A(17h) stub. After implementing 0x17/0x18/0x19/0x1B: 0 FATAL, 0 UNIMPL, module rotation reaches COP, ~1560 frames in 40s
+
+**An unhandled BIOS call returns WITHOUT writing `$v0`**, so the guest consumes a stale value as this
+call's result. For a libc leaf that is indistinguishable from a wrong answer, and it corrupts
+silently.
+
+The font registry `FUN_8001AF74` linear-searches a name table with A(17h) `strcmp` and, on the
+no-match fall-through, stores `index == count` — one PAST the last entry. With `strcmp` inert the
+match was impossible, the index climbed to 8, and the text-metrics routine read
+`0x80097BBC + 8*0x28 + 0x14` = `0x80097D10` — off the end of the font table, inside an unrelated u16
+constant table — and dereferenced the constant `0x1C001D00` as a pointer. A(19h) `strcpy` being inert
+compounded it: the names were never copied in, so there was nothing to match anyway.
+
+Measured per boot before the fix: A(1Bh) ×355, A(17h) ×105, A(19h) ×8.
+
+**Not patched: the guest's own out-of-range store.** `FUN_8001AF74` storing `index == count` on a
+failed lookup is correct-by-precondition on hardware, where the name always matches. Clamping it
+would have been the bandaid that hid the real cause.
+
+*The general lesson, now enforced in code:* `rec_dispatch_miss` fails fast for the A-table libc range
+rather than logging `UNIMPL` and continuing. A BIOS call that silently does nothing and returns a
+stale `$v0` is exactly the "fabricate behaviour so it looks like it works" pattern this project bans.
+
+---
+
 ### RE-07 — Intro FMV / front-end
 - status: todo
 - deps: RE-04

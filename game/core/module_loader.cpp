@@ -48,6 +48,7 @@
 #include "core.h"
 #include "game.h"
 #include "cfg.h"
+#include <stdlib.h>   // abort() — the oversize-module fail-fast
 #include "game_iface.h"
 #include "override_registry.h"
 #include "overlay_table.h"   // generated: g_rec_overlays — the substrate's OWN module bases
@@ -151,12 +152,25 @@ void alloc(Core* c) {
   if (inLoad && s_depth == 1 && seq == 2 && s_slot) {
     const uint32_t size = c->r[4];
     if (size > kSlotSize) {
-      cfg_loge("module", "module body wants %u bytes but the slot is %u — refusing. Raise kSlotSize "
-                         "and re-run tools/ensure_recomp.py so every module is re-emitted at the "
-                         "slot base; a short slot would overflow into the next heap block.",
+      // FATAL, not a zero return. This used to set $v0 = 0 "because the loader checks for 0 and
+      // bails" — it does NOT. Disassembly of the allocation site:
+      //   8001BA90  jal   0x800651c8      ; the allocation
+      //   8001BA94  addiu $a2, $zero, 1   ; (delay slot)
+      //   8001BA98  move  $a0, $v0        ; <- straight into the read, NO branch on $v0
+      //   8001BA9C  jal   0x80064d28      ; read the .bin into it
+      //   8001BAA0  sw    $v0, 4($s1)     ; and store it as the module base
+      // so a 0 return makes the game DMA a module to guest address 0 and later `jalr` through it.
+      // The margin is zero, which is why this matters: shell.bin sector-rounds to exactly 114688,
+      // the current kSlotSize. One more sector and this path fires.
+      //   python3 external/psxport/tools/disasm.py scratch/bin/spiderman/ram.bin 0x8001BA90 0x8001BAA8
+      cfg_loge("module", "\nFATAL: module body wants %u bytes but the slot is %u — fail-fast.\n"
+                         "  Raise kSlotSize and re-run tools/ensure_recomp.py so every module is "
+                         "re-emitted at the slot base.\n"
+                         "  Continuing is not an option: the loader does not check the allocation "
+                         "result, so a short slot would be written past its end.",
                size, kSlotSize);
-      c->r[2] = 0;                       // the loader checks for 0 and bails
-      return;
+      fflush(stderr);
+      abort();
     }
     cfg_logf("module", "body %u bytes -> slot 0x%08X (guest heap allocation bypassed)", size, s_slot);
     c->r[2] = s_slot;

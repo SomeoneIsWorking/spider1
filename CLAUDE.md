@@ -14,7 +14,7 @@ progress to `docs/re-frontier.md`, proven results to `docs/info/`.
 
 1. `docs/re-frontier.md` — work the step that is `next`, not a downstream one. Query it with
 
-       RE_FRONTIER_ROADMAP=docs/re-frontier.md python3 <claude-dir>/skills/re-frontier/re_frontier.py next
+       RE_FRONTIER_ROADMAP=docs/re-frontier.md python3 "$CLAUDE_SKILLS/re-frontier/re_frontier.py" next
 
    **The env var is required.** Without it the skill resolves its roadmap relative to its own
    directory, which is only correct when the tool lives at `<repo>/tools/` — see `docs/info/`
