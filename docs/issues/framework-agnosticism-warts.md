@@ -343,6 +343,21 @@ invites a hunt for the bug that produced it, when it is a legal mirrored access.
 
 *Fix:* mask main-RAM accesses to the 2 MB window (`addr & 0x1FFFFF`) across the whole `0x80000000..
 0x807FFFFF` KSEG0 range rather than treating the upper mirrors as unmapped, and keep the loud
-diagnostic for addresses genuinely outside RAM. Not fixed from here yet: it changes the framework's
-memory model for every consumer, and this port has not yet needed a mirrored access to be CORRECT —
-only to stop being reported as an error. Establish that need first.
+diagnostic for addresses genuinely outside RAM.
+
+**ESCALATED 2026-07-29 — this is now load-bearing, and it is the current boot blocker.** The
+"establish that need first" caveat above is satisfied. Once the module slot and the back-edge gate let
+boot run on, the guest's allocator walks past 2 MB and the port starts discarding real accesses
+(`UNMAPPED RAM read8 @ 0x81525D7C` and thousands like it — a 1 GB log in 90 s). Because discarded
+writes read back as zero, data structures rot silently rather than failing, and the observed end state
+is the module loader being called with a **garbage name string** — a pointer that was corrupted long
+before it was used.
+
+*Open question that must be answered before "fix" means anything:* on real hardware those addresses
+ALIAS onto low RAM (`0x01525D7C & 0x1FFFFF`), which would corrupt the game's own low memory just as
+surely — so a retail console running this code would also break. That means the port is probably
+allocating far MORE than the real game does, and mirroring would merely convert a loud discard into a
+silent aliasing corruption. **Find out why the heap is being driven past 2 MB before implementing
+mirroring**; a candidate is the fictional 7.5 MB heap crt0 computes from the devkit stack-top constant
+(`*0x800B3E70 = 0x00800000`), which means the allocator never refuses a request the way hardware
+effectively would.
