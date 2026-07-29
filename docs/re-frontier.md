@@ -21,8 +21,16 @@ commit that changes a step.
 ## RE-00 — Provision + statically recompile the executable — `re-verified`
 
 The disc carries ONE executable (`SLUS_008.75`, booted directly by `SYSTEM.CNF`), the packed archive
-`CD.WAD`, `COMPILED.XA`, and the `CINEMAS/*.STR` movies. There are **no overlay modules** — confirmed
-both by the ISO tree (`discdump list`) and by the recompiler reporting `0 overlay module(s)`.
+`CD.WAD`, `COMPILED.XA`, and the `CINEMAS/*.STR` movies. There are **no overlay module FILES** —
+confirmed both by the ISO tree (`discdump list`) and by the recompiler reporting `0 overlay
+module(s)`.
+
+**Qualified 2026-07-29, and the distinction matters:** "no overlay files" is NOT "all code is in the
+executable". Boot now reaches a `rec_dispatch` MISS on **`0x8014D5AC`**, which is past this
+executable's text end (`0x80010000 + 0xB6800 = 0x800C6800`) — so the game loads CODE at runtime,
+presumably out of `CD.WAD`, into an address the static recompiler never saw. The original sentence
+here was true about the ISO layout and was quietly read as a stronger claim about code coverage than
+it supports. See RE-09.
 
 `tools/ensure_recomp.py` extracts the executable and runs the framework recompiler, hash-gated on the
 inputs so every machine builds an identical substrate.
@@ -626,7 +634,7 @@ hypotheses.
 
 ---
 
-## RE-05 — Input buffers RE'd; the stall is now the **vblank callback** — `re-partial`
+## RE-05 — Input buffers + the host-turn seam — `re-verified`
 
 The stall after `ring.psx` is not a loading failure. `0x8006B514` is the **pad-polling** routine and
 `0x8006B208` is its per-button **edge detector** — the masks handed to it are the standard PSX bits
@@ -693,12 +701,51 @@ Incidentally this corroborates the buffer address a third time from the *runtime
 initialises exactly `0x800A50EC`/`0x800A510E` with the no-pad marker at byte `+0`, which is the
 framework's `buf[0]` status contract.
 
-**This is an architecture question, not an RE gap.** `native_boot_run` calls the guest entry once and
-the guest runs this whole boot as one straight-line call, so the framework's native per-frame loop
-never gets a turn while the guest spins. There is currently no point at which the host can advance
-time during a guest busy-wait. `Timing::vsyncCallback()` exists but is a no-op that discards the
-pointer, and is registered nowhere. Choosing the yield seam is the next step; it must not become
-interrupt emulation (project directive) and must not be paced by an arbitrary call-count quantum.
+**RESOLVED 2026-07-29 — `re-verified`.** `native_boot_run` calls the guest entry once and this boot
+never returns, so the framework's native per-frame loop got no turn while the guest spun. The fix is
+a generic **host turn** in the framework (`external/psxport/runtime/recomp/host_turn.cpp`), taken at
+the same call-coherent recompiled-function-entry boundary interrupt delivery already used:
+
+- `Core::pending_work` replaces `irq_pending` as a named bit word (`PW_IRQ` / `PW_HOST`), so the hot
+  path is still ONE load-and-test however many kinds of deferred work exist (`core.h`, `emit.py`).
+- A timer thread sets `PW_HOST` on the field clock. It touches nothing but that flag word; the turn
+  itself is taken by the guest thread at a clean boundary, with full `R3000` save/restore and the
+  same `override_tgt`/`coro_redirect_pc` transient check `Hle::irqPoll` makes.
+- The port registers the handler at RUNTIME (`rec_host_turn_register`) — no `GameConfig` field, so
+  this cannot disturb any consumer's positional initialiser.
+- `0x8008B8CC` (VSyncCallback) is HLE'd to capture the pointer; `vblank_advance` dispatches it once
+  per owed field, so the libetc counter, the guest callback, the present and the pace all hang off
+  ONE crossing detector and cannot drift apart.
+
+**The pacing is not a magic number, and that was the trap worth avoiding.** The alternative — a turn
+every N recompiled calls — needs an N with no ground truth in the game or the hardware, so it could
+only be chosen by tuning until the symptom disappeared, and it would couple the guest's sense of TIME
+to its CALL DENSITY. There is no such constant: the arming interval affects only how promptly a turn
+is taken, while the number of fields owed is always `elapsed × 60000/1001`, the NTSC field rate
+already cited in `sync_native.cpp`.
+
+**Why dispatching the callback is not the banned interrupt emulation:** no `I_STAT`/`I_MASK`, no BIOS
+interrupt-element chain, no controller state. The port owns the field clock and announces each field
+by invoking the callback the guest itself registered — the same shape as the CD layer's
+`cdDmaDoneCbPtr`. It also cannot be shortcut by bumping `0x800B5468` natively: `0x8005E510` does real
+per-vblank work besides that counter (calls `0x800646AC`, patches GPU packets, runs a 5-slot rotation
+on an 8-vblank period), so fabricating the counter would leave the game running on a lie.
+
+**Verified, and the prediction held.** The prediction recorded before the fix was that ONE yield
+point would clear BOTH symptoms. It did:
+
+- the title-wait loop now terminates and boot proceeds past `FUN_8006BF9C` — the watchdog backtrace
+  moved to a different phase entirely (`8002C354 -> 8001B990`);
+- pad-buffer writes over one run went **4 -> 1,660** (`PSXPORT_WWATCH=0x800A50EC,0x800A50F0`),
+  i.e. `Pad::serviceFrame()` now actually fills the buffer.
+
+*Expires if:* a future measurement shows the guest's `0x800B5468` and libetc's `0x800B397C` drifting
+apart, which would mean a second clock crept back in.
+
+*Deliberate policy, recorded rather than buried:* the callback is dispatched once per OWED field, not
+coalesced. Hardware would coalesce (the VBlank `I_STAT` bit is a latch), but this game derives its
+timing from the callback's own counter, so coalescing would under-report elapsed time under load. A
+backlog over 16 fields is capped WITH a warning, never silently.
 
 ---
 
@@ -732,6 +779,36 @@ What is NOT yet demonstrated is that input *reaches the game*: the packet is wri
 frame, but the guest's consumer `0x8006B27C` runs off a vblank-callback timebase that is currently
 frozen (RE-05). Until that is unblocked, "input works" cannot be measured — do not mark this step
 verified on the buffer addresses alone.
+
+---
+
+## RE-09 — Runtime-loaded code (`CD.WAD`) — `next`
+
+**The current boot blocker, and the first one that is not a stub or a seam.** Boot now proceeds
+through pad init, the title wait, and into `FUN_8002C354 -> FUN_8001B990`, where it aborts:
+
+    [hle:warn] [recomp-MISS 0] no recompiled fn for 0x8014D5AC
+               (caller ra=0x8001BB20, a0=0x80149D34, c->pc=0x80064FA0)
+
+`0x8014D5AC` is above this executable's text (`0x800C6800`), so it is code the game LOADED at
+runtime — the static recompiler has no entry for it and fails fast rather than fabricating a call.
+That fail-fast is the framework behaving correctly; the missing work is real RE.
+
+The call is indirect and table-driven: `[miss-node s0] +0x1c(handler)=0x00016090` is an OFFSET, not
+an address, which points at a relocatable module loaded at a base — `0x8014D5AC - 0x16090` gives a
+candidate base of `0x801,3751C`. Establish the loader first (who reads `CD.WAD` into `0x8014xxxx`,
+and what the module's header looks like) rather than guessing the base from one sample.
+
+Open questions, in order:
+1. Which routine loads it, and from where in `CD.WAD`? `0x80064FA0` is the live `c->pc` at the miss.
+2. Is it one module or several? RE-00's `0 overlay module(s)` means the recompiler was never told.
+3. Can the recompiler take it as an additional input (the framework already has an overlay-table
+   concept, `generated/overlay_table.c`, currently empty), or does it need a hybrid interpreter path?
+
+**Do NOT stub the call to get past it.** A fabricated return here would make a broken port look like
+it boots, which is exactly the debt the `⛔ hack` list exists to prevent.
+
+    scratch/raw/miss_ram.bin        # 2 MB RAM dump written at the miss, base 0x80000000
 
 ---
 

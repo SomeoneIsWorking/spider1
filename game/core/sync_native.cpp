@@ -58,6 +58,45 @@
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
 static constexpr uint32_t kVSync        = 0x80084BE0u;
 static constexpr uint32_t kVblankCount  = 0x800B397Cu;
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+// VSyncCallback — the registrar, and why the port must invoke what it registers.
+//
+//   8008B8CC  addiu $sp,$sp,-0x18
+//   8008B8D0  lui   $v0,0x800b
+//   8008B8D4  lw    $v0,0x390c($v0)     ; libapi's hook-installer table (*0x800B390C)
+//   8008B8D8  move  $a1,$a0             ; a1 = the callback the caller passed
+//   8008B8E0  lw    $v0,0x14($v0)       ; table[+0x14] = the installer
+//   8008B8E8  jalr  $v0
+//   8008B8EC  addiu $a0,$zero,4         ; a0 = 4 (selector), in the delay slot
+//
+//   python3 tools/redump_ram.py
+//   python3 external/psxport/tools/disasm.py scratch/bin/spiderman/ram.bin 0x8008B8CC 0x8008B900
+//
+// The selector is hardcoded to 4, so this wrapper is specifically VSyncCallback and hooking it
+// captures only per-vblank registrations — narrower, and therefore safer, than hooking the shared
+// installer the table points at.
+//
+// WHAT THE CALLBACK ACTUALLY DOES, and why the port must not shortcut it. The game registers
+// 0x8005E510. Its first act is `gp+0xC74 += 1`, and with gp = 0x800B47F4 that address is 0x800B5468
+// — exactly the counter the boot's title-wait loop in 0x8006BF9C tests against +300. It is very
+// tempting to conclude the host "already knows" that value and to bump it natively. That would be a
+// bandaid: the same routine also calls 0x800646AC, conditionally patches GPU packets, maintains a
+// 5-slot rotation on an 8-vblank period, and conditionally calls 0x8005E234. Fabricating the counter
+// would skip all of it and leave the game running on a lie. The correct unit of work is to dispatch
+// the callback the guest registered — the port owns WHEN a field happens, the guest still owns what
+// happens on one.
+//
+//   python3 external/psxport/tools/disasm.py scratch/bin/spiderman/ram.bin 0x8005E510 0x8005E5A0
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+static constexpr uint32_t kVSyncCallback = 0x8008B8CCu;
+
+// NTSC field rate in milli-hertz: 60000/1001 Hz. Same hardware fact the counter derivation below
+// uses — stated once, in the units rec_host_turn_register wants.
+static constexpr unsigned kFieldRateMilliHz = 59940u;
+
+// The callback the guest registered, or 0 if it has not called VSyncCallback yet.
+static uint32_t s_vsync_cb = 0;
 static constexpr uint32_t kGpuStatPtr   = 0x800B0FA0u;
 static constexpr uint32_t kHCounterPtr  = 0x800B0FA4u;
 static constexpr uint32_t kHBaseline    = 0x800B0FA8u;
@@ -135,6 +174,62 @@ static void vblank_advance(Core* c) {
     }
   }
   c->mem_w32(kVblankCount, fields);
+
+  // Announce each elapsed field to the guest by invoking the callback it registered. This is the
+  // ISR's OTHER job, and the one that was missing: advancing the counter told the guest that time
+  // had passed, but the game's own per-vblank work (and its own counter, 0x800B5468) only happens
+  // inside the callback.
+  //
+  // Once per OWED field, not once per turn. Hardware would coalesce — the VBlank I_STAT bit is a
+  // latch, so a guest with interrupts masked across N fields gets one ISR pass — but this game
+  // derives its timing FROM the callback's own counter, so coalescing would make that counter report
+  // less time than really elapsed and every animation paced by it would run slow under load. The
+  // callback is cheap; dispatching each field keeps the guest's clock honest. Recorded as a
+  // deliberate policy choice, not an oversight, in case a heavyweight callback later argues for the
+  // hardware behaviour instead.
+  if (!s_vsync_cb) return;
+
+  // Re-entrancy: the callback runs guest code, and guest code can call VSync, which lands back here.
+  static bool in_cb = false;
+  if (in_cb) return;
+
+  uint32_t owed = fields - cur;
+  // A very large backlog means the process was descheduled or a native step blocked for a long time.
+  // Dispatching thousands of callbacks would stall far worse than the gap itself. Cap it, and SAY
+  // so — a silent cap here would look exactly like the game's timing quietly drifting.
+  static constexpr uint32_t kMaxCallbackCatchup = 16;
+  if (owed > kMaxCallbackCatchup) {
+    cfg_logw("vsyncsb", "%u field(s) owed at once — dispatching %u and dropping the rest. The "
+                        "guest's per-vblank counter will lag real time by the difference.",
+             owed, kMaxCallbackCatchup);
+    owed = kMaxCallbackCatchup;
+  }
+
+  in_cb = true;
+  for (uint32_t i = 0; i < owed; ++i) {
+    const R3000 saved = *static_cast<R3000*>(c);
+    rec_dispatch(c, s_vsync_cb);
+    *static_cast<R3000*>(c) = saved;
+  }
+  in_cb = false;
+}
+
+// 0x8008B8CC VSyncCallback(fn) — capture the pointer; the port invokes it on the field clock.
+static void spiderman_vsync_callback(Core* c) {
+  const uint32_t fn = c->r[4];
+  if (fn != s_vsync_cb)
+    cfg_logi("sync", "VSyncCallback: guest registered 0x%08X (was 0x%08X)", fn, s_vsync_cb);
+  s_vsync_cb = fn;
+  c->r[2] = 0;   // the guest wrapper's caller discards the return; 0 is the benign value
+}
+
+// One host turn: advance the field clock (which presents, and announces each field to the guest),
+// then service input. Both were previously reachable ONLY from the native frame loop, which never
+// runs while the guest executes a straight-line boot — the single cause behind both the frozen
+// vblank counter and the never-filled pad buffer (docs/re-frontier.md RE-05).
+static void spiderman_host_turn(Core* c) {
+  vblank_advance(c);
+  c->game->pad.serviceFrame();
 }
 
 static void spiderman_vsync(Core* c) {
@@ -209,6 +304,12 @@ static void spiderman_vsync(Core* c) {
 void spiderman_install_sync_natives(Game* g) {
   g->platform_hle.register_(kVSync, spiderman_vsync);
   cfg_logi("sync", "native VSync installed at 0x%08X (libetc, RE-verified)", kVSync);
+  g->platform_hle.register_(kVSyncCallback, spiderman_vsync_callback);
+  cfg_logi("sync", "native VSyncCallback installed at 0x%08X (libapi, RE-verified)", kVSyncCallback);
+  // Give the host a turn at recompiled-function entry on the field clock. Without this the guest's
+  // straight-line boot never yields, so neither the registered vblank callback nor the pad fill can
+  // run — see host_turn.cpp for why the pacing here is a hardware fact and not a tunable.
+  rec_host_turn_register(&g->core, spiderman_host_turn, kFieldRateMilliHz);
   // Not yet RE'd for this game, and so deliberately NOT registered: CdReadSync / CdDataSync / the
   // low-level CdInit handshake / the libgpu DMA-timeout pair / the cooperative task-switch funnel.
   // Each is an open step in docs/re-frontier.md. A caller that spins in one of them will hang, and
