@@ -25,6 +25,7 @@ set(GAME_SRC
   game/core/game_hooks.cpp        # the GameHooks vtable
   game/core/recomp_register.cpp   # the generated-substrate seam
   game/core/sync_native.cpp       # RE'd PSX hardware-sync primitives (libetc VSync)
+  game/core/cd_stream.cpp         # continuous-read (XA/STR) pump, driven from StGetNext
   game/core/diag_overrides.cpp)   # observe-only overrides (log + super-call), channel-gated
 
 # ---- the recompiled substrate -----------------------------------------------------------------

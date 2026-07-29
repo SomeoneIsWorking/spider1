@@ -644,27 +644,35 @@ The three attempts, recorded so none is repeated:
 3. Both rested on the same unchecked assumption — that streaming starts with a `ReadN` through the
    command path. Checking that first would have skipped all three.
 
-**Two findings from a watchdog-disabled run, both new and both concrete:**
+**RULED OUT — the missing movie is handled correctly.** `0x8002A858` is the movie-table
+initialiser: it walks all 24 entries, calls `CdSearchFile` on each, and on failure simply marks that
+entry unavailable (`*piVar3 = 0`). `TTSLOGO.STR` is in the executable's table but genuinely absent
+from the retail disc, so the lookup failing is faithful and the game copes. Not the blocker.
 
-1. **The game asks for a movie that is not on the disc.** `CdSearchFile('/CINEMAS/TTSLOGO.STR;1')`
-   fails — and correctly so: the executable's movie table lists `ATVILOGO`, `LOGO`, `TTSLOGO`, but
-   the retail disc contains only the first two (`discdump list` finds no `TTSLOGO`). So the failure
-   is faithful, and the RETAIL GAME must handle it. What this port does after the failed lookup is
-   the open question.
-2. **The stream IS being driven, to the bound.** `stock read did not terminate after 65536 sectors —
-   the guest never issued Pause/Stop`. So the ready callback is pumped 65536 times by
-   `cd_drive_stock_read` and the guest never ends the read. That contradicts the earlier reading that
-   the pump had no trigger — under this configuration `ReadN` does reach the command handler.
+**FIXED — the file-read burst was wedging the boot.** `cd_drive_stock_read` drives a FINITE read's
+per-sector callback to completion. Once `CdRead` is served natively a finite read never issues
+`ReadN`, so every `ReadN` arriving at the command handler is a CONTINUOUS read — which has no end for
+the burst to reach. It ran away to its 65536-sector bound. Now gated on `cfg->cdReadStock` (psxport
+`2c94b77b`), so it still serves a consumer whose read machine is the guest's own.
 
-With the watchdog disabled the port runs ~90 s without advancing past `sfx.vab`, and the log stops
-growing entirely, so it is genuinely wedged rather than slow.
+That also explains the two earlier "inert pump" results: they were correct code with an **unmet
+precondition**. With the burst removed, `ReadS` (`cmd 0x1B`) reaches the command handler and
+`stream_active` is set, so the pump on `StGetNext` is live. Restored in `game/core/cd_stream.cpp`.
 
-**Next, in order:** follow what the guest does after the failed `TTSLOGO` lookup — that is a real
-code path the retail game exercises on every boot, and getting it wrong wedges the intro sequence
-regardless of how well the CD works.
+**Callback targeting CONFIRMED correct:** `FUN_80086030` calls `CdReadyCallback(FUN_800860B4)`, so
+libcd's ready callback IS the streaming poller — which is exactly what `Cd::pumpStream` invokes. And
+`FUN_8008DB44`, called from inside that poller, is what marks a ring slot **ready** (status 2).
 
-**`Cd::pumpStream` is retained** in the framework: the mechanism is correct for a consumer whose
-streaming does go through the command path, and it costs nothing while inactive.
+**Where it stands:** exactly **10 sectors** are produced, in every configuration tried — which is the
+ring size, not a coincidence. So the producer fills the ring and stops, while the consumer reports
+nothing ready. Slot states are: 0 free, 1 wrap marker, 2 ready, 4 in use; `StGetNext` (`0x80086B10`)
+takes a 2 and marks it 4, `StFreeRing` (`0x800872AC`) returns slots to 0 and advances
+`DAT_800c151c`.
+
+**Next:** instrument the ring directly — dump the 10 slot status words plus the producer index
+(`DAT_800c1518`) and consumer index (`DAT_800c151c`) at the point the spin begins. Whether the slots
+hold 2 or 0 distinguishes "producer never marked them" from "consumer is looking at the wrong slot",
+and those need opposite fixes. Guessing between them has already cost several attempts.
 
 
 ## RE-04 — Per-frame OT / packet-pool layout — `blocked` on RE-03

@@ -41,11 +41,13 @@ static void spiderman_bootInit(Core* c) {
 
 // ── neutral ─────────────────────────────────────────────────────────────────────────────────────
 extern void spiderman_install_diag_overrides(Game*);   // game/core/diag_overrides.cpp
+extern void spiderman_install_cd_stream(Game*);       // game/core/cd_stream.cpp
 
 static void spiderman_registerOverrides(Game* g) {
   // No native BEHAVIOUR overrides exist yet — this port owns no game function. The only thing
   // installed here is diagnostic, and only when its channel is on: a wrapper that logs and then
   // super-calls the original body, so a run with it enabled executes what a run without it does.
+  spiderman_install_cd_stream(g);   // continuous-read (XA/STR) pump — see that file
   spiderman_install_diag_overrides(g);
 }
 
