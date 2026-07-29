@@ -291,6 +291,15 @@ Why it reported zero earlier is **not established**. The likeliest candidates ar
 framework change to the per-guest-write path, or a flaw in my original test. Recorded as unresolved
 rather than guessed. Validate before relying on it — but expect it to work.
 
+*Discrimination re-validated 2026-07-29 — it can show the OTHER answer.* The strongest check yet, and
+it came free: within the same binary and the same boot, the watch reports **62,114 hits** on
+`0x800A5130` (the game's per-frame pad mirror) and **4 hits** on `0x800A50EC` (the libpad buffer,
+written only by init). A blind instrument returning a uniform answer cannot produce those two numbers
+from the same run. It also attributes them to *different* writers (`0x8006B3C8` vs `0x80091330`),
+which a stuck instrument could not do either. This is the "must be able to report the other answer"
+bar, met on real data rather than on a synthetic probe — treat the tool as trusted for both
+directions, including the negative ("nothing writes this").
+
 *The original (incorrect) reasoning, kept because the discipline was right even though the verdict
 was wrong:* it reported **zero hits on an address that is written continuously**. Armed
 over the vblank counter `0x800B397C..0x800B3980` — which this port's own native VSync writes on every

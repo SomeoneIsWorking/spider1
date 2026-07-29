@@ -676,6 +676,23 @@ under `gen_func_8006BF9C`.
     python3 external/psxport/tools/disasm.py scratch/bin/spiderman/ram.bin 0x8008B8CC 0x8008B900
     python3 external/psxport/tools/disasm.py scratch/bin/spiderman/ram.bin 0x8005E510 0x8005E5A0
 
+### One root cause, not two — measured
+
+A store watch over the buffer confirms it:
+
+    PSXPORT_WWATCH=0x800A50EC,0x800A50F0 PSXPORT_WATCHDOG=0 ./scratch/bin/spiderman_port
+
+**4 writes in the whole run**, all `pc=0x80091330 ra=0x8008B098` — libpad's own init writing `0xFF`
+at `+0`/`+2` for both slots (i.e. "no pad"). `Pad::serviceFrame()` **never writes the buffer at
+all**. That is the same failure as the frozen counter: `serviceFrame()` and the vblank callback are
+both driven from the native frame loop, and the frame loop never runs. So this is a single
+architectural cause with two symptoms, not two independent bugs — fixing the yield point should
+address both at once, and that is the prediction to check when it lands.
+
+Incidentally this corroborates the buffer address a third time from the *runtime* side: libpad
+initialises exactly `0x800A50EC`/`0x800A510E` with the no-pad marker at byte `+0`, which is the
+framework's `buf[0]` status contract.
+
 **This is an architecture question, not an RE gap.** `native_boot_run` calls the guest entry once and
 the guest runs this whole boot as one straight-line call, so the framework's native per-frame loop
 never gets a turn while the guest spins. There is currently no point at which the host can advance
