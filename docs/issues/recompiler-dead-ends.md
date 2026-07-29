@@ -28,3 +28,49 @@ emitted label, a call site, or a fire counter on a real run. This one was one st
 reported as a recompiler bug.
 
 *What would reopen this:* a candidate address that IS emitted as code, or a port of a MIPS-II console.
+
+---
+
+## DE-02 — RE-16's fix: three attempts at "is this `jal` target a real function?", all wrong
+
+The RE-16 diagnosis is solid (see the frontier): an unconditional `bgez $zero` to a fall-through
+`jal` target emits `call_or_dispatch(...) + return;`, so the enclosing function skips its shared
+epilogue and leaks 4 bytes of guest stack per call. The **fix** is a discovery-pass question — when is
+a `jal` target an internal subroutine rather than a function? — and three criteria have now failed.
+Recorded so the next attempt starts from attempt 4.
+
+The emitter side was NOT the hard part and worked first time: with the target demoted, the leak site
+became `goto L_8002A478`, a `jal` to an in-body label became `link + goto`, and `jr $ra` in a body
+that loads `$ra` as data became a switch over that body's labels with `default: return;`.
+
+**Attempt 1 — "no prologue AND fall-through reachable".** Demoted **78** targets in MAIN and broke the
+link: it took `StGetNext` (`0x80086B10`) with it, a real library function the port itself super-calls
+(`game/core/cd_stream.cpp`). Being preceded by a non-terminator is far too common to mean anything on
+its own. *Note the asymmetry that made this loud rather than silent:* a guest `jal` to a demoted
+function degrades to a runtime dispatch miss, but the port's own C code fails at LINK — which is why
+only 3 undefined references appeared for what was a much broader breakage.
+
+**Attempt 2 — add "all `jal` callers are in the same enclosing body".** Demoted **nothing**. The
+enclosing-function lookup was `bisect` over the current function list, which still CONTAINS the
+candidate — so any caller sitting *after* the candidate resolved to the candidate itself rather than
+to the real host, and the same-body test could never pass for exactly the shape it was meant to find.
+
+**Attempt 3 — same, with the candidate excluded from the lookup.** Demoted **1**, kept `StGetNext`,
+and the build was clean — but it demoted a *different* function than the one RE-16 needs
+(`gen_func_8002A478` still emitted), and it **regressed a previously working run**: the `DOWN` path
+started fail-fasting where it had rendered the menu. Reverted.
+
+**What the next attempt should carry:**
+- The three `jal` sites targeting `0x8002A478` are `0x8002A41C`, `0x8002A700`, `0x8002A76C` — all
+  inside the host body `0x8002A338`, so the same-body criterion is *correct in principle*; attempt 3
+  demoted something else, meaning the predicate is matching cases it should not.
+- Verify the criterion by asserting the demoted SET before regenerating — print it and check
+  `0x8002A478 ∈ set` and `0x80086B10 ∉ set`. All three attempts were validated only by build/run,
+  which is far too coarse and slow a signal for a set-membership question.
+- The regression gate is cheap and it is what caught attempt 3: menu renders ~99%
+  (`PSXPORT_SHOT_AT=2301` + `PSXPORT_FORCE_BUTTONS=0040`), no `FATAL`, no `recomp-MISS`.
+
+*Meta-lesson, and it is the expensive one:* this was attempted on a pass where the risk had already
+been assessed as too high, and it played out exactly as predicted — a regression, then a revert. The
+diagnosis being certain does not make the fix low-risk when the fix is a heuristic over function
+discovery.
