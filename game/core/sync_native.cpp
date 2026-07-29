@@ -108,6 +108,7 @@ static void vblank_advance(Core* c) {
   uint32_t present = fields - cur;
   if (present > kMaxPresentCatchup) present = kMaxPresentCatchup;
 
+
   // `PSXPORT_DEBUG=presentwatch` — does presenting write GUEST RAM? It must not: psxport's porting
   // guide makes the render overlay read-only with respect to guest memory, because a guest write
   // from render corrupts live state (STALL-04: it destroyed a saved callee-saved register on the

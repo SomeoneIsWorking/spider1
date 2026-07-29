@@ -623,26 +623,34 @@ measurement settled it.
 head advances through the stream — **10 distinct LBAs, 128304 → 128313**, where it had been pinned
 at 128304.
 
-**DIAGNOSED — the CONSUMER is fine; the PRODUCER stops.** The ring protocol is complete and
-correct: `StGetNext` (`0x80086B10`) takes a slot whose status is **2** and marks it **4**;
-`StFreeRing` (`0x800872AC`) returns slots to **0** and advances `DAT_800c151c`. Nothing there is
-broken — sectors simply stop being produced after ten.
+**DIAGNOSED — the consumer is fine, and the pump has no trigger.** The ring protocol is correct:
+`StGetNext` (`0x80086B10`) takes a slot whose status is 2 and marks it 4; `StFreeRing`
+(`0x800872AC`) returns slots to 0 and advances `DAT_800c151c`. Sectors simply stop being produced
+after ten.
 
-The cause is a **design consequence of the native read path**, not a controller bug. Streaming
-sectors are produced by the guest's ready callback, and this port drives that callback from
-`cd_drive_stock_read` — a burst that runs at `ReadN` time and terminates on the guest's Pause. That
-is exactly right for a FILE read, which is finite and self-terminating. A movie stream is neither: it
-expects the callback to keep being pumped for as long as the stream runs, paced by the drive.
+**Three placements for a stream pump were tried and all three were irrelevant**, for one measured
+reason: **zero `ReadN` commands reach the CD command handler.** That is a consequence of serving
+`CdRead` natively — the guest's finite read state machine no longer issues one — and this game's
+streaming reader drives the CD registers **directly**, poking `0x1F801800`/`0x1F801803` itself rather
+than going through the command entry point. So `Cd::stream_active` is never set and
+`Cd::pumpStream` can never fire, wherever it is called from.
 
-**So the next step is a design decision, not another controller tweak:** streaming needs the ready
-callback pumped continuously — naturally from the frame/VSync path, at roughly the drive's sector
-rate — while file reads keep the existing burst. Deciding where that pump lives, and how it coexists
-with `cd_drive_stock_read`, shapes how the framework serves XA and FMV for every future consumer, so
-it is worth settling deliberately rather than by patching.
+The three attempts, recorded so none is repeated:
+1. **Per-field, from `vblank_advance`** — wrong home regardless: the guest makes only **13 VSync
+   calls in the whole boot** and stops calling it entirely once inside the streaming loop.
+2. **From `StGetNext`**, wrapping the function the spin loop actually calls — right instinct, but the
+   pump underneath it was inert. The wrapper was removed; an override that wraps a hot function to do
+   nothing is worse than none.
+3. Both rested on the same unchecked assumption — that streaming starts with a `ReadN` through the
+   command path. Checking that first would have skipped all three.
 
-**Explicitly NOT attempted:** extending the burst loop to keep going past Pause. It would produce
-sectors, and it would be wrong — Pause is the guest's own end-of-read signal, and overriding it to
-keep a stream alive re-creates the fake-completion class of bug this frontier exists to prevent.
+**So the real question is upstream:** what starts this stream, and what stops it after ten sectors?
+The reader is at the register level, so the answer is in `cdc`'s own state — most likely `reading`
+being cleared, or the BFRD advance path not being reached after the tenth sector. Instrument
+`cdc_write`'s request/ack paths and the `reading` flag before touching the pump again.
+
+**`Cd::pumpStream` is retained** in the framework: the mechanism is correct for a consumer whose
+streaming does go through the command path, and it costs nothing while inactive.
 
 
 ## RE-04 — Per-frame OT / packet-pool layout — `blocked` on RE-03
