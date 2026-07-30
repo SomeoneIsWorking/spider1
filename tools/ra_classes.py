@@ -150,9 +150,38 @@ def classify_jr_ra(exe, lo, hi, linked=()):
     return out
 
 
-def sweep(exe, funcset):
+def prologue_starts(exe):
+    """Addresses of `addi(u) sp, sp, -N` -- the GUEST function starts.
+
+    THE PARTITION MATTERS AS MUCH AS THE RULE. The reaching definition of $ra must be sought over the
+    guest function, not over an emitted fragment: the fix seeds 0x8002A338's resume points as
+    `main_reentry`, which SPLITS that body, and the `jal` whose link reaches 0x8002A460 then sits in a
+    different fragment. Partitioned by the discovery set, the analysis would see no definition at all
+    and silently answer "return" -- the correct-looking answer for the wrong reason.
+
+    A frame-allocating prologue is independent of the discovery set, so it survives any reseeding.
+    BOTH encodings are needed: 0x8002A338 uses `addi` (0x23BD....), not the more common `addiu`
+    (0x27BD....), and a mask that only matches `addiu` misses this function entirely.
+
+    MEASURED AND REJECTED as the partition to ship. There are 1084 prologues against 1672 discovered
+    functions, so this partition MERGES bodies -- a frameless function is swallowed by whichever
+    frame-allocating one precedes it -- and the classification then spans unrelated code: 21 computed
+    sites instead of 1, 15 of them inside two over-long merged spans (0x8007C644, 0x8007D33C). Kept
+    as a cross-check, because a partition that disagrees with the shipping one is worth SEEING; the
+    shipping partition is the discovery set with the mid-body re-entry seeds removed, which is
+    exactly "the function extent that exists before this fix adds re-entry points to it".
+    """
+    out = []
+    for a in range(exe.load, exe.text_end, 4):
+        w = exe.word(a)
+        if (w & 0xFFFF8000) in (0x27BD8000, 0x23BD8000):
+            out.append(a)
+    return out
+
+
+def sweep(exe, funcset, by_prologue=False):
     """Every `jr $ra` in the substrate, classified. Returns (all, computed) address->kind."""
-    ordered = sorted(funcset)
+    ordered = prologue_starts(exe) if by_prologue else sorted(funcset)
     allj, comp = {}, {}
     for idx, a in enumerate(ordered):
         end = ordered[idx + 1] if idx + 1 < len(ordered) else exe.text_end
@@ -203,6 +232,16 @@ def main():
               "binary: a substrate this size must contain thousands of `jr $ra`.)")
     for x in sorted(comp):
         print(f"     0x{x:08X}   in gen_func_{comp[x]:08X}")
+    # CROSS-CHECK against a partition derived from the binary rather than from discovery. It is
+    # deliberately coarser and MUST over-report; if it ever under-reports (misses a site the shipping
+    # partition found) then the discovery set is splitting a body in a way that invents a definition.
+    _, pcomp = sweep(exe, funcset, by_prologue=True)
+    missed = set(comp) - set(pcomp)
+    print(f"     cross-check: the prologue partition ({len(prologue_starts(exe))} bodies, coarser) "
+          f"reports {len(pcomp)} -- it over-reports by design")
+    if missed:
+        ok_note = " <-- INVESTIGATE: the coarser partition should be a superset"
+        print(f"     it MISSES {' '.join(f'0x{a:08X}' for a in sorted(missed))}{ok_note}")
     print()
 
     # ---- Q2: the host body's resume points
