@@ -277,3 +277,64 @@ the tail that saves context and returns its status word. The `jal` at `0x8002A41
 2. The resume set must be enumerated over ALL in-body `jal`s after the demotion fixpoint, not per
    demoted target. Assert `|set| == 7` for this body before regenerating — the attempt-4 method.
 3. Attempt 5's negative is void; the breadth question must be re-measured once (2) is right.
+
+### Attempt 9 — the coroutine `jr $ra` SHIPS; the fault it exposes is upstream of it
+
+Abandoned the demotion heuristic entirely. Attempts 1,2,3 plus two more in this session all tried to
+answer "is this `jal` target a real function?" and produced demotion sets of 1, 78, 325 and 50 — the
+question is not reliably answerable by a peephole over the function set, and every wrong answer breaks
+a real library function or misses the target.
+
+**The recompiler already had the mechanism.** `main_reentry` seeds mid-function re-entry points and
+makes them router-dispatchable. So the shape of the fix is not "merge the subroutine into its host"
+but "let `jr $ra` be a computed jump, and seed the addresses it can compute":
+
+1. `emit.py ra_computed_jumps` — per-`jr` reaching-definitions on `$ra`. **1 site out of 1722** in the
+   whole substrate: `0x8002A460`. Everything else keeps `return;`.
+2. `game/recomp_seeds.json` — the seven resume points, in **both** `main` and `main_reentry`.
+
+*Two false-positive classes, both found by auditing the sites the analysis reported rather than by a
+build, and both worth knowing:*
+- `move $ra, $sN` restore never cleared the preceding `jal` state (10 sites → 6).
+- A **frameless** function saves `$ra` to a GLOBAL and reloads it — `0x8008BE5C: sw $ra, 0x392C($at)`
+  … `lw $ra, 0x392C($ra)` (6 → 1). **"Not the stack" is not the same as "not a return address."**
+  The discriminator is whether that function ever stored `$ra` to that offset.
+
+*A trap that cost real time:* **`main_reentry` is a MODIFIER, not a seed source.** `emit.py` builds its
+seed set from `main` alone; `main_reentry` only makes the preceding fragment fall through instead of
+returning. An address listed only under `main_reentry` is silently not a function. The tell was the
+regeneration reporting 1672 functions — *exactly* the pre-change count. Listing them in both gives 1679.
+
+**Result: the port gets FURTHER than any previous attempt.** Clean build, and the
+`PSXPORT_FORCE_BUTTONS=0040` run RENDERS A FRAME (`scratch/screenshots/shot_2301.ppm`), where attempts
+4–7 rendered none. One FATAL remains, and it is a different one:
+
+    [hle] [miss 0] addr 0x03FF03FF   (caller ra=0x03FF03FF  c->pc=0x8002A478  a0=0x801C9F4C)
+    [mdec:error] DMA0 in: decoder still cannot accept after 4096 step(s); 4 of 1824 word(s) written
+    [mem:error] FATAL: UNMAPPED RAM read8 @ 0x080252D4
+
+The dispatch fires at `0x8002A460` with `$ra = 0x03FF03FF`, which is **not** a resume point — it is
+bit-stream data. `s0=0x03FF07FF`, `s1=0x47FF03FF`, `fp=0x03FF0FFF` are the same shape, and `0x3FF` is
+the decoder's own 10-bit mask (`8002A474  ori $t0, $zero, 0x3ff`). So the routine is decoding garbage
+and its saved continuation is garbage with it.
+
+**Two lines above it is the likely reason, and it is nothing to do with the recompiler:**
+
+    [cd:error] CdSearchFile: '/CINEMAS/TTSLOGO.STR;1' not found on the disc image
+
+The guest asked for the logo FMV, did not get it, and ran the MDEC bit-stream decoder over memory that
+was never filled. Before this change `jr $ra` was `return;`, which SWALLOWED the garbage continuation
+silently; it now fail-fasts and names it. **That is the intended direction** — the guest would itself
+have jumped to `0x03FF03FF` — but it does convert a silent survival into a hard stop, so it must not be
+called a clean pass until the A/B below is read.
+
+*Open, and the next thing to do:* an A/B against the pre-change emitter (`git -C external/psxport
+checkout HEAD~1 -- tools/recomp/emit.py`, regenerate, rebuild, same command) to establish whether the
+`TTSLOGO` miss and the MDEC error are present there too. If they are, this fault is pre-existing and
+attempt 9 merely made it audible; if they are not, the change is implicated after all. **Do not record
+attempt 9 as verified until that A/B is read** — "it got further" is not "it is correct".
+
+*Bounded risk worth stating even if the A/B is clean:* the coroutine resume maps a guest `jal`/`jr $ra`
+pair (O(1) guest stack) onto a C call that only unwinds when the whole routine finishes, so a decoder
+that resumes N times costs N C frames. Depth was shallow in this run (`native_boot_run` →
+`gen_func_8002C354` → `gen_func_8006BF9C`), but a long decode has not been measured.

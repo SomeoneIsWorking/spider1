@@ -1112,7 +1112,7 @@ so a later match OVERWRITES an earlier one — success was set, then replaced by
 
 ### RE-16 — Unconditional intra-function branch emitted as call+return leaks stack
 - status: in-progress
-- deps: RE-15
+- deps: RE-15, RE-07
 
 **ROOT-CAUSED and verified; the fix is designed but deliberately NOT yet shipped.**
 
@@ -1149,7 +1149,36 @@ unmatched name walks upward until it leaves the mapped window. Faulting instruct
 **Blast radius, measured:** 16 real sites, all inside `0x8002A338` (14 branch, 2 jump). This is NOT
 substrate-wide — do not brief it like the 131-site link-branch sweep.
 
-### Why it is not fixed yet
+### Attempt 9 SOLVED the emitter side. It is now BLOCKED ON RE-07, not on the recompiler.
+
+The fix is implemented and pushed **upstream in psxport** (`recomp: jr $ra is not always a return`),
+but spider1 deliberately stays pinned to the commit before it, because it stops this port booting for
+a reason that is nothing to do with the recompiler. Bump the pin and re-add the seeds
+(`docs/issues/recompiler-dead-ends.md`, attempt 9) once RE-07 lands.
+
+**What the fix is.** Not a demotion heuristic — five attempts at "is this `jal` target a real
+function?" produced sets of 1, 78, 325 and 50 and each one broke something. `0x8002A338` is a
+resumable coroutine, so the answer is to let `jr $ra` BE a computed jump and seed the addresses it
+can compute: `ra_computed_jumps` decides per-`jr` by reaching-definitions on `$ra` and reclassifies
+**1 site out of 1722**, and the seven resume points go in the game's seed file.
+
+**Why it is blocked.** With the fix in, the `FORCE_BUTTONS=0040` run fail-fasts:
+
+    [cd:error] CdSearchFile: '/CINEMAS/TTSLOGO.STR;1' not found on the disc image
+    [hle] [miss 0] addr 0x03FF03FF   (caller ra=0x03FF03FF  c->pc=0x8002A478)
+    [mem:error] FATAL: UNMAPPED RAM read8 @ 0x080252D4
+
+**A/B'd against the pre-change emitter, same command, same disc:** the `TTSLOGO` miss and the MDEC
+`decode is incomplete` errors are present in BOTH, and the control has **no FATAL**. So the garbage is
+pre-existing — the guest ran its MDEC bit-stream decoder over a buffer the FMV load never filled — and
+the old `jr $ra -> return;` silently swallowed the resulting garbage continuation. `$ra = 0x03FF03FF`
+is bit-stream data (`0x3FF` is the decoder's own 10-bit mask at `8002A474`), not a resume point.
+
+That makes this a genuine dependency, not a defect: **RE-16 needs a valid MDEC stream to be correct
+on, and RE-07 is what supplies it.** The port is left bootable in the meantime; nothing is lost but
+the pin.
+
+### Why it was not fixed before attempt 9
 
 The fix is in the recompiler and needs THREE coordinated changes; doing one or two is worse than
 none:
