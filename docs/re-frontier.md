@@ -1534,6 +1534,49 @@ substrate-wide — do not brief it like the 131-site link-branch sweep.
 > moment of interest, and `$s1`/`$s3` in `0x80064B3C` still hold the name pointer there. That is a
 > few lines in the framework's fault reporter, not a new mechanism.
 >
+> ### ATTEMPT 18 — THE NAME IS CAPTURED, AND IT IS A LEAKED RETURN ADDRESS (2026-07-30)
+>
+> Built the consumer-side capture attempt 17 specified (`Core::dumpStringishRegs`, called from
+> `warn_unmapped_ram`). It fires once, needs no override, and cannot flood. **It worked on the first
+> run**, and the byte dump — not the string classifier — is what answered the question:
+>
+>     bytes : s1  =0x807FFDD0  F5 FF 03 26 4B 2E 70 73 78 00 ...  |...&K.psx.......|
+>     bytes : s3  =0x807FFDD0  F5 FF 03 26 4B 2E 70 73 78 00 ...  |...&K.psx.......|
+>
+> The `.psx` suffix is correct — the caller appended it exactly as disassembled. **The BASE NAME is
+> `F5 FF 03 26` + `'K'`**: a raw MIPS instruction word, `0x2603FFF5`, followed by one stray byte.
+>
+> **That word occurs EXACTLY ONCE in all 2 MB of guest RAM: at `0x80010094`.** So the source pointer
+> handed to the copy was `0x80010094`. Reading the call chain confirms the plumbing:
+>
+>     8005AEC0  a0 = record+2      -> 8005C7EC  s1 = a0    -> 80069A60  s3 = a0
+>     80069B20  move $a0, $s3      ; SRC = s3   (0x8005F2A8 is strncpy(src=a0, dst=a1, max=a2))
+>     80069B24  addiu $a1, $sp,0x10; DST = the stack buffer
+>
+> **`0x80010094` is not a name and was never computed as one — it is a RETURN ADDRESS.** It is exactly
+> `0x8001008C + 8`, the `$ra` pushed by `jal 0x80017A84` inside `0x80010080`, the script VM's opcode
+> dispatcher (bounds-check `< 0x4B`, jump table at `0x800917F8`, `jr $a0`). `0x80010080` is the second
+> link of the very chain this file recorded for the leak: `80010008 -> 80010080 -> 8002AA0C ->
+> 8002B430 -> 8002A338`.
+>
+> **The producer path is RULED OUT by immutable data, so this is not a guess.** Both `jal 0x8005c7ec`
+> sites in `0x8005AEC0` compute `a0 = record + 2` only after `lh` at `record` matches a type tag
+> (`0xF` at `0x8005AF20`, `4` at `0x8005AF7C`). `a0 = 0x80010094` requires `record = 0x80010092`, and
+> the halfword there is **`0x0080`** — in TEXT, identical in every run. Neither branch could have been
+> taken, so the pointer did not come from the record array at all.
+>
+> **Conclusion: a callee-saved register (`$s1` in `0x8005C7EC` / `$s3` in `0x80069A60`) was restored
+> from a stack slot shifted by the RE-16 leak, and what it picked up was a stale `$ra` from the VM
+> dispatcher.** `0x8005C7EC` calls the VM directly (`0x8005C974  jal 0x80010008`), which is what puts
+> that `$ra` on the stack in the first place. This is the first END-TO-END observation linking the
+> measured 4-bytes-per-call leak (CLAIM-C005) to the visible fault; every earlier attempt had one end
+> or the other, never both.
+>
+> **Instrument note:** the string classifier alone printed `0 looked like C strings` — a true but
+> useless negative, because the buffer starts with non-printable bytes. Dumping the BYTES of every
+> mapped GPR is what carried the information. Recorded as the reason the reporter now always dumps
+> bytes rather than only reporting a verdict.
+>
 > ### STOP WORK ON RULE 2 — `0x8002A5F4` IS NEVER CALLED (measured 2026-07-30)
 >
 > Before building inter-procedural analysis to demote it, I checked whether it runs. It does not:
