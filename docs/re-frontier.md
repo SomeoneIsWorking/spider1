@@ -1540,6 +1540,16 @@ verified on real data until the port reaches 3D content, and it currently stops 
 projected world coordinates, and there are none. (Observed: the shot goes 512x240 -> 428x240, a
 display-window artifact, not a widened frustum.)
 
+**No 2D shortcut exists — checked, not assumed.** The framework's widescreen 2D widen is gated on
+the SAME thing (psxport `6b722689`, 2026-07-30): the widen only makes sense on content the renderer
+can tell is screen-space, and that discrimination rides on per-primitive DEPTH being resolved
+(`s_seen3d` is set from a projected world prim). With low depth coverage almost nothing classifies as
+3D, so "widen the 2D" degenerates into "widen everything" — measured upstream as sky, ground and
+caption each moving a further +86 px, i.e. the whole frame shifted twice. This port's depth coverage
+is **zero**, so the gate is shut here by definition. (Upstream's first explanation for that failure
+was an ordering problem and was wrong; it was corrected by measurement after the ordering
+precondition was met and the picture still got worse.)
+
 **The real dependency chain toward wide + lerp is therefore:**
 
     RE-07 (boot FMV not-found path)  ->  RE-16 (coroutine jr $ra; fix done, pushed, pin held)
