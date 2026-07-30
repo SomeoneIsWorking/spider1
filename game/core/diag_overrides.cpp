@@ -35,7 +35,6 @@ extern void gen_func_8009152C(Core*);   // installed into the libcd descriptor's
 extern void gen_func_800913AC(Core*);   // installed as libcd callback #3 by the same routine
 extern void gen_func_800651C8(Core*);   // the game's allocator: (size, arena, flag) -> block ptr
 extern void gen_func_8002A338(Core*);   // the resumable MDEC bit-stream decoder (RE-16)
-extern void gen_func_8002A5F4(Core*);   // the other spurious entry inside the same guest body
 extern void gen_func_80064B3C(Core*);   // the CD.HED name lookup — a0 = filename pointer
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
@@ -167,7 +166,37 @@ static void diag_coro_entry(Core* c) {
              n, ra, ra_is_code ? "a code address" : "NOT A CODE ADDRESS -- garbage on entry",
              a0, a0 ? "fresh start" : "RESUME", sp);
   }
+  // CALLEE CONTRACT CHECK across the whole decoder — the pre-registered falsifier for CLAIM-C011.
+  // Six different emission designs produce the 0x080252D4 fault byte-identically, which points away
+  // from how the control flow is RENDERED and toward what the decoder DOES. This decides it: MIPS
+  // requires sp and s0-s7 to come back unchanged, so if they do, the corruption is not inside this
+  // call and the emission is exonerated; if they do not, the rendering is still guilty after all.
+  //
+  // Reported on the FIRST violation and on every change of violation shape, never decimated by
+  // count — the interesting call is the one that differs, not the hundredth identical one. The
+  // no-violation case is reported too (once, at the end of the first clean call), because a probe
+  // that only speaks when it finds something is indistinguishable from one that never ran.
+  const uint32_t s_in[8] = {c->r[16], c->r[17], c->r[18], c->r[19],
+                            c->r[20], c->r[21], c->r[22], c->r[23]};
   gen_func_8002A338(c);
+  uint32_t bad = 0;
+  for (int i = 0; i < 8; i++) if (c->r[16 + i] != s_in[i]) bad |= (1u << i);
+  const bool sp_bad = (c->r[29] != sp);
+  static uint32_t s_last_shape = 0xFFFFFFFFu;
+  const uint32_t shape = bad | (sp_bad ? 0x100u : 0u);
+  if (shape != s_last_shape) {
+    s_last_shape = shape;
+    if (!shape) {
+      cfg_logf("coroentry", "0x8002A338 call #%u: CONTRACT OK — sp and s0-s7 all preserved "
+                            "(so this call did not corrupt them)", n);
+    } else {
+      cfg_logf("coroentry", "0x8002A338 call #%u: CONTRACT VIOLATED — sp %08X->%08X (%s), "
+                            "s-reg mask 0x%02X", n, sp, c->r[29], sp_bad ? "CHANGED" : "ok", bad);
+      for (int i = 0; i < 8; i++)
+        if (bad & (1u << i))
+          cfg_logf("coroentry", "    s%d: %08X -> %08X", i, s_in[i], c->r[16 + i]);
+    }
+  }
 }
 
 // BRACKETING the clobber. Entry to 0x8002A338 has a good $ra (measured, CLAIM-C005), and the
@@ -219,7 +248,6 @@ static void diag_hed_name(Core* c) {
   gen_func_80064B3C(c);
 }
 
-static unsigned g_coro5F4_calls = 0;
 static void coro_report(const char* who, unsigned n, uint32_t* last, Core* c) {
   const uint32_t ra = c->r[31];
   const bool changed = (ra != *last);
@@ -230,15 +258,17 @@ static void coro_report(const char* who, unsigned n, uint32_t* last, Core* c) {
              who, n, ra, code ? "code" : "NOT CODE -- clobbered before here", c->r[29]);
   }
 }
-// (The 0x8002A478 probe is GONE, and its absence is the point: demote_internal_labels put that block
-// back inside 0x8002A338, so there is no gen_func_8002A478 to override any more. The link error that
-// removing it fixes was the DESIRED signal that demotion took effect — unlike attempt 1's link break,
-// which killed real library functions the port super-calls.)
-static void diag_coro_5F4(Core* c) {
-  static uint32_t last = 1;
-  coro_report("0x8002A5F4", ++g_coro5F4_calls, &last, c);
-  gen_func_8002A5F4(c);
-}
+// (The 0x8002A478 AND 0x8002A5F4 probes are GONE, and their absence is the point:
+// demote_internal_labels put both blocks back inside 0x8002A338, so there is no gen_func_8002A478 or
+// gen_func_8002A5F4 to override any more. The link error that removing them fixes was the DESIRED
+// signal that demotion took effect — unlike attempt 1's link break, which killed real library
+// functions the port super-calls.
+//
+// The 0x8002A5F4 probe is also the one whose result became CLAIM C008, "0x8002A5F4 is never called".
+// That measurement was real but its scope was not: it ran on the pre-fix build, where the RE-16 leak
+// makes 0x8002A338 bail after ~one block so those call sites are never REACHED. Reinstating this
+// probe to re-check that claim is not possible and not needed — on the fixed build the address is
+// not a function at all. See docs/info/claims.md C010.)
 
 static unsigned g_cdisr_calls = 0;
 static void diag_cd_isr(Core* c) {
@@ -281,7 +311,6 @@ void spiderman_install_diag_overrides(Game* g) {
   }
   if (cfg_dbg("coroentry")) {
     engine_set_override_main(0x8002A338u, diag_coro_entry, gen_func_8002A338);
-    engine_set_override_main(0x8002A5F4u, diag_coro_5F4,   gen_func_8002A5F4);
     // Unconditional ARM line, per this file's own rule: a channel-gated probe's SILENCE only means
     // something if the run proves the probe was installed.
     cfg_logi("coroentry", "MDEC coroutine entry probe ARMED on 0x8002A338 — no entry lines below "

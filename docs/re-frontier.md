@@ -1639,6 +1639,62 @@ substrate-wide — do not brief it like the 131-site link-branch sweep.
 > but `emit_control` emits them as two, so it found 18 links instead of 16946 and reported "0
 > collisions". It was caught only because it prints denominators beside the verdict (I004).
 >
+> ### ATTEMPTS 21-23 — the emitter is now SOUND and EXONERATED. The remaining fault is elsewhere.
+>
+> Three pre-registered falsifiers were run. **Two fired and one did not**, which between them close the
+> emitter question and move the frontier off it.
+>
+> **Rule 2, and why it is not a fifth tuned threshold.** An entry with NO PROLOGUE, *every* reference
+> to which lies inside its OWN extent, cannot be a host callee: no prologue means it shares its
+> caller's frame so it is not recursion (measured — all 8 self-calling entries that DO have a prologue
+> are ordinary recursive functions, and the prologue test excludes every one); all-internal references
+> mean every caller's resume address is inside its own body, so its `jr $ra` switch would contain the
+> addresses its callers link; and nothing is lost by inlining it because there is no external caller.
+> **EVERY reference counts, not just `jal`s** — one external `j` TAIL CALL makes it a real function,
+> which is the `tail` case in `test_demote_internal_labels_criterion` and caught a first cut that
+> tested only `jal` sites.
+>
+> **Rule 2 must NOT iterate.** As a fixpoint it demotes 12 and swallows `0x8007D534`, which rule 1's
+> own note records as a real function (`jal` x5 + `j` x2 from two bodies): each demotion merges an
+> extent, so "all references internal" becomes true purely because boundaries moved. That is the
+> 255-demotion cascade in a new costume. Evaluated ONCE on the extents rule 1 leaves, it demotes
+> **6** — `0x8002A478 0x8002A5F4 0x8007D614 0x8007D79C 0x8007D978 0x8007DDC8` — and spares all five
+> documented must-keeps.
+>
+> **The `jal` rendering had to be made CONSISTENT.** Keying `link + goto` on "target is inside this
+> body" was wrong: tail duplication puts a copy of one guest site into several bodies, so a surviving
+> function duplicated in as a tail became `link + goto` there while staying a host call elsewhere —
+> one address both a resume case and a host-call link, **25 collisions across 6 bodies**. Restricting
+> the rendering to DEMOTED targets makes the two producers of `$ra` disjoint by construction.
+> `tools/check_resume_switch.py` goes from 25/6 to **GREEN** (32 switches, 11 case addrs, 18458 links).
+>
+> **FALSIFIER 1 FIRED — C010 is dead.** Demoting `0x8002A5F4` (symbol absent from every shard,
+> verified) leaves `0x080252D4` **byte-identical**. **FALSIFIER 2 FIRED.** Closing all 25 collisions
+> leaves it byte-identical too. So neither is the cause. The collision analysis stays correct as an
+> *unsoundness* proof and the fix is worth keeping — it simply is not this fault.
+>
+> **FALSIFIER 3 DID NOT FIRE, and that is the finding (C011).** A callee-contract check on
+> `gen_func_8002A338` — snapshot `sp` + `s0-s7` at entry, compare after the super-call, and report the
+> CLEAN case as well so silence is never the only signal — reports
+> `call #1: CONTRACT OK — sp and s0-s7 all preserved`. **The decoder returns with everything intact.**
+>
+> **So the emission is exonerated.** Six emission designs (dispatch resume, flat, runtime switch,
+> +demotion, +consistency) all produce this fault identically; the only thing they share is that each
+> lets the decode loop RUN. The host backtrace at the fault is fully unwound —
+> `gen_func_8006BF9C <- gen_func_8002C354 <- native_boot_run <- main` — so the decoder has already
+> returned and a LATER dispatch faults on an already-garbaged register file. The `0x3FF` values are
+> the decoder's own EOB/escape constant, i.e. the register file is filling with BITSTREAM DATA, not
+> with stack garbage.
+>
+> **Next, and it is no longer an emitter question:** find who reads the decoder's output. Only ONE
+> decoder entry occurs on this build where the healthy build showed three, so the run dies before the
+> second call — the consumer of call #1's output is the suspect. `0x8006BF9C` is the faulting frame.
+>
+> **NOT SHIPPED.** The emitter work is correct and gated, but plain boot still dies at `0x080252D4`
+> *before* rendering a frame, where the shipping emitter renders one and gets as far as a recomp-MISS
+> on `0x800C6684`. Shipping something that dies earlier is a regression regardless of how sound it is.
+> Preserved as `attempt22.diff`; re-apply once `0x080252D4` has an owner.
+>
 > ### STOP WORK ON RULE 2 — `0x8002A5F4` IS NEVER CALLED (measured 2026-07-30)
 >
 > Before building inter-procedural analysis to demote it, I checked whether it runs. It does not:

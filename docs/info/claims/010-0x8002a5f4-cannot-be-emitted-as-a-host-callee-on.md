@@ -1,9 +1,10 @@
 ---
 id: C010
 kind: claim
-status: holds
+status: falsified
 created: 2026-07-30
 tags: RE-16
+falsified_on: 2026-07-30
 ---
 
 ## Claim
@@ -17,3 +18,9 @@ Static, on the emitted attempt-19 artifact, reproduced by an independently writt
 ## What would falsify it
 
 If demoting 0x8002A5F4 into 0x8002A338 (closing the collision) leaves the 0x080252D4 fault unchanged, the resume-switch mechanism itself is back under suspicion and the next probe is an entry/exit contract check on gen_func_8002A338 (snapshot sp + s-regs at entry, assert preserved at the real default: return).
+
+## FALSIFIED 2026-07-30
+
+Its own falsifier fired. 0x8002A5F4 was demoted (symbol absent from every shard, verified), the collision it caused is gone, and the 0x080252D4 fault is BYTE-IDENTICAL: ra=0x03FF03FF fp=0x03FF0FFF s0=0x03FF07FF s1=0x47FF03FF, v0=0x080251F4. A second suspect was then eliminated the same way: restricting the in-body link+goto rendering to DEMOTED targets only (so a guest jal site renders identically in every body that carries a copy) took tools/check_resume_switch.py from 25 collisions across 6 bodies to GREEN -- and the fault is still byte-identical. So neither 0x8002A5F4-as-host-callee nor the resume-switch collision causes 0x080252D4. The collision analysis remains CORRECT as an unsoundness proof and the fix is worth keeping; it simply is not this fault's cause.
+
+> Anything that cited this claim as proof must be re-checked. Grep the repo for it.
