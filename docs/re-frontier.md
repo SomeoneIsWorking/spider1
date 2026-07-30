@@ -1474,10 +1474,33 @@ substrate-wide — do not brief it like the 131-site link-branch sweep.
 >   otherwise. So that code is running as a DUPLICATED SHARED TAIL inside some other function's body
 >   — which is exactly the mechanism `collect_tail_dups` implements.
 >
-> **Attempt 16 starts here, and not from a theory:** find which emitted function contains a copy of
-> `0x80064CA4`. `grep -l 'L_80064CA4' generated/shard_*.c` and read the enclosing body. An entry-point
-> probe cannot see that path, so use the tail-dup owner instead — or a `PSXPORT_CW` watchpoint on the
-> pointer the walk dereferences, which needs no override and therefore cannot perturb the run.
+> **CORRECTION — the "duplicated shared tail" reading above was wrong.** `L_80064CA4` appears in
+> exactly one emitted body, `gen_func_80064B3C`'s own. I had inferred the tail-dup from `ra` pointing
+> inside a function whose probe never fired, which is the trap INST-07 documents: guest `pc`/`ra` are
+> stale across static gen-to-gen calls and must not be used to locate a fault.
+>
+> **The HOST backtrace is the reliable evidence and settles it:**
+>
+>     gen_func_80064B3C  <-  80069A60  <-  8005C7EC  <-  8005AEC0  <-  8005ACD8  <-  8001895C  <- main
+>
+> So the CD.HED lookup genuinely is the faulting frame, and the probe not firing was pure
+> perturbation — arming it changed the path taken.
+>
+> **What the caller does, read statically so nothing is disturbed** (`0x80069B58..0x80069B7C`): it
+> BUILDS the filename a byte at a time (`addiu $v1, $zero, 0x73` = `'s'`, `addiu $a1, $zero, 0x78` =
+> `'x'`, then `sb` into a buffer) and calls the lookup at `0x80069B78`. The name is constructed at
+> runtime, not a literal.
+>
+> **That splits the fault into two hypotheses that have never been separated, and only one implicates
+> the recompiler:**
+> 1. the constructed NAME is garbage (the RE-16 story — a corrupted cursor feeding junk), or
+> 2. the TABLE is empty/absent in guest RAM, in which case *any* name walks off the end and this is an
+>    asset-delivery bug in the port, not a mistranslation.
+>
+> Hypothesis 2 has never been checked and is the cheaper of the two. **Use `PSXPORT_CW` on the name
+> buffer or on the table region — a store watchpoint needs no override, so unlike a probe it cannot
+> perturb the run.** That non-perturbing property is now the deciding factor for instrument choice on
+> this fault.
 >
 > ### STOP WORK ON RULE 2 — `0x8002A5F4` IS NEVER CALLED (measured 2026-07-30)
 >
