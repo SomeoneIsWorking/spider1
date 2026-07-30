@@ -1448,7 +1448,32 @@ substrate-wide — do not brief it like the 131-site link-branch sweep.
 > `jr $ra` whose `$ra` comes from state+0x30, and letting rule 2 see it would re-litigate the reverted
 > `jr $ra` commit's territory.
 >
-> ### Rule 2 IMPLEMENTED and MEASURED — and the criterion as stated cannot flag its own target
+> ### STOP WORK ON RULE 2 — `0x8002A5F4` IS NEVER CALLED (measured 2026-07-30)
+>
+> Before building inter-procedural analysis to demote it, I checked whether it runs. It does not:
+>
+>     PSXPORT_DEBUG=coroentry, full boot
+>     0x8002A338  entry #1, #2, #3      (all fresh-start)
+>     0x8002A5F4  ZERO entries          (probe installed, same channel — silence is meaningful)
+>
+> **So demoting `0x8002A5F4` cannot fix the FATAL at `0x080252D4`, because it is not on the boot
+> path at all.** Attributing that fault to it was the FIFTH wrong attribution in this saga (RE-07,
+> RE-03c, an upstream `$ra` clobber, "0x8002A5F4 pops the caller's frame", and now this), and every
+> single one was settled in minutes by a measurement I could have run first.
+>
+> Rule 2 may still be needed for CORRECTNESS on some other path — a `jal` to it exists in the binary,
+> so a different game phase could reach it — but it is **not** the RE-16 blocker and must not be
+> treated as one. The remaining FATAL after attempt 13's flat emission has a different, still-unknown
+> cause, and that is what attempt 16 should chase.
+>
+> **The one thing to carry forward: the fault register dump is the evidence, and it has never been
+> read.** `last-fn-entered=0x800654E8` (the allocator's free), `v0=0x080251F4`, `a0=0x8017F7E4`,
+> callee-saved registers full of `0x3FF`-patterned decode data. Nothing has yet explained how those
+> registers get there, and every attribution so far has been a guess about WHICH routine did it
+> rather than a trace of WHEN it happened. A watchpoint on the faulting pointer's provenance, or a
+> probe on `0x800654E8`, would say — the same technique that answered every other question today.
+>
+> ### Rule 2 implemented and measured — the criterion as stated cannot flag its own target
 >
 > `tools/callee_contract.py` (report-only, with a `--selftest` that separates balanced-leaf /
 > unbalanced-pop / save-and-restore). Two rounds of debugging took false positives **109 → 4** with
