@@ -130,3 +130,40 @@ regression that renders nothing is not.
 question to seconds. The equivalent for the emitter side would be to diff the generated C for
 `gen_func_8002A338` between builds and read what actually changed, rather than inferring from a
 run — that diff has never been examined, and it is the obvious next cheap instrument.
+
+### Attempt 6 — read the generated DIFF; parts 1+2 alone are not enough (and could not be)
+
+Used the instrument attempt 5 recorded: extract `gen_func_8002A338` from `generated/shard_7.c` before
+and after, and READ the diff instead of inferring from a run. It cost one regenerate and was worth it.
+
+**The emission is correct.** The demoted region inlines into the enclosing body with proper labels:
+
+    -  c->r[9] = c->r[0] | 10u; func_8002A478(c);
+    +  c->r[9] = c->r[0] | 10u; goto L_8002A478;
+    -  { int _t = ...; if (_t) { func_8002A478(c); return; } }
+    +  { int _t = ...; if (_t) goto L_8002A478; }
+    +L_8002A478:;   ... 24 lines of inlined body, branching back to L_8002A444 / L_8002A4C0 ...
+
+and the inlined code reads as a coherent bit-unpacking loop (shift counts in `r9`/`r10`, an input
+cursor in `r4`, an output cursor in `r5`) — not garbage, not misplaced.
+
+**Parts 1+2 without part 3 still fault**, at `0x8183D114` — the SAME address the full three-part
+change produced. That is worth stating carefully: it is NOT a clean isolation. With part 3 absent,
+`jr $ra` inside the demoted region still emits `return;`, so the resume path is broken by
+construction and this variant could never have worked. What it does show is that part 3 is not the
+*sole* cause, and that the fault address is stable across variants — which is itself a lead.
+
+**Where attempt 7 should start.** The three parts are mutually dependent, so "land them one at a
+time" (attempt 5's plan) is not actually possible — that plan is now known to be unachievable and
+should not be re-attempted as stated. Instead:
+- The fault address `0x8183D114` is CONSTANT across the failing variants. Chase THAT: capture the
+  guest context at it (the unmapped fail-fast prints registers) and identify which pointer it is. It
+  is a different address from RE-16's original `0x80800004`, so the three-part change moves the
+  failure rather than merely failing to fix it — that is progress information, not noise.
+- The inlined body branches to `L_8002A444` and `L_8002A4C0`. Verify those labels exist in the SAME
+  emitted body and are not duplicated tails belonging to another function; a `goto` into a duplicated
+  tail would be a plausible mechanism for a stable wrong address.
+
+*Standing methodological win:* both cheap instruments this saga produced — the standalone demoted-set
+assertion (attempt 4) and the generated-C diff (attempt 6) — each answered in seconds what a
+build-and-run answered in minutes and ambiguously. Reach for them first.
