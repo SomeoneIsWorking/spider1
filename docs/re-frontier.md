@@ -604,8 +604,70 @@ first word and the rest were dropped, while the output side returned an empty dr
 get this free by stalling while the decoder works; this model advances the decoder instead and
 re-checks. Wedged decoders are now reported with exact counts rather than truncating silently.
 
-**Verified:** mdec errors 0 (was `input FIFO full after 1 of 32 word(s)`), and the guest's
-`MDEC_in_sync timeout:` is gone from its own output entirely.
+**Verified at the time:** mdec errors 0 (was `input FIFO full after 1 of 32 word(s)`), and the
+guest's `MDEC_in_sync timeout:` is gone from its own output entirely.
+
+### RE-OPENED 2026-07-30 — that verification no longer holds, and the remaining defect is structural
+
+Every run today reports exactly **two** mdec errors, in a new shape the earlier fix deliberately
+introduced (it stopped truncating silently and started reporting wedges instead):
+
+    DMA0 in: decoder still cannot accept after 4096 step(s); 6 of 1824 word(s) written
+
+**Root cause, measured not inferred.** The wedge diagnostic now names its cause:
+`outfifo_has_data=1 (BLOCKED ON OUTPUT)`. Beetle's MDEC cannot retire a macroblock while its output
+has nowhere to go, so `MDEC_DMACanWrite()` never becomes true and pumping `MDEC_Run()` harder can
+never help. `mdec_dma_in` only advances the decoder; it never drains the output side.
+
+**The structural cause is the DMA model, not the decoder.** `mem.cpp` executes each transfer
+SYNCHRONOUSLY AND ATOMICALLY on the guest's CHCR write, so the two channels can never be in flight
+together — whereas real DMA0/DMA1 ping-pong around the decoder. Beetle's own `dma.c` is the reference:
+both channels sit **pending with busy set**, and `ChCan()` gates each block reload on
+`MDEC_DMACanWrite()` / `MDEC_DMACanRead()`. A channel that cannot proceed simply stays pending.
+
+**Channel order, measured** (`PSXPORT_DEBUG=mdecdma` — the guest computes the DMA base dynamically,
+so no static scan can answer this):
+
+    DMA0(in)  words=32     ok      (quant/IDCT tables -- produce no output, so no wedge)
+    DMA0(in)  words=32     ok
+    DMA0(in)  words=1824   WEDGES at 6, outfifo_has_data=1
+    DMA1(out) words=2880   canread=1   <- only AFTER DMA0 gave up
+
+So **DMA0-first is the live order**. The mirror case (DMA1 first, draining zero words and clearing
+busy anyway — a silent truncation) is **latent here, not live**, but it is a real hole in the model.
+
+**Design, judged rather than guessed.** Add the missing concept — a *pending* channel:
+- CHCR start **latches** the transfer (address, words remaining) and leaves bit 24 **set**.
+- One pump alternates: feed pending DMA0 while `mdec_dma_can_write()` (0x10-word chunks are always
+  safe — `DMACanWrite` needs ≥0x20 free), `MDEC_Run`, then drain pending DMA1 **directly to guest RAM**
+  per word at `MADR + i*4 + voffs*4`.
+- A channel clears busy only when its count is exhausted. Pump on both CHCR starts and on the
+  guest-visible polls (DMA CHCR reads, MDEC1 status reads) so every spin loop drives progress.
+
+*Rejected, with reasons, so they are not retried:*
+- **Draining into DMA1's latched MADR from inside `mdec_dma_in`** — reaches across channels using
+  parameters that may not be latched yet, performs DMA1's completion effects at DMA0 time, and
+  double-drains when the real DMA1 start arrives.
+- **Staging the output in a buffer** — breaks the `voffs` placement contract. `dest_word = MADR_word
+  + i + voffs_i` where `i` is the index within *that channel's transfer*, but the MDEC's
+  `RAMOffsetY/Counter` state is reset at decode-command parse, so `voffs_i` tracks position in the
+  *frame's* output stream. These coincide only when one DMA1 transfer covers the whole frame from
+  word 0. With per-strip `DecDCTout` the staged scatter is computed against the wrong base — and the
+  corruption is silent. Staging `(value, voffs)` pairs preserves the contract but builds a shadow
+  OutFIFO that MDEC status bits 31/27 and the data-port tail read would all have to consult.
+
+**Correction to this step's own note above:** `DecDCTinSync`'s `0x20000000` is status **bit 29 =
+`InCommand`** ("command busy", `mdec.c` ~1004), not a "data-in" bit. It clears when the decode command
+retires, which requires the output drained — so under the pending design it becomes *more* truthful,
+and each poll pumps progress so the `0x100000` spin cap is never approached.
+
+**Ruled out as a follow-on hazard:** the guest never programs DICR/DPCR (`0x1F8010F0/F4`) — **0
+references across 186,880 instructions** — so there is no DMA1 completion IRQ to fire and no second
+hang waiting behind this fix.
+
+**Still to do:** implement the pending-channel pump, and re-scope the 4096-step wedge error onto it
+(under a deferring model a short feed is normal, so that error must fire only when both channels are
+pending and a full pump pass makes zero progress — and must print both pending counts).
 
 ---
 
