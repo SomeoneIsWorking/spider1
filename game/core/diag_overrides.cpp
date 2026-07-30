@@ -36,6 +36,7 @@ extern void gen_func_800913AC(Core*);   // installed as libcd callback #3 by the
 extern void gen_func_800651C8(Core*);   // the game's allocator: (size, arena, flag) -> block ptr
 extern void gen_func_8002A338(Core*);   // the resumable MDEC bit-stream decoder (RE-16)
 extern void gen_func_8002A5F4(Core*);   // the other spurious entry inside the same guest body
+extern void gen_func_80064B3C(Core*);   // the CD.HED name lookup — a0 = filename pointer
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
 // libcd command-send (0x8008CE8C) — `PSXPORT_DEBUG=cdarg`.
@@ -178,6 +179,46 @@ static void diag_coro_entry(Core* c) {
 // Reporting rule is the same as above and matters more here: print the first few, then only on
 // CHANGE. What we are hunting is one transition from a code address to bit-stream data, and a
 // count-decimated log is exactly the shape that would miss it.
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+// The CD.HED name lookup (0x80064B3C) — `PSXPORT_DEBUG=hedname`.
+//
+// This is where the port dies when the menu is advanced: an unmapped read at 0x80800004 with
+// ra=0x80064CA4, i.e. inside this routine. It walks a NUL-separated name table and has NO
+// end-of-table exit — the only way out is a full match — so a name it cannot match walks upward
+// until it leaves the mapped window. That makes it a perfect DETECTOR: it faults loudly on a bad
+// argument instead of failing quietly, and the argument is the evidence.
+//
+// The question this answers is which half is broken: is the routine being handed a REAL filename
+// (so the table walk itself is at fault), or garbage (so the caller is, and this routine is just
+// where the damage surfaces)? RE-16 predicts garbage — an instruction word passed as a filename
+// after the script VM's cursor is destroyed — but that has never been observed, only inferred.
+//
+// Prints the first bytes as both hex and text, because a filename is obvious as text and an
+// instruction word is obvious as hex.
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+static unsigned g_hedname_calls = 0;
+static void diag_hed_name(Core* c) {
+  const unsigned n = ++g_hedname_calls;
+  const uint32_t p = c->r[4];
+  char txt[24]; unsigned k = 0; bool printable = true;
+  for (; k < sizeof txt - 1; k++) {
+    const uint8_t ch = (uint8_t)c->mem_r8(p + k);
+    if (!ch) break;
+    if (ch < 0x20 || ch > 0x7E) printable = false;
+    txt[k] = (char)ch;
+  }
+  txt[k] = 0;
+  // Every call for the first few, then only the ones that look WRONG — a decimated log would show
+  // the healthy steady state and miss the single bad call, which is the entire question.
+  if (n <= 6 || !printable || k == 0)
+    cfg_logf("hedname", "#%u name@%08X = %02X%02X%02X%02X \"%s\" (%s, len %u)  fp=%08X ra=%08X",
+             n, p, (unsigned)c->mem_r8(p), (unsigned)c->mem_r8(p+1), (unsigned)c->mem_r8(p+2),
+             (unsigned)c->mem_r8(p+3), txt,
+             (printable && k) ? "looks like a filename" : "NOT TEXT — caller passed garbage",
+             k, c->r[30], c->r[31]);
+  gen_func_80064B3C(c);
+}
+
 static unsigned g_coro5F4_calls = 0;
 static void coro_report(const char* who, unsigned n, uint32_t* last, Core* c) {
   const uint32_t ra = c->r[31];
@@ -232,6 +273,11 @@ void spiderman_install_diag_overrides(Game* g) {
     engine_set_override_main(0x800913ACu, diag_cb_13AC, gen_func_800913AC);
     cfg_logi("cdcb", "libcd installed-callback probes ARMED on 0x8009152C and 0x800913AC — "
                      "no call lines means neither ever ran");
+  }
+  if (cfg_dbg("hedname")) {
+    engine_set_override_main(0x80064B3Cu, diag_hed_name, gen_func_80064B3C);
+    cfg_logi("hedname", "CD.HED name-lookup probe ARMED on 0x80064B3C — no lines below means the "
+                        "lookup never ran, which would itself be the finding");
   }
   if (cfg_dbg("coroentry")) {
     engine_set_override_main(0x8002A338u, diag_coro_entry, gen_func_8002A338);

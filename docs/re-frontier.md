@@ -1448,6 +1448,37 @@ substrate-wide — do not brief it like the 131-site link-branch sweep.
 > `jr $ra` whose `$ra` comes from state+0x30, and letting rule 2 see it would re-litigate the reverted
 > `jr $ra` commit's territory.
 >
+> ### The ACTUAL failure, measured by driving the game (2026-07-30)
+>
+> Stopped theorising about the recompiler and just ran it. Advancing the menu with any of three
+> different buttons (`4000`, `0020`, `0800`) produces the SAME fault, and it is RE-16's original one:
+>
+>     FATAL: UNMAPPED RAM read8 @ 0x80800004
+>     ra=0x80064CA4   last-fn-entered=0x8008B910   fp=0x00000000   sp=0x807FFD88
+>
+> `0x80064CA4` is inside `FUN_80064B3C`, the CD.HED name lookup — which has no end-of-table exit, so
+> it walks upward off the mapped window when handed a name it cannot match. And **`$fp` is zero**,
+> where this game holds a global base at `0x800B0000` (RE-11). Same signature the branch-and-link fix
+> was written for; either that fix has a second instance, or something else zeroes `$fp`.
+>
+> **The fault is DETERMINISTIC: 3/3 runs, same address.** Worth stating because it validates every
+> A/B done today.
+>
+> **But arming a diagnostic override on `0x80064B3C` makes the fault DISAPPEAR** — the run survives
+> and the probe never fires. That is the perturbation hazard `diag_overrides.cpp` warns about in its
+> own header (an installed wrapper puts a native frame in the call chain and changes the tail-call
+> shape that `-foptimize-sibling-calls` otherwise produces). First time it has actually been observed
+> here, and it has two consequences:
+> - **The fault is sensitive to call-chain shape**, which is itself evidence about its nature.
+> - **`0x80064CA4` is reached WITHOUT entering `0x80064B3C`'s wrapper.** The probe would have fired
+>   otherwise. So that code is running as a DUPLICATED SHARED TAIL inside some other function's body
+>   — which is exactly the mechanism `collect_tail_dups` implements.
+>
+> **Attempt 16 starts here, and not from a theory:** find which emitted function contains a copy of
+> `0x80064CA4`. `grep -l 'L_80064CA4' generated/shard_*.c` and read the enclosing body. An entry-point
+> probe cannot see that path, so use the tail-dup owner instead — or a `PSXPORT_CW` watchpoint on the
+> pointer the walk dereferences, which needs no override and therefore cannot perturb the run.
+>
 > ### STOP WORK ON RULE 2 — `0x8002A5F4` IS NEVER CALLED (measured 2026-07-30)
 >
 > Before building inter-procedural analysis to demote it, I checked whether it runs. It does not:
