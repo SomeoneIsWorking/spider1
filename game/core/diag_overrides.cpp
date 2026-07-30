@@ -35,7 +35,6 @@ extern void gen_func_8009152C(Core*);   // installed into the libcd descriptor's
 extern void gen_func_800913AC(Core*);   // installed as libcd callback #3 by the same routine
 extern void gen_func_800651C8(Core*);   // the game's allocator: (size, arena, flag) -> block ptr
 extern void gen_func_8002A338(Core*);   // the resumable MDEC bit-stream decoder (RE-16)
-extern void gen_func_8002A478(Core*);   // its inner emit/shift block — contains the 0x8002A460 `jr $ra`
 extern void gen_func_8002A5F4(Core*);   // the other spurious entry inside the same guest body
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
@@ -179,7 +178,7 @@ static void diag_coro_entry(Core* c) {
 // Reporting rule is the same as above and matters more here: print the first few, then only on
 // CHANGE. What we are hunting is one transition from a code address to bit-stream data, and a
 // count-decimated log is exactly the shape that would miss it.
-static unsigned g_coro478_calls = 0, g_coro5F4_calls = 0;
+static unsigned g_coro5F4_calls = 0;
 static void coro_report(const char* who, unsigned n, uint32_t* last, Core* c) {
   const uint32_t ra = c->r[31];
   const bool changed = (ra != *last);
@@ -190,11 +189,10 @@ static void coro_report(const char* who, unsigned n, uint32_t* last, Core* c) {
              who, n, ra, code ? "code" : "NOT CODE -- clobbered before here", c->r[29]);
   }
 }
-static void diag_coro_478(Core* c) {
-  static uint32_t last = 1;
-  coro_report("0x8002A478", ++g_coro478_calls, &last, c);
-  gen_func_8002A478(c);
-}
+// (The 0x8002A478 probe is GONE, and its absence is the point: demote_internal_labels put that block
+// back inside 0x8002A338, so there is no gen_func_8002A478 to override any more. The link error that
+// removing it fixes was the DESIRED signal that demotion took effect — unlike attempt 1's link break,
+// which killed real library functions the port super-calls.)
 static void diag_coro_5F4(Core* c) {
   static uint32_t last = 1;
   coro_report("0x8002A5F4", ++g_coro5F4_calls, &last, c);
@@ -237,7 +235,6 @@ void spiderman_install_diag_overrides(Game* g) {
   }
   if (cfg_dbg("coroentry")) {
     engine_set_override_main(0x8002A338u, diag_coro_entry, gen_func_8002A338);
-    engine_set_override_main(0x8002A478u, diag_coro_478,   gen_func_8002A478);
     engine_set_override_main(0x8002A5F4u, diag_coro_5F4,   gen_func_8002A5F4);
     // Unconditional ARM line, per this file's own rule: a channel-gated probe's SILENCE only means
     // something if the run proves the probe was installed.

@@ -1342,6 +1342,40 @@ substrate-wide — do not brief it like the 131-site link-branch sweep.
 > linear, not whole-body), and the whole thing is verifiable on the HEALTHY build with super-calling
 > probes before it is ever shipped. Do NOT re-tune the dispatch approach; it cannot be made to work.
 >
+> ### Attempt 13 — flat emission WORKS; the remaining fault is 0x8002A5F4, and it was predicted
+>
+> Wired demotion into `emit_module` and emitted flat. The generated body is exactly right: every
+> branch site is `goto L_8002A478`, every in-body `jal` is `link + goto`, the three resume points are
+> labels, `jr $ra` is a switch over them with `default: return;`, and **no call or dispatch to the
+> demoted block survives**. 32 recompiler tests pass.
+>
+> **The O(N) problem is gone, measured:** the run reports **MISS=0** — no dispatch to `0x03FF03FF`,
+> where attempt 9/12 reported one every time. The decode is clean (`mdec:error 0`). So the flat
+> approach does what attempt 12 said it would.
+>
+> **But the boot still dies at `0x080252D4`, with byte-identical registers to every prior attempt:**
+>
+>     ra=0x03FF03FF  fp=0x03FF0FFF  s0=0x03FF07FF  s1=0x47FF03FF
+>     v0=0x080251F4  a0=0x8017F7E4  last-fn-entered=0x800654E8   (the allocator's free)
+>
+> Callee-saved registers full of bit-stream data, and the fault surfacing in an unrelated allocator
+> call — the signature of a corrupted *frame*, not a corrupted jump. Since MISS=0 proves no dispatch
+> ran, the jump is no longer the mechanism.
+>
+> **The cause is `0x8002A5F4`, and this file predicted it before the run:** it is still a function,
+> reached by `jal` x4 from inside the same guest body, and *its region has no epilogue of its own —
+> it flows into the shared tail at `0x8002A7A0`*. So CALLING it executes `lw ra,(sp); addi sp,sp,4`
+> and **releases the caller's frame**. That is the mirror image of the leak RE-16 started from, and it
+> lands squarely on callee-saved registers.
+>
+> **Attempt 14 must demote `0x8002A5F4` too — with a PROOF, not a threshold.** Rule 1 cannot see it
+> (`jal`-only). The "no epilogue of its own" fixpoint already failed catastrophically (255 entries,
+> `StGetNext` among them) because a LEAF function has no epilogue *because it needs none*. The
+> distinguishing fact is stronger and specific: **its region contains an epilogue it does not own** —
+> it reloads `ra` from a frame IT NEVER ALLOCATED (no prologue). A function that pops a frame it did
+> not push is not a function. Test that phrasing against the whole binary before wiring it, and
+> require `StGetNext` and the four link-branch targets to stay out.
+>
 > ### The discovery criterion is SOLVED, and it is a proof rather than a heuristic
 >
 > Attempts 1-3 tried "no prologue AND fall-through reachable AND same host" and demoted 78 / 325 / 50.
