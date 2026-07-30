@@ -1195,7 +1195,7 @@ so a later match OVERWRITES an earlier one — success was set, then replaced by
 
 ### RE-16 — Unconditional intra-function branch emitted as call+return leaks stack
 - status: in-progress
-- deps: RE-15, RE-03c
+- deps: RE-15
 
 **ROOT-CAUSED and verified; the fix is designed but deliberately NOT yet shipped.**
 
@@ -1232,7 +1232,32 @@ unmatched name walks upward until it leaves the mapped window. Faulting instruct
 **Blast radius, measured:** 16 real sites, all inside `0x8002A338` (14 branch, 2 jump). This is NOT
 substrate-wide — do not brief it like the 131-site link-branch sweep.
 
-### Attempt 9 SOLVED the emitter side. It is now BLOCKED ON RE-03c, not on the recompiler.
+### Attempt 9 solved the emitter side. Its BLOCKER IS STILL UNKNOWN — two attributions falsified.
+
+> **2026-07-30, tested directly rather than argued.** RE-03c is now fixed and verified (the MDEC
+> decode completes; `mdec:error` 2 -> 0 in the very same run). The RE-16 change was reapplied on top
+> and **the fault is UNCHANGED**: `ra=0x03FF03FF`, `c->pc=0x8002A478`, `FATAL: UNMAPPED RAM read8 @
+> 0x080252D4`, no frame rendered. So the garbage continuation does **not** come from an incomplete
+> decode. That is the SECOND wrong blocker for RE-16 — RE-07 was the first, and both were inferred
+> from a suspicious log line sitting near the failure rather than tested. C002 and C004 are falsified.
+> RE-16 is re-shelved (psxport main does not carry the change; the seeds are removed) and its `deps`
+> no longer name a blocker, because the honest answer is that it is not known.
+>
+> **The strongest lead is a blind spot I documented and then failed to act on.** `ra_classes.py` and
+> `ra_computed_jumps` do a LINEAR reaching-definitions pass, not a CFG join — the tool's own docstring
+> says so: *"at a `jr` reached by two paths with different definition kinds it reports the textually
+> latest"*. `0x8002A460` is plausibly reachable by BOTH a path where an in-body `jal` set `$ra` (a
+> genuine coroutine resume) and a path where none ran and `$ra` still holds the caller's return
+> address (a genuine return). The change makes it a dispatch **unconditionally**, which would break
+> the second path — and the emitter is where attempt 4 already concluded the remaining bug lives.
+>
+> Two facts to reconcile before accepting that story, because it does not yet explain everything:
+> the load image has **0** at the continuation slot `0x80097DB8`, so a fresh boot cannot restore a
+> garbage `$ra` there; and `0x03FF03FF` is not a plausible caller return address either — it is
+> bit-stream data, matching `s0=0x03FF07FF`, `s1=0x47FF03FF`, `fp=0x03FF0FFF` in the same dump and
+> the decoder's own `0x3FF` mask. So `$ra` is being clobbered AS DATA somewhere on the live path.
+> **Attempt 10 should find that write**, not re-guess a blocker: a watchpoint on `$ra`'s definition
+> inside `0x8002A338`, or a CFG-accurate reaching-definitions pass over the body, will name it.
 
 > **Blocker re-attributed 2026-07-30.** This section first named RE-07 (the FMV path) as the blocker,
 > on the strength of a `CdSearchFile` miss logged right before the fault. That was wrong — the miss is

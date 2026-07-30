@@ -90,36 +90,39 @@ static int  spiderman_devAreaCount(Core*)           { return 0; }   // truthfull
 static const char* spiderman_devAreaName(Core*, int){ return ""; }  // "" == no sourced name
 static bool spiderman_devWarpAllowed(Core*)         { return false; }
 
+// DESIGNATED initialisers, deliberately — every hook binds BY NAME.
+//
+// This was a positional list, and the framework adding one field (`devWarpAreaEnter`, upstream
+// ff123d81) slid every later entry by one. That break was LOUD only by luck: the adjacent hooks
+// happened to have different signatures, so the compiler rejected the conversions. Two neighbours
+// with the SAME signature — and this struct is mostly `void (*)(Core*)` — would have compiled
+// silently and called the wrong function, which is the kind of defect that surfaces days later as
+// inexplicable behaviour with nothing pointing at the cause.
+//
+// Binding by name removes the whole class: a field inserted anywhere upstream cannot rebind
+// anything here, and a field RENAMED or removed becomes a compile error naming the field, which is
+// exactly the signal we want. Unlisted fields are value-initialised to null, so the framework's
+// "may be null" hooks need no entry at all — the list below is now precisely what this port has
+// actually stood up, and reads as that inventory.
+//
+// C++20 requires designators in declaration order; keep them so when adding one.
 static const GameHooks g_spiderman_hooks = {
-    /* ctxCreate                */ nullptr,   // no per-Core game aggregate yet
-    /* ctxDestroy               */ nullptr,
-    /* frameUpdate              */ spiderman_frameUpdate,
-    /* drawOTag                 */ spiderman_drawOTag,
-    /* musicCoordTick           */ nullptr,
-    /* cdDialogToneActive       */ nullptr,
-    /* cdMusicFadeIn            */ nullptr,
-    /* audioMixFrame            */ nullptr,   // no native music engine — SPU PCM passes through
-    /* audioNowPlayingName      */ nullptr,
-    /* audioSoundTestPlay       */ nullptr,
-    /* bootInit                 */ spiderman_bootInit,
-    /* schedFreshEntry          */ spiderman_schedFreshEntry,
-    /* hasNativeHandlerForEntry */ spiderman_hasNativeHandlerForEntry,
-    /* registerOverrides        */ spiderman_registerOverrides,
-    /* renderFadeState          */ spiderman_renderFadeState,
-    /* replBehaviorName         */ nullptr,
-    /* replCamTeleport          */ nullptr,
-    /* replCamTeleportOff       */ nullptr,
-    /* renderBbFrameReset       */ spiderman_renderBbFrameReset,
-    /* replCommand              */ nullptr,
-    /* devWarpAreaLoad          */ spiderman_devWarpAreaLoad,
-    /* devAreaCount             */ spiderman_devAreaCount,
-    /* devAreaName              */ spiderman_devAreaName,
-    /* devWarpAllowed           */ spiderman_devWarpAllowed,
-    /* schedStageBody           */ spiderman_schedStageBody,
-    /* schedRng                 */ nullptr,
-    /* fps60WorldPass           */ nullptr,
-    /* fps60BbSwapPrev          */ nullptr,
-    /* selftestGame             */ nullptr,
+    .frameUpdate              = spiderman_frameUpdate,
+    .drawOTag                 = spiderman_drawOTag,
+    .bootInit                 = spiderman_bootInit,
+    .schedFreshEntry          = spiderman_schedFreshEntry,
+    .hasNativeHandlerForEntry = spiderman_hasNativeHandlerForEntry,
+    .registerOverrides        = spiderman_registerOverrides,
+    .renderFadeState          = spiderman_renderFadeState,
+    .renderBbFrameReset       = spiderman_renderBbFrameReset,
+    // devWarpAreaEnter stays null: this port's devWarpAreaLoad is itself a fail-fast stub, so there
+    // is no loaded area for an entry handler to arm. Standing one up before the other would be a
+    // hook that lies about what the port can do.
+    .devWarpAreaLoad          = spiderman_devWarpAreaLoad,
+    .devAreaCount             = spiderman_devAreaCount,
+    .devAreaName              = spiderman_devAreaName,
+    .devWarpAllowed           = spiderman_devWarpAllowed,
+    .schedStageBody           = spiderman_schedStageBody,
 };
 
 const GameHooks* spiderman_game_hooks() { return &g_spiderman_hooks; }
