@@ -1577,6 +1577,68 @@ substrate-wide — do not brief it like the 131-site link-branch sweep.
 > mapped GPR is what carried the information. Recorded as the reason the reporter now always dumps
 > bytes rather than only reporting a verdict.
 >
+> ### ATTEMPT 19 — flat emission SHIPS the fix and EXPOSES the next one. Not a regression.
+>
+> `demote_internal_labels` was DEAD CODE: defined, unit-tested, never called (attempt 13 left it that
+> way). Report-only over the real executable demotes **exactly 1** entry, `0x8002A478`, zero
+> collateral. Wired it in, plus the emitter half it needs:
+>
+> 1. `emit_func`: `inbody_links` = {`jal` site + 8 : the `jal`'s target is inside THIS body}; force
+>    those resume addresses into `labels`.
+> 2. `emit_control`, `jal`: target in `labels` -> `link + goto` (not a call, not a dispatch).
+> 3. `emit_control`, `jr $ra`: if the body has in-body links -> `switch (c->r[31]) { case <resume>:
+>    goto L_<resume>; ... default: return; }`.
+>
+> (3) was chosen to sidestep the static per-`jr` classification that failed four times: a single `jr`
+> is genuinely BOTH a return and a resume depending on the path, but the RUNTIME value never is.
+>
+> **Measured: the emitter half is REQUIRED.** Demotion alone produced `[recomp-MISS] no recompiled fn
+> for 0x8002A478`. With both halves: no MISS, `func_8002A478` exists nowhere, every reference is
+> `goto L_8002A478`, 30 sites got a resume switch, 32 recompiler tests pass — **and the original
+> `0x80800004` filename fault is GONE.**
+>
+> **The boot then dies at `0x080252D4`, with no input, byte-identically to attempts 9/12/13.**
+>
+> **This is NOT a regression, and the distinction is the whole finding.** `0x8002A5F4` survives
+> demotion and stays a host callee, but **all four of its call sites' resume addresses lie inside its
+> own extent** — so its `jr $ra` resume switch contains the very addresses its callers link. The fast
+> path reaches `jr $ra` with `$ra` = a caller link, the switch STEALS what was a genuine one-level
+> return, runs the rest of the chain inside the callee (including the shared tail's frame pop), then
+> `default: return`s — leaving the caller to re-execute the remaining calls on a guest that has
+> already finished and freed the frame. `sp` skews 4 bytes per spurious pass and the reloads come from
+> stack words holding bitstream data. That is exactly the observed `ra=0x03FF03FF  s0=0x03FF07FF
+> fp=0x03FF0FFF` saturation.
+>
+> **The witness is STATIC and needs no run.** Scanning the emitted C for `case` addresses that are
+> also host-call links: **28 collisions across 7 bodies** — `gen_func_8002A5F4` (`0x8002A77C/784/
+> 78C/794`), plus six bodies in the `0x8007C..0x8007F` handwritten link-branch region. The last six
+> are pre-existing landmines unrelated to attempt 19; they did not fire because boot never reached
+> them.
+>
+> **C008 IS FALSIFIED AS A SCOPE ERROR — see C010.** "`0x8002A5F4` is never called" was measured on the
+> HEALTHY build, where the leak makes `0x8002A338` bail after ~one block so the decode loop and its
+> four `jal 0x8002A5F4` sites are never REACHED. The measurement was real; the conclusion does not
+> transfer to a leak-fixed build. Attempt 13 predicted this fault and *this claim retired the correct
+> prediction*. That is why attempts 9, 12, 13 and 19 — two entirely different emission designs — all
+> die identically: each makes the decode loop run, none fixed `0x8002A5F4`.
+>
+> **NOT SHIPPED, and deliberately so.** The proper fix is (a) close the complex by demoting
+> `0x8002A5F4` into `0x8002A338` too, and (b) wire the collision scan in as an emit-time HARD GATE
+> (cases ∩ host-call links = ∅), so a violation is loud instead of silent. A first cut at a demotion
+> rule ("all of an entry's callers resume inside its own extent") selects 9 entries, not 1 — which is
+> the criterion-tuning failure mode this file has now recorded five times, so it was NOT shipped on a
+> deadline. Do the GATE first; let it name what must be demoted, rather than inventing a rule that
+> predicts it.
+>
+> **The gate is now a tool: `tools/check_resume_switch.py`** (`--selftest` proves it can report a
+> POSITIVE, a NEGATIVE and a VOID; wired to exit 1 on collision, 2 when it could not actually look).
+> Run it on any substrate emitted with the resume switch; on today's shipping substrate it correctly
+> reports *vacuously clean* — 18796 links found, 0 switches — rather than a bare "OK".
+>
+> **Do not re-measure by hand:** the scan's first version required the link and the call on one line,
+> but `emit_control` emits them as two, so it found 18 links instead of 16946 and reported "0
+> collisions". It was caught only because it prints denominators beside the verdict (I004).
+>
 > ### STOP WORK ON RULE 2 — `0x8002A5F4` IS NEVER CALLED (measured 2026-07-30)
 >
 > Before building inter-procedural analysis to demote it, I checked whether it runs. It does not:
