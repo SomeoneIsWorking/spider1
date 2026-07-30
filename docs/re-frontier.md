@@ -1217,6 +1217,33 @@ The movies live under `CINEMAS/` on this disc. The framework's boot-time FMV pla
 reference consumer's path (`MOVIE/LOGO.STR`), so it is disabled by default in `run.sh` rather than
 left to fail. Wiring this game's FMV path is downstream of the front-end coming up at all.
 
+**RE-16 attempt 9 turned this step up, and its real content is NOT "wire up the FMV path".**
+
+The guest asks for `\CINEMAS\TTSLOGO.STR;1` at boot and **that file is not on the retail disc.**
+Both halves are measured, not inferred:
+
+    strings SLUS_008.75 | grep CINEMAS      ->  24 literals, INCLUDING \CINEMAS\TTSLOGO.STR;1
+    discdump list                           ->  CINEMAS/ holds 24 files: ATVILOGO.STR, LOGO.STR
+                                                and L1M1..L8M5 — there is NO TTSLOGO.STR
+
+So the executable names three logo movies and the disc ships two. **Real PSX hardware also fails this
+lookup**, which means the game has a working not-found path and the port is not taking it. The
+framework's HLE is faithful here — `cd_searchfile_native` returns `V0 = 0` on a miss, refuses to
+fabricate a location, and says so (`cd_override.cpp:383`); it is what happens NEXT that is wrong.
+Downstream, the MDEC is driven anyway over a buffer the failed load never filled:
+
+    [cd:error]   CdSearchFile: '/CINEMAS/TTSLOGO.STR;1' not found on the disc image
+    [mdec:error] DMA0 in: decoder still cannot accept after 4096 step(s); 6 of 1824 word(s) written
+
+**That garbage decode is what blocks RE-16**, whose fix is otherwise done and pushed upstream: the
+bit-stream decoder at `0x8002A338` saves its continuation from a stream of nonsense, so its `jr $ra`
+resumes to `0x03FF03FF` (decoder data, not an address). Under the old emitter that garbage jump was
+silently swallowed by `return;`.
+
+**Start here:** find the guest caller that issues the `TTSLOGO` search, and follow what it does with
+`V0 = 0`. The two MDEC errors appear on the PINNED (pre-RE-16-fix) build too, so this is reproducible
+today without touching the recompiler — `PSXPORT_FORCE_BUTTONS=0040`, then read `scratch/logs/`.
+
 ---
 
 ### RE-08 — Render: GTE tap -> native depth
