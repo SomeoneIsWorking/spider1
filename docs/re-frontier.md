@@ -1304,6 +1304,43 @@ substrate-wide — do not brief it like the 131-site link-branch sweep.
 > *Method note, and it is the lesson of the whole day:* every question here was answerable on the
 > HEALTHY build with a super-calling probe. Three attempts were spent rebuilding the broken variant
 > and reading its wreckage; none of them needed to be.
+>
+> ---
+>
+> ### Attempt 12 — THE FIX IS ARCHITECTURALLY WRONG FOR THIS ROUTINE. Stop refining it.
+>
+> Bracketed the clobber with a second probe on `0x8002A478` (which contains the `0x8002A460` jump).
+> The result settles RE-16's emitter question for good:
+>
+>     0x8002A338 entry #1       ra=8002B468 (code)  sp=807FFF00
+>     0x8002A478 entry #1..#4   ra=8002A424 (code)  sp=807FFEFC
+>     0x8002A478 entry #21997   ra=03FF03FF (NOT CODE)  sp=807FFF00
+>
+> **The mechanism WORKS.** `ra=0x8002A424` is exactly one of the seven seeded resume points, and it
+> holds constant (the probe prints on CHANGE) across **21,996 iterations**. Discovery, the resume set,
+> the per-`jr` classification and the seeds are all doing their job.
+>
+> **The design is the defect.** The guest's `jal 0x8002A478` / `jr $ra` pair is an **O(1) loop** — it
+> links, jumps, and jumps back, with no stack growth. Routing the resume through `rec_dispatch` turns
+> each iteration into a **NESTED C CALL that cannot return until the whole decode finishes**, so an
+> O(1) guest loop becomes **O(N) host stack — ~22,000 nested frames for one 320x240 frame.** The
+> `sp=807FFF00` on the failing entry (4 higher than the working ones, i.e. the guest frame already
+> released) shows the run is unwinding through that pile when it dies.
+>
+> This is the flaw I flagged as a "bounded risk worth stating" when the design was chosen and then
+> did not measure. It is not bounded. **The 4096-step wedge, the 0x03FF03FF, and every previous
+> "blocker" were downstream of this.**
+>
+> **So the DEMOTION approach (attempts 1-8) was architecturally RIGHT and was abandoned for the wrong
+> reason.** Inlining the block into its host and emitting `goto L_8002A478` / `goto L_<resume>` keeps
+> the loop FLAT — which is what the guest does. It was dropped because its *discovery criterion* kept
+> mis-selecting functions, but that is a solvable set-membership problem (attempt 4 already got the
+> right set: `{0x8002A478, 0x8002A5F4}`), whereas O(N) stack growth is not solvable at all.
+>
+> **Attempt 13: return to demotion, with the emitter side informed by what attempts 9-12 proved** —
+> the resume set is 7 (not 3), the `jr $ra` classification must be per-`jr` and CFG-accurate (not
+> linear, not whole-body), and the whole thing is verifiable on the HEALTHY build with super-calling
+> probes before it is ever shipped. Do NOT re-tune the dispatch approach; it cannot be made to work.
 
 > **Blocker re-attributed 2026-07-30.** This section first named RE-07 (the FMV path) as the blocker,
 > on the strength of a `CdSearchFile` miss logged right before the fault. That was wrong — the miss is
