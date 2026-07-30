@@ -1384,7 +1384,71 @@ substrate-wide — do not brief it like the 131-site link-branch sweep.
 > region pops a frame it never pushed from a legitimate shared-epilogue continuation?* Both have no
 > prologue and both pop.
 >
-> **Original (still-unproven) phrasing, kept for the record:** Rule 1 cannot see it
+> ### The criterion, SOLVED by replacing the question (escalated design, 2026-07-30)
+>
+> "Spurious entry vs legitimate continuation" is an **intent** question, and intent has no proof-grade
+> witness in the bytes. That is why four heuristics failed. The question the emitter actually needs
+> answered does have a proof: **is this entry representable as a host callee?** The emitter turns a
+> callee's `jr $ra` into host `return`, which is sound iff at that `jr` (a) guest `$sp` equals its
+> entry value, and (b) `$ra` holds entry provenance — never redefined, or reloaded from a slot that
+> same path previously stored entry-`$ra` into.
+>
+> **RULE 2 (callee-contract violation).** A no-prologue, `jal`-reached entry is demoted iff some
+> `jr $ra` reachable from its entry — walked over the CFG the emitter will actually emit — is reached
+> with **net sp displacement > 0**, or with **`$ra` loaded from a stack slot the path never wrote**.
+>
+> Proof by the same standard as rule 1: derived from the semantics of the emitted artifact, not tuned
+> on counts. A violating entry *cannot* be emitted as a callee without miscompiling that path; a
+> non-violating one is exactly representable. **It needs no host lookup at all** — the property is
+> intrinsic to the candidate's region — which DISSOLVES the single-host trap rather than patching it.
+>
+> **Why `0x8002A5F4` violates, from the disassembly.** It is genuinely dual-behaviour. Fast path:
+> `j 0x8002A478` then `jr $ra` at `0x8002A460`, `$ra` untouched, sp net 0 — returns cleanly to the
+> `jal` sites. Suspend path: `0x8002A42C beqz → 0x8002A7BC` does `lw $ra,($sp); addi $sp,4`, loading
+> from a slot this path never wrote (it is `0x8002A338`'s frame), net sp +4 — and `0x8002A7EC` saves
+> the *internal* return address as the resume point. **That is the coroutine YIELD: a two-level
+> return, out of the whole decoder.** A host callee's `return` can only return one level, so emitted
+> as a function the yield pops once here and again in the outer body. Hence the corruption — and the
+> fault registers are literally decode-tree constants (`0x3FF` is the EOB/escape code at
+> `0x8002A474`/`0x8002A694`), which is why `ra=0x03FF03FF`.
+>
+> **Why the 123-candidate scan over-counted:** it was syntactic containment. Path-sensitivity from the
+> entry discharges most — the pop is reached only after a push on that path (shrink-wrapped frames),
+> or sits in code unreachable from the entry in the emitted CFG. A leaf having "no epilogue because it
+> needs none" is a *satisfying* case of rule 2, not a confound — which is exactly where the
+> 255-demotion fixpoint went wrong.
+>
+> **Walk rules, load-bearing (the walk must mirror emission or the proof is about the wrong object):**
+> run after the rule-1 fixpoint; `jal X` where X survives = opaque balanced call; `jal X` where X is
+> demoted = inline flow (mirrors `link + goto`); iterate demotion + re-walk to a fixpoint, since each
+> demotion reshapes regions.
+>
+> **The guard against the silent failure.** The residual unrepresentable-but-real class is
+> longjmp/task-switch/exception glue — functions that manipulate the caller's frame ON PURPOSE and are
+> called from many bodies. Rule 2 flags them, and flattening them is impossible (no single owning
+> body). So: **violation + all references inside one enclosing body → demote into it. Violation +
+> external or multi-body references → HARD STOP naming the address**, because that is an override
+> candidate, not a flattening. That turns the undecidable remainder loud instead of silent.
+>
+> **Provenance must REFUSE, not default.** `$ra` through register moves or non-sp memory, or a
+> non-constant sp adjustment — any path where balance cannot be proven either way is a loud "cannot
+> classify", never a default in either direction. A default is where silence would re-enter.
+>
+> **Two alternatives considered and rejected, with reasons:** `collect_tail_dups` is NOT the defect —
+> once `0x8002A478` is demoted the whole span is in-extent in one body and tail duplication never
+> touches it, and no tail change can express a two-level return anyway. And
+> `merge_early_return_boundaries` does not draw this distinction: disjoint population (its `removable`
+> set explicitly EXCLUDES `jal` targets), different evidence, no sp/ra tracking. Extending it would
+> conflate boundary repair with call-target validation.
+>
+> **Implementation order: REPORT-ONLY FIRST.** Emit the violation set and diff it against rule 1 + the
+> must-keep list before it is allowed to change emission. If report-only still flags dozens, the walk
+> rules are wrong (most plausibly the jal-inline rule) and the numbers should be believed over the
+> analysis. Scope rule 2 to no-prologue `jal`-reached CANDIDATES only — `0x8002A338` itself has a
+> `jr $ra` whose `$ra` comes from state+0x30, and letting rule 2 see it would re-litigate the reverted
+> `jr $ra` commit's territory.
+>
+> **Superseded phrasing, kept for the record:** Rule 1 cannot see it
 > (`jal`-only). The "no epilogue of its own" fixpoint already failed catastrophically (255 entries,
 > `StGetNext` among them) because a LEAF function has no epilogue *because it needs none*. The
 > distinguishing fact is stronger and specific: **its region contains an epilogue it does not own** —
