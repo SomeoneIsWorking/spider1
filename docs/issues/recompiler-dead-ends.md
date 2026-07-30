@@ -198,3 +198,82 @@ than at the emission of the demoted region itself, which attempt 6 verified read
    would be the mirror image of the original bug and would explain a stable-but-different corruption.
 3. Confirm `0x8002A5F4` genuinely belongs in the demoted set. It was demoted first and its own callers
    were never audited the way `0x8002A478`'s three were.
+
+### Attempt 8 — what `0x8002A338` actually IS: a resumable coroutine with a saved continuation
+
+Attempts 1–7 all treated `0x8002A338` as an ordinary function containing a stray internal subroutine.
+It is not. Disassembling the whole body settles it, and this is the fact every prior attempt lacked.
+
+**It saves and restores its own register context, including its continuation, in a global block at
+`0x80097D88`.**
+
+    ; entry, $a0 == 0 -> RESUME path
+    8002A340  lui/addiu $t6, 0x80097D84
+    8002A358  lui/addiu $t6, 0x80097D88
+    8002A360..8002A38C  lw  $v0,$v1,$t0,$a0,$a1,$a2,$t2,$t3,$t5,$t7,$t8,$t9  <- 0x00..0x2C($t6)
+    8002A390  lw   $ra, 0x30($t6)      <- THE SAVED CONTINUATION
+    8002A398  bnez $ra, 0x8002a43c     <- a continuation exists: re-enter the decode loop
+    8002A3A0  bgez $zero, 0x8002a7a0   <- none: go straight to the tail
+
+    ; exit, suspend path
+    8002A7E8  bgez $zero, 0x8002a7f4
+    8002A7EC  or   $at, $zero, $ra     <- delay slot: $at = the LIVE continuation
+    8002A7F0  move $at, $zero          <- other entry: no continuation
+    8002A7F4  lw $ra,($sp) / addi $sp,$sp,4        <- real epilogue
+    8002A804..8002A830  sw  $v0..$t9   -> 0x00..0x2C($t6)
+    8002A834  sw   $at, 0x30($t6)      <- THE CONTINUATION IS STORED BACK
+    8002A838  jr   $ra                 <- real return; 8002A83C ori $v0,$zero,1 (returns 1 = suspended)
+
+So `$a0 != 0` means "start on a new input buffer", `$a0 == 0` means "resume where you left off".
+This is hand-written assembly (GTE `mfc2`, bit-unpacking, shared frame) using `jal`/`jr $ra` as an
+internal coroutine mechanism. **`jr $ra` in this body does not mean "return".**
+
+**There are three `jr $ra` in the body and they are NOT the same kind:**
+
+| addr | kind | where its `$ra` came from |
+|---|---|---|
+| `0x8002A460` | coroutine jump | an in-body `jal` link, or the restored `0x30($t6)` |
+| `0x8002A7E0` | real return | `0x8002A7C0  lw $ra, ($sp)` — the epilogue |
+| `0x8002A838` | real return | `0x8002A7F4  lw $ra, ($sp)` — the epilogue |
+
+Every prior attempt used a **whole-body** gate ("this body writes `$ra` as data, so convert *all* its
+`jr $ra` to dispatch"). The discriminator is not a body property — it is **reaching-definitions on
+`$ra` at each `jr`**: a real return iff the reaching def is the frame reload; a computed jump iff it
+is a `jal` link or a data load. That is structural, not heuristic, and no attempt has used it.
+
+**The resume-point set is SEVEN, not three.** Enumerated from the disassembly, the in-body `jal`s are:
+
+    8002A41C jal 8002A478 -> 8002A424      8002A774 jal 8002A5F4 -> 8002A77C
+    8002A700 jal 8002A478 -> 8002A708      8002A77C jal 8002A5F4 -> 8002A784
+    8002A76C jal 8002A478 -> 8002A774      8002A784 jal 8002A5F4 -> 8002A78C
+                                           8002A78C jal 8002A5F4 -> 8002A794
+
+Attempt 5 restricted the switch to "a set of 3" — the three `jal`s targeting `0x8002A478` only. The
+four resume points behind the `jal`s to `0x8002A5F4` would have hit `default: return;` and silently
+truncated the decoder. **That is a concrete defect in attempt 5, and it means attempt 5's falsification
+of the `jr $ra` breadth suspicion was measured on a broken variant — its negative result does not
+stand.** (The set is also closed under the continuation: the value stored at `0x2A834` is whatever
+`$ra` held, which is always one of these seven or zero.)
+
+**The emitter also duplicates overlapping tails, which is why this was so confusing to read.** The
+same guest instructions are emitted THREE times today:
+
+    gen_func_8002A338  (generated/shard_7.c:3111)  spans 8002A338..8002A83C
+    gen_func_8002A478  (generated/shard_0.c:3004)  spans 8002A478..8002A5F0 + a copy of 8002A444..
+    gen_func_8002A5F4  (generated/shard_1.c:4479)  spans 8002A5F4..8002A79x
+
+`gen_func_8002A478` contains **no `r[29]` operation at all** — confirming RE-16's leak: the frame is
+allocated in `gen_func_8002A338` and the callee copy never releases it.
+
+**RE-16's diagnosis is understated, not wrong.** At the `bgez $zero` sites emitted as
+`func_8002A478(c); return;` there are TWO defects, not one: the frame leak, *and* control-flow
+truncation — the guest's `jr $ra` at `0x8002A460` is emitted as `return;`, so instead of resuming at
+`0x8002A424`/`0x8002A708`/… the decoder unwinds out of `gen_func_8002A338` entirely, never reaching
+the tail that saves context and returns its status word. The `jal` at `0x8002A41C` only works today by
+*accident* — C call/return happens to coincide with the guest's link/resume there.
+
+**Attempt 9 therefore starts from a different place than attempt 8 did:**
+1. Part 3's gate must be per-`jr`, by reaching-definitions on `$ra`, not per-body.
+2. The resume set must be enumerated over ALL in-body `jal`s after the demotion fixpoint, not per
+   demoted target. Assert `|set| == 7` for this body before regenerating — the attempt-4 method.
+3. Attempt 5's negative is void; the breadth question must be re-measured once (2) is right.
