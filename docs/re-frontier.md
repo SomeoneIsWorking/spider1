@@ -1510,11 +1510,29 @@ substrate-wide — do not brief it like the 131-site link-branch sweep.
 > Note the instrument choice mattered: `PSXPORT_CW` needs no override, and an override on this path
 > is known to make the fault vanish. A probe would have answered nothing.
 >
-> **Attempt 17: capture the NAME, not the table.** The caller builds it byte-by-byte into a buffer
-> before `0x80069B78`; watch that buffer with `PSXPORT_CW` (address from the `sb` sites around
-> `0x80069B58`) and read what it actually contains on the faulting call. If it is text, the lookup or
-> the table format is at fault; if it is an instruction word, RE-16's corrupted-cursor chain is
-> confirmed end-to-end for the first time.
+> **The caller, read in full** (`0x80069B20..0x80069B7C`) — it builds the name on the **STACK**:
+>
+>     80069B24  addiu $a1, $sp, 0x10     ; buffer = sp+0x10
+>     80069B28  jal   0x8005F2A8         ; copy the base name in; length -> $v0
+>     80069B50..74  sb '.' 'p' 's' 'x'   ; append ".psx" at buf+len
+>     80069B78  jal   0x80064B3C         ; lookup(buf)
+>     80069B7C  sb    $zero, 1($v0)      ; NUL-terminate, in the delay slot
+>
+> **ATTEMPT 17 FAILED, and the failure is an INSTRUMENTATION BIND worth recording** so it is not
+> retried blindly. `PSXPORT_CW=7ffd80,7ffe40` over that stack window logged **9,004,236 stores** and
+> the run never reached the fault at all — the volume slowed it so much it sat spinning in a countdown
+> loop at `0x8002B430` (`0x0052A6BE` decrementing). A store watchpoint is unusable on the stack.
+>
+> So both obvious instruments are disqualified on this fault, for opposite reasons:
+> - **override / entry probe** → changes the call-chain shape and the fault DISAPPEARS (observed).
+> - **store watchpoint on the buffer** → the stack is far too hot; it floods and starves the run.
+>
+> **What would actually work, for attempt 18:** capture at the CONSUMER, not the producer. The lookup
+> walks the name one byte at a time; a *read* watchpoint (or a one-shot capture inside the framework's
+> unmapped-read fail-fast path, which already has the registers in hand) would print the name with no
+> override and no flood. The fail-fast handler is the natural home: it fires exactly once, at the
+> moment of interest, and `$s1`/`$s3` in `0x80064B3C` still hold the name pointer there. That is a
+> few lines in the framework's fault reporter, not a new mechanism.
 >
 > ### STOP WORK ON RULE 2 — `0x8002A5F4` IS NEVER CALLED (measured 2026-07-30)
 >
