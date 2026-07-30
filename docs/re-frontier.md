@@ -1256,8 +1256,30 @@ substrate-wide — do not brief it like the 131-site link-branch sweep.
 > garbage `$ra` there; and `0x03FF03FF` is not a plausible caller return address either — it is
 > bit-stream data, matching `s0=0x03FF07FF`, `s1=0x47FF03FF`, `fp=0x03FF0FFF` in the same dump and
 > the decoder's own `0x3FF` mask. So `$ra` is being clobbered AS DATA somewhere on the live path.
-> **Attempt 10 should find that write**, not re-guess a blocker: a watchpoint on `$ra`'s definition
-> inside `0x8002A338`, or a CFG-accurate reaching-definitions pass over the body, will name it.
+> **Attempt 10, done: the RESTORED-CONTINUATION theory is DEAD.** Watched every store to the
+> continuation slot `0x80097DB8` across a full boot (`PSXPORT_CW=97db8,97dbc PSXPORT_CW_MAX=0`) —
+> **zero hits**. Validated against a positive control in the same session so the zero means something:
+> the adjacent FMV descriptor table `PSXPORT_CW=97dec,97e04` fires twice, from the pre-scan store at
+> `0x8002A858` and from `CdPosToInt 0x80087220`. So the watchpoint works and the negative is real:
+> **the coroutine's save path at `0x8002A834` never runs during boot, so nothing ever writes the
+> continuation, so `lw $ra, 0x30($t6)` cannot be the source of `0x03FF03FF`.**
+>
+> This also runs on the HEALTHY (RE-16-shelved) build — `$ra` holds what it holds regardless of how
+> the emitter renders the jump — so the whole question can be chased without reinstating a change
+> that breaks the boot. That is the method the next attempt should keep using.
+>
+> **What remains, narrowed.** The fault is reached with `a0 != 0` (`a0=0x801C9F4C`), i.e. the
+> FRESH-START path (`0x8002A3A8` onward), not the resume path. On that path nothing in the
+> disassembled body writes `$ra` at all — the decode loop works in `r1..r10`. So `$ra` is either
+> (a) already `0x03FF03FF` when the guest CALLS `0x8002A338`, meaning the clobber is UPSTREAM of this
+> function entirely and this routine is a victim rather than the culprit, or (b) written by a path
+> not yet disassembled.
+>
+> **Attempt 11: log `$ra` at ENTRY to `0x8002A338`** with a diagnostic native override
+> (`spiderman_install_diag_overrides` is the existing seam; it super-calls, so the run is unchanged).
+> If `$ra` is already garbage at entry, RE-16 has been chasing a symptom this whole time and the real
+> defect is in whatever calls it — which would also explain why two separate blocker attributions
+> both failed. Do this BEFORE touching the emitter again.
 
 > **Blocker re-attributed 2026-07-30.** This section first named RE-07 (the FMV path) as the blocker,
 > on the strength of a `CdSearchFile` miss logged right before the fault. That was wrong — the miss is
