@@ -1497,10 +1497,24 @@ substrate-wide — do not brief it like the 131-site link-branch sweep.
 > 2. the TABLE is empty/absent in guest RAM, in which case *any* name walks off the end and this is an
 >    asset-delivery bug in the port, not a mistranslation.
 >
-> Hypothesis 2 has never been checked and is the cheaper of the two. **Use `PSXPORT_CW` on the name
-> buffer or on the table region — a store watchpoint needs no override, so unlike a probe it cannot
-> perturb the run.** That non-perturbing property is now the deciding factor for instrument choice on
-> this fault.
+> **Hypothesis 2 is FALSIFIED, in one measurement.** The name table at `0x800B9E68` (from
+> `0x80064B8C addiu $s0, $v0, -0x6198` with `$v0 = 0x800C0000`) ships as ZEROS in the executable, so
+> it must be filled at runtime — and it IS. `PSXPORT_CW=b9e68,b9ea8 PSXPORT_CW_MAX=0` over a full
+> boot: **80 stores, 43 of them non-zero**, writing real filename text from `0x80089ECC`
+> (`73 66 78 2E 76` = `"sfx.v…"`). The zero stores are the BSS clear at init (`interp_pc=0`).
+>
+> So the table is populated and the walk is not running off the end for lack of data. **That puts the
+> weight back on hypothesis 1: the name handed to the lookup is garbage** — which is the original
+> RE-16 story, now the surviving explanation rather than the assumed one.
+>
+> Note the instrument choice mattered: `PSXPORT_CW` needs no override, and an override on this path
+> is known to make the fault vanish. A probe would have answered nothing.
+>
+> **Attempt 17: capture the NAME, not the table.** The caller builds it byte-by-byte into a buffer
+> before `0x80069B78`; watch that buffer with `PSXPORT_CW` (address from the `sb` sites around
+> `0x80069B58`) and read what it actually contains on the faulting call. If it is text, the lookup or
+> the table format is at fault; if it is an instruction word, RE-16's corrupted-cursor chain is
+> confirmed end-to-end for the first time.
 >
 > ### STOP WORK ON RULE 2 — `0x8002A5F4` IS NEVER CALLED (measured 2026-07-30)
 >
