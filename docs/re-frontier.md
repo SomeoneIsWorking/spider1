@@ -1112,7 +1112,7 @@ so a later match OVERWRITES an earlier one — success was set, then replaced by
 
 ### RE-16 — Unconditional intra-function branch emitted as call+return leaks stack
 - status: in-progress
-- deps: RE-15, RE-07
+- deps: RE-15, RE-03c
 
 **ROOT-CAUSED and verified; the fix is designed but deliberately NOT yet shipped.**
 
@@ -1149,7 +1149,13 @@ unmatched name walks upward until it leaves the mapped window. Faulting instruct
 **Blast radius, measured:** 16 real sites, all inside `0x8002A338` (14 branch, 2 jump). This is NOT
 substrate-wide — do not brief it like the 131-site link-branch sweep.
 
-### Attempt 9 SOLVED the emitter side. It is now BLOCKED ON RE-07, not on the recompiler.
+### Attempt 9 SOLVED the emitter side. It is now BLOCKED ON RE-03c, not on the recompiler.
+
+> **Blocker re-attributed 2026-07-30.** This section first named RE-07 (the FMV path) as the blocker,
+> on the strength of a `CdSearchFile` miss logged right before the fault. That was wrong — the miss is
+> expected and handled (see RE-07, CLAIM-C002 falsified). The garbage the decoder reads comes from the
+> **MDEC model refusing DMA0 input**, so the blocking step is **RE-03c (MDEC decode)**, which is
+> already RE-ready. The rest of this section stands as written.
 
 The fix is implemented and pushed **upstream in psxport** (`recomp: jr $ra is not always a return`),
 but spider1 deliberately stays pinned to the commit before it, because it stops this port booting for
@@ -1217,32 +1223,44 @@ The movies live under `CINEMAS/` on this disc. The framework's boot-time FMV pla
 reference consumer's path (`MOVIE/LOGO.STR`), so it is disabled by default in `run.sh` rather than
 left to fail. Wiring this game's FMV path is downstream of the front-end coming up at all.
 
-**RE-16 attempt 9 turned this step up, and its real content is NOT "wire up the FMV path".**
+**CORRECTED 2026-07-30 — the `TTSLOGO` miss is a RED HERRING. Do not chase it.**
 
-The guest asks for `\CINEMAS\TTSLOGO.STR;1` at boot and **that file is not on the retail disc.**
-Both halves are measured, not inferred:
+An earlier note in this file claimed the guest had a not-found path the port was failing to take.
+That inference is **false and has been retracted** (CLAIM-C002 falsified). The disc fact behind it is
+still true — `\CINEMAS\TTSLOGO.STR;1` is a literal in the executable and is *not* on the retail disc
+(the exe names three logo movies, the disc ships `ATVILOGO.STR` and `LOGO.STR`) — but the caller shows
+that a miss is entirely expected and correctly handled.
 
-    strings SLUS_008.75 | grep CINEMAS      ->  24 literals, INCLUDING \CINEMAS\TTSLOGO.STR;1
-    discdump list                           ->  CINEMAS/ holds 24 files: ATVILOGO.STR, LOGO.STR
-                                                and L1M1..L8M5 — there is NO TTSLOGO.STR
+`0x8002A884` is a **boot-time pre-scan of the whole FMV table** (24 entries, stride `0x18`, base
+`0x80097DEC`, each entry `{const char* name; ...; u32 lba; ...}`):
 
-So the executable names three logo movies and the disc ships two. **Real PSX hardware also fails this
-lookup**, which means the game has a working not-found path and the port is not taking it. The
-framework's HLE is faithful here — `cd_searchfile_native` returns `V0 = 0` on a miss, refuses to
-fabricate a location, and says so (`cd_override.cpp:383`); it is what happens NEXT that is wrong.
-Downstream, the MDEC is driven anyway over a buffer the failed load never filled:
+    8002A8B0  lw    $a1, ($s1)          ; name pointer for this entry
+    8002A8B4  jal   0x80086170          ; CdSearchFile(&loc, name)
+    8002A8BC  beqz  $v0, 0x8002a8d4     ; not found ->
+    8002A8D0  sw    $v0, ($s0)          ;   found:     store the resolved LBA
+    8002A8D4  sw    $zero, ($s0)        ;   NOT FOUND: store ZERO   <-- the handled path
+    8002A8E8  sltiu $v0, $s4, 0x18      ; 24 entries
 
-    [cd:error]   CdSearchFile: '/CINEMAS/TTSLOGO.STR;1' not found on the disc image
+The port's `cd_searchfile_native` returns `V0 = 0` on a miss, so the guest takes that branch and
+records a 0 LBA — exactly as it does on real hardware, where the same file is equally absent. **What
+made this look causal is that the framework logs the miss at `cfg_loge` (ERROR) level.** It is a
+normal result of a pre-scan that probes for optional content.
+
+*Reusable lesson, and it is the one this file keeps re-learning:* a log line at ERROR severity next to
+a real failure is not evidence of a causal link. The caller decided it, and reading the caller took
+one disassembly.
+
+**So RE-07's actual content is still open and unstarted**, and it is smaller than it looked: the FMV
+table resolves correctly, and the boot already skips movies under `NO_FMV`/headless. What remains is
+wiring this game's STR playback path for a real (windowed) run.
+
+**The MDEC error is a SEPARATE defect and belongs to RE-03c, not here:**
+
     [mdec:error] DMA0 in: decoder still cannot accept after 4096 step(s); 6 of 1824 word(s) written
 
-**That garbage decode is what blocks RE-16**, whose fix is otherwise done and pushed upstream: the
-bit-stream decoder at `0x8002A338` saves its continuation from a stream of nonsense, so its `jr $ra`
-resumes to `0x03FF03FF` (decoder data, not an address). Under the old emitter that garbage jump was
-silently swallowed by `return;`.
-
-**Start here:** find the guest caller that issues the `TTSLOGO` search, and follow what it does with
-`V0 = 0`. The two MDEC errors appear on the PINNED (pre-RE-16-fix) build too, so this is reproducible
-today without touching the recompiler — `PSXPORT_FORCE_BUTTONS=0040`, then read `scratch/logs/`.
+That is the port's MDEC model refusing input, and it is what leaves the bit-stream decoder at
+`0x8002A338` working on nothing — which is what blocks RE-16. **RE-16's blocker is therefore RE-03c
+(MDEC decode), which is already on the ready list — not RE-07.**
 
 ---
 
