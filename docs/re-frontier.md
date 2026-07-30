@@ -1259,3 +1259,49 @@ verify against until RE-03 unblocks the boot.
 **Frame-rate note (design, not RE):** this game declares no target frame rate — see RE-02. Any
 interpolation tier is therefore a PORT decision to be made against the achieved logic rate once the
 game runs, and recorded here when it is made.
+
+### MEASURED 2026-07-30: the tap is WIRED and has NEVER EXECUTED
+
+Widescreen and interpolated 60fps are not two features — both ride on native depth, i.e. on recovering
+world coordinates from the GTE tap. So the first question is whether the tap fires in this game. It
+does not, and the reason is a dependency, not a defect.
+
+**The record side is already in place.** The recompiler pairs `mfc2 rX, DR12..15` with the `sw` that
+writes it into the primitive packet (`emit.py vertex_pz_stores`) and emits `gte_record_pz` after the
+store. On this binary it taps **10 sites across 6 functions**, all in the projection pipeline:
+
+    gen_func_8007B628  gen_func_8007B798  gen_func_8007B9CC
+    gen_func_8007BE90  gen_func_8007C2AC  gen_func_80080988
+
+    grep -h gte_record_pz generated/shard_*.c | wc -l          -> 10
+
+**And it produces nothing, over a full boot + menu run** (`PSXPORT_DEBUG=ndepth`, 636 lines, every
+60 frames to f600+):
+
+    [ndepth f600] real-depth(3D) prims=0  OT-band(2D) prims=0  3D%=0.0
+        projprim(vtx) records=0  lookups hit=0 miss=0
+
+**Three explanations, and only one survives.** (a) The gate is off — no: `attach_enabled()` in
+`gte_beetle.cpp:360` returns 1 unconditionally, and `native_depth_on()` likewise. (b) The plumbing is
+broken — no: `gte_record_pz` calls `projprim.setPz` directly, three lines, no other condition.
+(c) **Those six functions never run.** That is the one: `records=0` is a *call count*, and the menu is
+2D, so the 3D geometry pipeline is never entered.
+
+Note the denominator matters here and it is reported: **`OT-band(2D) prims=0` as well**, while the menu
+visibly renders at 99.4%. The 2D counter lives in `gpu_native.cpp`'s OT walk, which this port does not
+run — Phase 0 replays the guest's own GP0 packets instead. So *that* zero is a second, separate
+dependency: consuming the depth needs the OT/packet-pool layout, which is **RE-12**, deliberately zero.
+
+**Consequence for the enhancement work, stated plainly:** nothing about widescreen or 60fps can be
+verified on real data until the port reaches 3D content, and it currently stops at name entry. Testing
+`aspect=1` on the menu today is not a test of widescreen — widescreen is a wider FOV applied to
+projected world coordinates, and there are none. (Observed: the shot goes 512x240 -> 428x240, a
+display-window artifact, not a widened frustum.)
+
+**The real dependency chain toward wide + lerp is therefore:**
+
+    RE-07 (boot FMV not-found path)  ->  RE-16 (coroutine jr $ra; fix done, pushed, pin held)
+      ->  reach 3D gameplay  ->  RE-08 verify the tap on real data  ->  RE-12 (OT / packet pool)
+      ->  widescreen + interpolated 60fps
+
+So "work on widescreen" concretely means "unblock the boot" until the tap has fired even once.

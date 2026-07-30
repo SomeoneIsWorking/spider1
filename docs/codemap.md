@@ -51,7 +51,7 @@ scratch/             all run artifacts (gitignored) — logs, dumps, screenshots
 | Rendering (via the framework's VK path) | framework `gpu_native.cpp`, `gpu_vk.cpp` | **done for Phase 0** — the guest's own draw path reaches the screen; menu renders at 99.4% coverage |
 | Native frame loop / OT / packet pool | — | **missing** — that `GameConfig` group is deliberately zero; Phase 0 runs the guest's loop instead (RE-12) |
 | Scheduler | — | **missing** — the SDK task model may not apply to this engine (RE-13) |
-| Renderer: GTE tap → native depth / widescreen | — | **not started** (RE-08) |
+| Renderer: GTE tap → native depth / widescreen | recompiler tap in `generated/` | **wired, never executed** — 10 `gte_record_pz` sites in 6 projection fns; `records=0` over a full boot because the port never reaches 3D (RE-08) |
 | Audio | — | framework SPU is up; **unverified** — every run so far has used `PSXPORT_NOAUDIO=1` |
 | FMV / intro movies | — | **missing** (RE-07); the boot movie the game asks for is not on this disc |
 | The framework itself | `external/psxport/` | **not this repo's subsystem** — a submodule with its own history and its own codemap. Changes to it are made here but land in that repo; consumers pin their own commit |
