@@ -167,3 +167,34 @@ should not be re-attempted as stated. Instead:
 *Standing methodological win:* both cheap instruments this saga produced — the standalone demoted-set
 assertion (attempt 4) and the generated-C diff (attempt 6) — each answered in seconds what a
 build-and-run answered in minutes and ambiguously. Reach for them first.
+
+### Attempt 7 — guest context at the constant fault address
+
+Captured the registers at `0x8183D114` with the full three-part change applied:
+
+    guest: last-fn-entered=0x80074C98 (NOT the faulting pc) ra=0x800692CC sp=0x807FFDEC
+           gp=0x800B47F4 fp=0x00000004
+    args : a0=0x8005E720 a1=0x00001FFF a2=0x8011BBDC a3=0x00000000 v0=0x8183D104 v1=0x0013530C
+    temps: t0=0x80119BDD t1=0x00000001 t2=0x00000001 t3=0x00000041 s0=0x00000000 s1=0x00000001
+
+**`v0 = 0x8183D104` is the corrupt pointer** — the fault reads `v0 + 0x10`. So this is a structure
+field access through a bad base, not a runaway scan (contrast RE-16's original `0x80800004`, which was
+a byte-at-a-time walk off the stack top).
+
+**The most suggestive value is `a0 = 0x8005E720`.** That is a CODE address, sitting just below the
+field-wait primitive `0x8005E748`, being passed as an argument — the shape of a function-pointer table
+walk with a corrupted base, or of a code pointer used where a data pointer was expected.
+
+`fp = 0x00000004` is also wrong (the game holds `$fp` at `0x800B0000` as a global base — see RE-11),
+so a callee-saved register is again being lost. That points back at a frame-balance problem rather
+than at the emission of the demoted region itself, which attempt 6 verified reads correctly.
+
+**Attempt 8 starting points, in order:**
+1. Disassemble around `ra=0x800692CC` and `last-fn-entered=0x80074C98` to find the structure access
+   that dereferences `v0 + 0x10`, and what is supposed to produce `v0`.
+2. `fp` being clobbered again is the strongest thread: the three-part change was supposed to STOP a
+   frame leak, and a different callee-saved register is now wrong. Check whether the demoted region's
+   inlined code contains a path that reaches the shared epilogue TWICE (releasing 4 bytes twice), which
+   would be the mirror image of the original bug and would explain a stable-but-different corruption.
+3. Confirm `0x8002A5F4` genuinely belongs in the demoted set. It was demoted first and its own callers
+   were never audited the way `0x8002A478`'s three were.
