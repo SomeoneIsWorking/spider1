@@ -572,8 +572,12 @@ is the PSX's fixed class, so it belongs in the framework rather than `GameConfig
 ---
 
 ### RE-03c — MDEC decode
-- status: todo
+- status: re-verified
 - deps: RE-03
+- evidence: pending-channel DMA pump (mem.cpp `mdec_dma_pump`); boot run 2026-07-30: 0 `mdec:error`
+  (was 2), both DMA1 drains complete in full (2880 + 2304 words), 0 FATAL/MISS, shot_2301 written;
+  `PSXPORT_SELFTEST=mdecpump` A/B-validates the voffs placement bit-exactly against the native_fmv
+  reference path (and FAILS when the scatter is deliberately broken — negative run performed)
 
 
 The boot now reports the guest's own `MDEC_in_sync timeout:` and stalls at `0x80085948`
@@ -665,9 +669,26 @@ and each poll pumps progress so the `0x100000` spin cap is never approached.
 references across 186,880 instructions** — so there is no DMA1 completion IRQ to fire and no second
 hang waiting behind this fix.
 
-**Still to do:** implement the pending-channel pump, and re-scope the 4096-step wedge error onto it
-(under a deferring model a short feed is normal, so that error must fire only when both channels are
-pending and a full pump pass makes zero progress — and must print both pending counts).
+**IMPLEMENTED 2026-07-30** — `Core::mdec_dma_pump()` in `mem.cpp` (state in `core.h`, primitives in
+`mdec_beetle.c`): CHCR start latches (address, words-left) with busy SET; the pump feeds DMA0 in
+0x10-word chunks gated on `mdec_dma_can_write()`, drains DMA1 in per-BCR-block bursts gated on
+`mdec_dma_can_read()` with per-word direct stores `MainRAM[(CurAddr + (voffs<<2)) & 0x1FFFFC]`
+(vendor dma.c form, never a staged copy-back), clears busy only on exhaustion, and runs from both
+CHCR starts plus every guest-visible poll (both CHCR reads, MDEC status/data reads, MDEC port
+writes). The 4096-step wedge error moved into the pump: it fires once per latched start, only when a
+full pass plus a clock budget moves nothing, and names both pending counts; short feeds/drains are
+now normal deferrals, traced on state change only. Forced stop (CHCR write with bit 24 clear)
+abandons a pending remainder, as vendor dma.c does.
+
+**What the live guest actually does (measured, and it corrects an assumption above):** the guest
+OVERSIZES DMA0 against what it consumes. Boot decode 1: DMA0 1824 words, DMA1 2880 words — DMA1
+completes IN FULL, DMA0 feeds 276 and the guest then resets the MDEC and force-stops DMA0 (1548
+words abandoned, legitimately). Decode 2: 1440/2304, same shape, but the guest never cleans up its
+final remainder — 1218 words sit latched-pending for the rest of the session while the guest touches
+MDEC/DMA registers constantly (~17k/s). So "DMA0's full word count fed" is NOT the completion
+criterion; **DMA1's full drain is** — the output side is what the guest consumes and what the old
+model could never produce. (The per-poll deferral trace initially logged every touch: 8.4M identical
+lines, 654 MB. Traces now fire on state change only.)
 
 ---
 

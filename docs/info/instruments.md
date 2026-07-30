@@ -277,6 +277,27 @@ entry via a framework override + super-call rather than reading frames.
 
 ---
 
+## INST-15 — `PSXPORT_SELFTEST=mdecpump` (MDEC pending-DMA / voffs placement A/B) — **trusted, negative-validated**
+
+*What it shows:* whether the guest-visible MDEC DMA path (pending-channel latch in `mem.cpp
+mdec_dma_pump`, per-word `voffs` scatter into guest RAM) produces BIT-IDENTICAL output to the
+independently verified native_fmv drain path, on a synthetic 16-macroblock 16bpp frame. Also asserts
+the mechanism itself engaged: DMA0's busy bit must still be SET right after its start (deferral
+really happened) and both busy bits CLEAR after DMA1's start completes the ping-pong.
+
+*Validated both ways (2026-07-30):* passes on the real code; deliberately zeroing `offs` in the pump
+made it FAIL with `964 of 2048 words` differing. It also guards its own blind spot: an all-alike
+reference frame (which would compare equal under any placement bug) is itself a FAIL — the test
+requires >= 16 distinct output words before the comparison counts.
+
+*Known limits:* single whole-frame DMA1 at 16bpp with block size 0x20 — it does not exercise 24bpp
+(WWS=6), multi-transfer-per-frame DMA1 (per-strip `DecDCTout`), or a DMA1-first start order. Those
+paths are reasoned + traced, not A/B-proven.
+
+*Run:* `PSXPORT_SELFTEST=mdecpump ./scratch/bin/spiderman_port scratch/bin/SLUS_008.75` (exit 0/1).
+
+---
+
 ## INST-14 — `re_frontier.py check` — **FIXED 2026-07-29; my first diagnosis was WRONG**
 
 *What it claimed:* "re-frontier OK: no unknown deps, no cycles, every re-verified step cites

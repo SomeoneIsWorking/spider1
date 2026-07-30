@@ -24,6 +24,7 @@ void spu_init(void);
 void load_exe(const char* path, Core* c);      // runtime/recomp/boot.cpp (framework)
 void native_boot_run(Core* c);                 // runtime/recomp/native_boot.cpp (framework)
 void gte_init(void);
+int  selftest_run(const char* path);           // runtime/recomp/selftest.cpp (framework harness)
 
 extern void spiderman_install_game_config();      // game/core/game_config.cpp
 extern void spiderman_install_recomp();           // game/core/recomp_register.cpp
@@ -54,6 +55,14 @@ int main(int argc, char** argv) {
                        "or a *.chd in the working directory) or run ./run.sh");
       return 1;
     }
+  }
+
+  // PSXPORT_SELFTEST=<name>: run the framework's headless selftest harness instead of booting
+  // (framework names like mdecpump, plus any game-defined ones via GameHooks::selftestGame).
+  // The exit code is the verdict — this is how the MDEC pending-DMA regression runs in CI/dev.
+  {
+    const char* st = cfg_str("PSXPORT_SELFTEST");
+    if (st && *st) return selftest_run(path);
   }
 
   watchdog_init();            // PSXPORT_WATCHDOG=<sec>: abort + backtrace if a frame stalls

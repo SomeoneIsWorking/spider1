@@ -53,7 +53,7 @@ scratch/             all run artifacts (gitignored) — logs, dumps, screenshots
 | Scheduler | — | **missing** — the SDK task model may not apply to this engine (RE-13) |
 | Renderer: GTE tap → native depth / widescreen | recompiler tap in `generated/` | **wired, never executed** — 10 `gte_record_pz` sites in 6 projection fns; `records=0` over a full boot because the port never reaches 3D (RE-08) |
 | Audio | — | framework SPU is up; **unverified** — every run so far has used `PSXPORT_NOAUDIO=1` |
-| FMV / intro movies | — | **missing** (RE-07); the boot movie the game asks for is not on this disc |
+| FMV / intro movies | — | **missing** (RE-07); the TTSLOGO the boot probes is legitimately absent from the disc and the guest handles it (pre-scan stores LBA 0) |
 | The framework itself | `external/psxport/` | **not this repo's subsystem** — a submodule with its own history and its own codemap. Changes to it are made here but land in that repo; consumers pin their own commit |
 | The recompiled substrate | `generated/` | **not a subsystem** — regenerated output of `tools/ensure_recomp.py`, never committed and never hand-edited. A mistranslation is fixed in the recompiler, not in its output |
 
