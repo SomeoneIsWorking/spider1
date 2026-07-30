@@ -67,14 +67,55 @@ def load():
     return exe, sorted(funcs)
 
 
-def has_prologue(exe, a):
-    return (exe.word(a) & 0xFFFF8000) in (0x27BD8000, 0x23BD8000)
+def has_prologue(exe, a, window=6):
+    """Does this entry allocate its own frame in its first few instructions?
+
+    NOT just the first word. Compilers routinely schedule something else first — 0x80014B1C opens
+    `lw $v0, 0x34($gp)` and only allocates at +4 — so a word-0 test calls such a function
+    "no prologue" and drags it into the candidate set. That single mistake produced 109 of this
+    scan's false positives, all wearing the same misleading shape.
+    """
+    for k in range(window):
+        x = a + 4 * k
+        if not (exe.load <= x < exe.text_end):
+            break
+        if (exe.word(x) & 0xFFFF8000) in (0x27BD8000, 0x23BD8000):
+            return True
+    return False
 
 
 # ─────────────────────────────────────────────────────────────────────────────────────────────────
 # The walk. It must mirror EMISSION, or the proof is about the wrong object.
 # ─────────────────────────────────────────────────────────────────────────────────────────────────
 UNKNOWN = "unknown"      # cannot be proven either way -> REFUSE, never default
+
+
+def apply_slot(exe, a, sp, ra, wrote):
+    """Apply ONE instruction's sp/$ra effect — used for delay slots, which always execute.
+
+    Returns (sp, ra, wrote, unprovable_reason_or_None).
+    """
+    if not (exe.load <= a < exe.text_end):
+        return sp, ra, wrote, None
+    try:
+        i = decode(a, exe.word(a))
+    except IndexError:
+        return sp, ra, wrote, None
+    if i.op in ("addi", "addiu") and i.rt == 29:
+        if i.rs != 29:
+            return sp, ra, wrote, f"sp written from r{i.rs} in delay slot 0x{a:08X}"
+        sp += i.simm
+    elif (i.kind in (D.ALU_RRR, D.SHIFT_I, D.SHIFT_V) and i.rd == 29) or \
+         (i.kind in (D.ALU_RRI, D.LUI) and i.rt == 29):
+        return sp, ra, wrote, f"non-constant sp adjust in delay slot 0x{a:08X}"
+    if i.op == "sw" and i.rt == 31 and i.rs == 29:
+        wrote = wrote | {sp + i.simm}
+    elif i.op == "lw" and i.rt == 31:
+        ra = ("slot", sp + i.simm) if i.rs == 29 else UNKNOWN
+    elif (i.kind in (D.ALU_RRR, D.SHIFT_I, D.SHIFT_V) and i.rd == 31) or \
+         (i.kind in (D.ALU_RRI, D.LUI) and i.rt == 31):
+        ra = UNKNOWN
+    return sp, ra, wrote, None
 
 
 def walk(exe, entry, end, live, demoted):
@@ -133,6 +174,15 @@ def walk(exe, entry, end, live, demoted):
 
         # --- control flow
         if i.op == "jr" and i.rs == 31:
+            # THE DELAY SLOT RUNS FIRST. `jr $ra` / `addiu sp,sp,N` is the standard MIPS epilogue —
+            # the frame is popped in the slot, before control transfers — so judging the contract at
+            # the `jr` without applying the slot reports every such function as net sp -N. Same for
+            # `sw $ra, N(sp)` sitting in a branch's slot: skip it and the save is never recorded, so
+            # the matching reload looks like a slot "this path never wrote".
+            sp, ra, wrote, bad = apply_slot(exe, a + 4, sp, ra, wrote)
+            if bad:
+                saw_unknown = saw_unknown or bad
+                continue
             if ra == "entry" and sp == 0:
                 continue                                  # representable: a clean return
             if isinstance(ra, tuple) and ra[0] == "slot":
@@ -149,11 +199,19 @@ def walk(exe, entry, end, live, demoted):
             continue
 
         if i.kind == D.BRANCH:
+            sp, ra, wrote, bad = apply_slot(exe, a + 4, sp, ra, wrote)
+            if bad:
+                saw_unknown = saw_unknown or bad
+                continue
             if i.target is not None:
                 work.append((i.target, sp, ra, wrote))     # taken
-            work.append((a + 8, sp, ra, wrote))            # not taken (delay slot consumed)
+            work.append((a + 8, sp, ra, wrote))            # not taken
             continue
         if i.kind == D.JUMP:
+            sp, ra, wrote, bad = apply_slot(exe, a + 4, sp, ra, wrote)
+            if bad:
+                saw_unknown = saw_unknown or bad
+                continue
             if i.op == "jal":
                 # A call to a SURVIVING entry is opaque and balanced; a call to a DEMOTED one is
                 # inline flow, mirroring the `link + goto` the emitter will produce for it.
