@@ -1368,7 +1368,23 @@ substrate-wide — do not brief it like the 131-site link-branch sweep.
 > and **releases the caller's frame**. That is the mirror image of the leak RE-16 started from, and it
 > lands squarely on callee-saved registers.
 >
-> **Attempt 14 must demote `0x8002A5F4` too — with a PROOF, not a threshold.** Rule 1 cannot see it
+> **Attempt 14, measured — the phrasing below is NECESSARY but NOT SUFFICIENT, and I stopped rather
+> than keep tuning it.** "No prologue, but the region pops a frame" selects **123** entries. It does
+> catch `0x8002A5F4` and spares every must-keep, but most of the 123 are ordinary shared-epilogue
+> continuations the emitter already handles by duplicating tails. Adding "and all references resolve
+> to a single host" narrows it to **79** — and *loses* `0x8002A5F4`, because its four `jal` callers
+> sit INSIDE its own spurious extent and resolve to the candidate itself. That is the self-host trap
+> attempt 2 hit; the candidate must be excluded from the host lookup (attempt 4's lesson, re-learned).
+>
+> Even fixed, 79 is far too broad. **This is threshold-tuning again — the precise failure mode this
+> file has now recorded three times.** The next attempt should NOT iterate on it alone: escalate the
+> criterion design, with all of the following as given data — the four shapes that must be told apart,
+> the 123/79 measurements, the self-host trap, and the fact that rule 1 is already proof-grade for
+> `0x8002A478`. The question to ask is narrow: *what property distinguishes a spurious entry whose
+> region pops a frame it never pushed from a legitimate shared-epilogue continuation?* Both have no
+> prologue and both pop.
+>
+> **Original (still-unproven) phrasing, kept for the record:** Rule 1 cannot see it
 > (`jal`-only). The "no epilogue of its own" fixpoint already failed catastrophically (255 entries,
 > `StGetNext` among them) because a LEAF function has no epilogue *because it needs none*. The
 > distinguishing fact is stronger and specific: **its region contains an epilogue it does not own** —
