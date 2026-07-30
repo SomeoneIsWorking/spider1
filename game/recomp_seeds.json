@@ -41,8 +41,48 @@
 // Confirmed by relocating offline at this base and matching the running game's memory byte-for-byte
 // over all 112912 bytes (CLAIM-08).
 {
-  "main": [],
-  "main_reentry": [],
+  // `main_reentry` is a MODIFIER, not a seed source: emit.py builds its seed set from `main` alone
+  // (`seeds = {exe.entry} | gs["main"] | ...`) and uses `main_reentry` only to decide that the
+  // fragment before a re-entry point must fall THROUGH into it rather than `return`. An address
+  // listed only under `main_reentry` is therefore silently not a function — no error, just a
+  // [recomp-MISS] later. Every re-entry point must appear in BOTH lists.
+  "main": [
+    "0x8002A424", "0x8002A708", "0x8002A774", "0x8002A77C",
+    "0x8002A784", "0x8002A78C", "0x8002A794"
+  ],
+
+  // RE-16 — the seven resume points of the resumable bit-stream decoder at 0x8002A338.
+  //
+  // 0x8002A338 is hand-written assembly, not a compiler-emitted function. It uses `jal`/`jr $ra` as
+  // an INTERNAL COROUTINE mechanism inside one stack frame, and it saves its whole register context —
+  // including its continuation — to a global block at 0x80097D88, so it can be re-entered to carry on
+  // where it left off ($a0 != 0 starts on a new input buffer, $a0 == 0 resumes):
+  //
+  //     8002A390  lw   $ra, 0x30($t6)      ; $t6 = 0x80097D88 — RESTORE the continuation
+  //     8002A398  bnez $ra, 0x8002a43c     ;   ... one exists: re-enter the decode loop
+  //     8002A7EC  or   $at, $zero, $ra     ; delay slot — capture the LIVE continuation
+  //     8002A834  sw   $at, 0x30($t6)      ; STORE it back
+  //
+  // So `jr $ra` at 0x8002A460 is a computed jump to one of the addresses below, NOT a return. The
+  // recompiler now emits it as a router dispatch (emit.py ra_computed_jumps), and the router can only
+  // resolve a mid-body address that is seeded here.
+  //
+  // The list is every `jal` return address inside the guest body, enumerated over the WHOLE extent
+  // 0x8002A338..0x8002A83C — not per call target. A previous attempt enumerated per target, got three
+  // of these seven, and silently truncated the decoder at the other four.
+  //
+  // Reproduce:  python3 tools/redump_ram.py
+  //             python3 external/psxport/tools/disasm.py <ram.bin> 0x8002A338 0x8002A840
+  //             python3 tools/ra_classes.py          # asserts this set is exactly 7
+  "main_reentry": [
+    "0x8002A424",   // after  8002A41C  jal 0x8002a478
+    "0x8002A708",   // after  8002A700  jal 0x8002a478
+    "0x8002A774",   // after  8002A76C  jal 0x8002a478
+    "0x8002A77C",   // after  8002A774  jal 0x8002a5f4
+    "0x8002A784",   // after  8002A77C  jal 0x8002a5f4
+    "0x8002A78C",   // after  8002A784  jal 0x8002a5f4
+    "0x8002A794"    // after  8002A78C  jal 0x8002a5f4
+  ],
   // ALL runtime-loaded modules share ONE slot, so they share one base. The port reserves that slot
   // as the heap's first block (game/core/module_loader.cpp) and intercepts the loader's body
   // allocation to place every module there; only one is ever resident, and the framework's overlay
