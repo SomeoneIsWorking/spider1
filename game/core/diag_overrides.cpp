@@ -34,6 +34,7 @@ extern void gen_func_8008C3E0(Core*);   // libcd's CD service routine (the "inte
 extern void gen_func_8009152C(Core*);   // installed into the libcd descriptor's +4 slot by CdInit
 extern void gen_func_800913AC(Core*);   // installed as libcd callback #3 by the same routine
 extern void gen_func_800651C8(Core*);   // the game's allocator: (size, arena, flag) -> block ptr
+extern void gen_func_8002A338(Core*);   // the resumable MDEC bit-stream decoder (RE-16)
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
 // libcd command-send (0x8008CE8C) — `PSXPORT_DEBUG=cdarg`.
@@ -132,6 +133,41 @@ static void diag_cdinit_B(Core* c) {
 // measuring, not assuming — an earlier store-watch showed it never writing 0x800B3DF0, but that
 // traces one byte and cannot distinguish "did not run" from "ran and took a path that stores
 // nothing". This counts entries and reports the return value, which is a bitmask of what it serviced.
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+// RE-16 attempt 11 — is $ra ALREADY garbage when 0x8002A338 is entered? `PSXPORT_DEBUG=coroentry`.
+//
+// The RE-16 fix makes `jr $ra` at 0x8002A460 a computed jump, and the port then dispatches to
+// 0x03FF03FF — bit-stream data, not an address. Two theories have already been killed by
+// measurement: the value does NOT come from a restored continuation (nothing ever writes the
+// continuation slot 0x80097DB8 during boot — INST-I002, validated against a positive control), and
+// it does NOT come from an incomplete MDEC decode (RE-03c is fixed and the fault is unchanged).
+//
+// The remaining question is upstream/downstream: does this routine CLOBBER $ra, or does it merely
+// INHERIT a $ra that is already garbage? Nothing on the fresh-start path in the disassembly writes
+// $ra (the decode loop works in r1..r10), so entry state decides it. If $ra is already 0x03FF03FF
+// here, RE-16 has been chasing a symptom and the defect belongs to whatever calls this.
+//
+// Runs on the HEALTHY build: $ra holds what it holds regardless of how the emitter renders the jump.
+// Super-calls, so an armed run executes exactly what an unarmed one does.
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+static unsigned g_coroentry_calls = 0;
+static void diag_coro_entry(Core* c) {
+  const unsigned n = ++g_coroentry_calls;
+  const uint32_t ra = c->r[31], a0 = c->r[4], sp = c->r[29];
+  // Report the FIRST few in full, then only when $ra changes — a decimated-by-count log would show
+  // the boring steady state and miss the one call where $ra goes bad, which is the entire question.
+  static uint32_t s_last_ra = 1;   // 1 is not a legal $ra, so call #1 always prints
+  const bool changed = (ra != s_last_ra);
+  s_last_ra = ra;
+  if (n <= 8 || changed) {
+    const bool ra_is_code = (ra >= 0x80010000u && ra < 0x800C6800u) && ((ra & 3) == 0);
+    cfg_logf("coroentry", "0x8002A338 entry #%u  ra=%08X (%s)  a0=%08X (%s)  sp=%08X",
+             n, ra, ra_is_code ? "a code address" : "NOT A CODE ADDRESS -- garbage on entry",
+             a0, a0 ? "fresh start" : "RESUME", sp);
+  }
+  gen_func_8002A338(c);
+}
+
 static unsigned g_cdisr_calls = 0;
 static void diag_cd_isr(Core* c) {
   const unsigned n = ++g_cdisr_calls;
@@ -165,6 +201,13 @@ void spiderman_install_diag_overrides(Game* g) {
     engine_set_override_main(0x800913ACu, diag_cb_13AC, gen_func_800913AC);
     cfg_logi("cdcb", "libcd installed-callback probes ARMED on 0x8009152C and 0x800913AC — "
                      "no call lines means neither ever ran");
+  }
+  if (cfg_dbg("coroentry")) {
+    engine_set_override_main(0x8002A338u, diag_coro_entry, gen_func_8002A338);
+    // Unconditional ARM line, per this file's own rule: a channel-gated probe's SILENCE only means
+    // something if the run proves the probe was installed.
+    cfg_logi("coroentry", "MDEC coroutine entry probe ARMED on 0x8002A338 — no entry lines below "
+                          "means the routine genuinely never ran");
   }
   if (cfg_dbg("cdisr")) {
     engine_set_override_main(0x8008C3E0u, diag_cd_isr, gen_func_8008C3E0);

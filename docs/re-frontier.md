@@ -1275,11 +1275,35 @@ substrate-wide — do not brief it like the 131-site link-branch sweep.
 > function entirely and this routine is a victim rather than the culprit, or (b) written by a path
 > not yet disassembled.
 >
-> **Attempt 11: log `$ra` at ENTRY to `0x8002A338`** with a diagnostic native override
-> (`spiderman_install_diag_overrides` is the existing seam; it super-calls, so the run is unchanged).
-> If `$ra` is already garbage at entry, RE-16 has been chasing a symptom this whole time and the real
-> defect is in whatever calls it — which would also explain why two separate blocker attributions
-> both failed. Do this BEFORE touching the emitter again.
+> **Attempt 11, done — and it finally MEASURES the original diagnosis.** `PSXPORT_DEBUG=coroentry`
+> (a super-calling diagnostic override on `0x8002A338`, armed with an unconditional ARM line):
+>
+>     entry #1  ra=8002B468 (a code address)  a0=801650DC (fresh start)  sp=807FFF00
+>     entry #2  ra=8002B468 (a code address)  a0=80169F9C (fresh start)  sp=807FFEFC
+>     entry #3  ra=8002B468 (a code address)  a0=801560DC (fresh start)  sp=807FFEF8
+>
+> **`$sp` drops exactly 4 bytes per call.** That is RE-16's stack leak, confirmed LIVE on the healthy
+> shipping build — measured, not inferred, for the first time in this saga. It is happening silently
+> right now: the function allocates 4 bytes and the path taken never reaches the epilogue that frees
+> them. Recorded as CLAIM-C005.
+>
+> **`$ra` is a valid code address at entry**, so the routine inherits a good `$ra` and is NOT the
+> victim of an upstream clobber — the theory attempt 10 proposed is dead too. All three boot calls
+> are fresh-start (`a0 != 0`); the resume path never runs, consistent with attempt 10's finding that
+> the continuation slot is never written.
+>
+> **So the state of RE-16 is now precise.** The DEFECT is real and measured (4 bytes/call). The
+> emitter FIX is correct in isolation (1 site, per-`jr` reaching definitions, tested). What is
+> unexplained is only the *interaction*: with the fix active the port dispatches to `0x03FF03FF`,
+> and entry state cannot supply that value. Since `$ra` is good at entry and nothing on the
+> disassembled fresh-start path writes it, the next measurement is the same probe **with the fix
+> reinstated**, logging `$ra` at `0x8002A460` itself rather than at entry — the one place the value
+> is read. That is a two-line extension of a probe that now exists, and it does not require guessing
+> anything.
+>
+> *Method note, and it is the lesson of the whole day:* every question here was answerable on the
+> HEALTHY build with a super-calling probe. Three attempts were spent rebuilding the broken variant
+> and reading its wreckage; none of them needed to be.
 
 > **Blocker re-attributed 2026-07-30.** This section first named RE-07 (the FMV path) as the blocker,
 > on the strength of a `CdSearchFile` miss logged right before the fault. That was wrong — the miss is
