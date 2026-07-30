@@ -1341,6 +1341,39 @@ substrate-wide — do not brief it like the 131-site link-branch sweep.
 > the resume set is 7 (not 3), the `jr $ra` classification must be per-`jr` and CFG-accurate (not
 > linear, not whole-body), and the whole thing is verifiable on the HEALTHY build with super-calling
 > probes before it is ever shipped. Do NOT re-tune the dispatch approach; it cannot be made to work.
+>
+> ### The discovery criterion is SOLVED, and it is a proof rather than a heuristic
+>
+> Attempts 1-3 tried "no prologue AND fall-through reachable AND same host" and demoted 78 / 325 / 50.
+> **None of the candidates has a prologue**, so that test could never separate them — which is why
+> every tuning pass failed. The real distinction is semantic:
+>
+> **A `jal`-discovered entry that is reached by a NON-LINKING branch (`bgez`/`j`/`beq`…) from inside a
+> body CANNOT be a function** — control arrives there with **no return address established**, so it
+> has no way to return. It is an internal label by construction.
+>
+> Scanned all 1672 functions for entries that are branch targets from another body: **5 hits**, and
+> the reference sets separate them completely:
+>
+>     0x8002A478   bgez x14 + j x1 + jal x3   <- MIXED  => internal label (RE-16's target)
+>     0x8007CD44   bgezal x2                   \
+>     0x8007D160   bltzal x8                    |  LINK-ONLY => real subroutines. These are the
+>     0x8007D1F0   bltzal x2                    |  RE-11 link-branch targets the branch-and-link
+>     0x8007D254   bltzal x2                   /   discovery fix deliberately seeded — sparing them
+>                                                  is REQUIRED, and this criterion does it for free.
+>
+> `0x8002A5F4` is **not** caught by this rule (it is `jal` x4 only) and still needs demoting, because
+> its region has no independent epilogue — it flows into the shared tail at `0x8002A7A0`, so a call
+> to it would release the *caller's* frame. It falls out of the fixpoint instead: once `0x8002A478`
+> is demoted, all four of its `jal` callers resolve to the single host `0x8002A338`.
+>
+> **So the criterion is two rules, strongest first:**
+> 1. *(proof)* reached by a non-linking branch from inside a body → demote.
+> 2. *(fixpoint)* `jal`-only, single host once demoted entries are excluded, no prologue, and no
+>    independent epilogue → demote.
+>
+> Assert the resulting set is exactly `{0x8002A478, 0x8002A5F4}` and that `0x80086B10` (`StGetNext`)
+> and the four `0x8007Dxxx` link-branch targets are all OUT, **before** regenerating. CLAIM-C007.
 
 > **Blocker re-attributed 2026-07-30.** This section first named RE-07 (the FMV path) as the blocker,
 > on the strength of a `CdSearchFile` miss logged right before the fault. That was wrong — the miss is
