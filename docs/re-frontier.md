@@ -1448,6 +1448,40 @@ substrate-wide — do not brief it like the 131-site link-branch sweep.
 > `jr $ra` whose `$ra` comes from state+0x30, and letting rule 2 see it would re-litigate the reverted
 > `jr $ra` commit's territory.
 >
+> ### Rule 2 IMPLEMENTED and MEASURED — and the criterion as stated cannot flag its own target
+>
+> `tools/callee_contract.py` (report-only, with a `--selftest` that separates balanced-leaf /
+> unbalanced-pop / save-and-restore). Two rounds of debugging took false positives **109 → 4** with
+> all six must-keeps spared throughout:
+> - `has_prologue` tested only word 0; compilers schedule instructions before the allocation
+>   (`0x80014B1C` opens `lw $v0,0x34($gp)` and allocates at +4).
+> - The walk skipped DELAY SLOTS. On MIPS the slot always executes before the transfer, so
+>   `jr $ra` / `addiu sp,sp,N` — the standard epilogue — read as net sp −N, and a `sw $ra` in a
+>   branch's slot was never recorded, making its reload look like an unwritten slot.
+> - Missing come-back edge on in-body calls (the emitter's `link + goto` returns to a+8).
+>
+> **But `0x8002A5F4` is still not flagged, and tracing the walk shows why it never can be.** Every
+> path from its entry funnels through `0x8002A698 j 0x8002A478` into the demoted block and ends at
+> `jr $ra` (`0x8002A460`) with `$ra` = entry, net sp 0. **That return is representable.** The walk
+> reaches 112 addresses, max `0x8002A698`, and never touches `0x8002A7BC`/`0x8002A7C0`/`0x8002A7E0`.
+>
+> The suspend path is reached via `0x8002A42C beqz → 0x8002A7BC`, which lives in the RESUME code
+> after `jal 0x8002A478` — i.e. in `0x8002A338`'s body, not in `0x8002A5F4`'s. **From `0x8002A5F4`'s
+> own entry the callee contract genuinely HOLDS.** So a criterion phrased as "walk from the
+> candidate's entry" cannot flag it, however correctly implemented.
+>
+> That is a limitation of the criterion, not of the walk — worth stating plainly because the previous
+> entry in this file presented it as solved. What the violation actually depends on is that
+> `0x8002A5F4`'s `jr $ra` returns into a context where *someone else's* frame is then popped. That is
+> a property of the CALLER's continuation, not of the callee's region, and no entry-local walk sees it.
+>
+> **Where attempt 16 should start.** Either (a) extend the contract to inter-procedural: walk the
+> caller's continuation after an in-body call and require balance across the join — expensive but it
+> is where the evidence lives; or (b) accept that `0x8002A5F4` needs a different justification
+> entirely, e.g. "it shares a body with an already-demoted block AND all its callers are inside that
+> body" — weaker than a proof, but scoped to a set of one and assertable. Do not present either as
+> settled before it is measured; that mistake has now been made twice on this rule.
+>
 > **Superseded phrasing, kept for the record:** Rule 1 cannot see it
 > (`jal`-only). The "no epilogue of its own" fixpoint already failed catastrophically (255 entries,
 > `StGetNext` among them) because a LEAF function has no epilogue *because it needs none*. The

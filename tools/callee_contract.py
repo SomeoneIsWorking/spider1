@@ -213,11 +213,20 @@ def walk(exe, entry, end, live, demoted):
                 saw_unknown = saw_unknown or bad
                 continue
             if i.op == "jal":
-                # A call to a SURVIVING entry is opaque and balanced; a call to a DEMOTED one is
-                # inline flow, mirroring the `link + goto` the emitter will produce for it.
                 if i.target in demoted:
+                    # IN-BODY CALL. The emitter renders this `link + goto`, and control comes BACK to
+                    # a+8 through the resume switch. Both edges are real and BOTH must be walked:
+                    # the callee's body (inline flow), and the continuation after it.
+                    #
+                    # Walking only the target was a modelling gap that hid the very path this rule
+                    # exists to find. Everything after an in-body call went unexplored, so the
+                    # decoder's SUSPEND path -- reached only after such a call returns -- was
+                    # invisible and 0x8002A5F4 read as "ok". The walk has to mirror the emitted CFG
+                    # or it proves things about a different program.
                     work.append((i.target, sp, "link", wrote))
+                    work.append((a + 8, sp, ra, wrote))
                 else:
+                    # A call to a SURVIVING entry is opaque and assumed balanced.
                     work.append((a + 8, sp, "link", wrote))
             else:                                          # j — control leaves, does not come back
                 work.append((i.target, sp, ra, wrote))
