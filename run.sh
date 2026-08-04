@@ -34,19 +34,25 @@ JOBS="$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null |
 # ---- 0b. sync git submodules --------------------------------------------------------
 # A plain `git pull` does NOT update submodules, so after a pull the framework (and the beetle
 # backend nested under it) can be stale and the link fails with undefined GTE/MDEC/SPU symbols.
-# Sync here so `git pull && ./run.sh` is self-sufficient. Guard: if a submodule has UNCOMMITTED
-# edits, skip the auto-checkout and warn — never clobber local work.
+# Sync here so `git pull && ./run.sh` is self-sufficient.
+#
+# ONE implementation, shared by all three ports: external/psxport/scripts/sync-submodules.sh. The
+# copy that used to live here guarded only `external/psxport` for uncommitted work and then updated
+# EVERY submodule, and it never said which shas it moved — so a sync that reverted a deliberately
+# checked-out commit was indistinguishable from a no-op. See that script's header for what that cost.
+#
+# Bootstrap: the script lives INSIDE the submodule, so on a fresh clone (or against a gitlink older
+# than the script itself) it does not exist yet — init first, then call it.
 if command -v git >/dev/null && [ -f .gitmodules ]; then
-  if git submodule status --recursive 2>/dev/null | grep -q '^-'; then
+  if [ ! -f external/psxport/scripts/sync-submodules.sh ]; then
     say "initializing git submodules…"
     git submodule update --init --recursive || die "git submodule update failed"
-  elif git submodule status --recursive 2>/dev/null | grep -q '^+'; then
-    if [ -z "$(git -C external/psxport status --porcelain 2>/dev/null)" ]; then
-      say "updating git submodules to recorded commits…"
-      git submodule update --recursive || die "git submodule update failed"
-    else
-      say "WARNING: external/psxport has uncommitted changes; not auto-updating (commit or stash to sync)."
-    fi
+  fi
+  if [ -f external/psxport/scripts/sync-submodules.sh ]; then
+    bash external/psxport/scripts/sync-submodules.sh || die "submodule sync failed"
+  else
+    say "WARNING: external/psxport/scripts/sync-submodules.sh is absent even after init —"
+    say "         submodules were NOT synced and may not match this repo's recorded gitlinks."
   fi
 fi
 
