@@ -190,12 +190,12 @@ Statuses: ✅ re-verified · 🟡 re-partial (honest gap) · 🔬 in-progress ·
 - notes: 
 
 ### RE-07 — Intro FMV / front-end
-- status: todo
+- status: in-progress
 - deps: RE-04
-- evidence: 
-- where: 
-- gap: 
-- notes: 
+- evidence: The boot plays TWO movies and both are correctly located and correctly fed. CdlSetloc 28:32:54 -> LBA 128304 == CINEMAS/ATVILOGO.STR and 62:15:25 -> LBA 280000 == CINEMAS/LOGO.STR (discdump list). MDEC DMA0 word counts 1824 and 1440 equal the two files' BS-header word counts read off the disc. Each movie gets exactly ONE DecDCTout (2880 words = 15 MBs for 320x240, 2304 = 12 MBs for 320x192, i.e. one 16px macroblock column at 24bpp) and then stops; over a 20337-frame run there are exactly two MDEC decode attempts and no video ever reaches VRAM. PSXPORT_DEBUG=ring then shows the deadlock held for millions of calls: prod=7 cons=9 d1514=7, slots 0 2 2 2 2 2 2 2 0 0 0 0. StFreeRing sets cons = index + chunks-in-frame; LOGO.STR frame 1 spans 9 chunks so cons=9, and slot 9 is 0 (neither 2=ready nor 1=wrap), so StGetNext returns not-ready forever. Logs: scratch/logs/cd_probe.log, mdec_probe.log, ring_probe.log. Ghidra project: tools/redump_ram.py then tools/ghidra_import.sh.
+- where: game/core/cd_stream.cpp (StGetNext override, 0x80086B10); guest libstr: StGetNext=FUN_80086b10, StFreeRing=FUN_800872ac, sector-arrival producer=FUN_80085000; ring state at DAT_800c1510 (base), 0x800C1514 (producer write idx), 0x800C1518 (prod), 0x800C151C (cons), 0x800C1520 (slot count)
+- gap: The port pumps STR sectors from the CONSUMER side (cd_stream.cpp calls cd.pumpStream() inside the StGetNext override) instead of driving the guest's own sector-arrival handler FUN_80085000, which is the only writer of the ring's wrap marker (status 1) and of the producer index. So the ring's invariants are never maintained and the two indices desynchronise. Proper fix: deliver STR sectors through the guest's CD data-ready path at drive pace. NOT to be papered over by forcing cons to wrap, which would corrupt frame assembly and is a hack.
+- notes: Issue #4 has the full write-up. GameConfig::bootFmv is empty and PSXPORT_NO_FMV is a provable no-op for this port (measured: identical MDEC trace with PSXPORT_NO_FMV=0), so the framework's own FMV player is not involved; this is entirely the guest's path.
 
 ### RE-08 — Render: GTE tap -> native depth
 - status: todo
