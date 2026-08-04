@@ -217,14 +217,22 @@ static const GameConfig g_spiderman_cfg = {
     // layout: position at +0, size at +4.
     /* cdSearchFile   */ 0x80086170u,
 
-    // cdDmaDoneCbPtr: 0x800B4394 — libcd's callback table at 0x800B4388, slot 3. Read out of the
-    // registrar at 0x8009152C, which computes `0x800B4388 + index*4` and stores its argument there;
-    // the streaming setup at 0x80086030 registers 0x8008DB44 into slot 3 through that path.
+    // dmaCallbackTable: 0x800B4388 — libcd's per-channel DMA-callback table. Read out of the
+    // registrar at 0x8009152C, which computes `0x800B4388 + index*4` and stores its argument there.
+    // Everything the guest registers goes through it, via the BIOS thunk 0x8008B89C:
     //
-    // 0x8008DB44 is what promotes a ring slot from "DMA in flight" (3) to "ready" (2). Measured: the
-    // ring sat with ten slots at 3 while the consumer, which only accepts 2, spun on a full ring.
-    // Nothing announced the DMA completion, because the port performs the transfer synchronously.
-    /* cdDmaDoneCbPtr */ 0x800B4394u,
+    //   slot 3 (CD)       <- 0x8008DB44, from the streaming setup at 0x80086030. Promotes a ring slot
+    //                        from "DMA in flight" (3) to "ready" (2). Measured: the ring sat with ten
+    //                        slots at 3 while the consumer, which only accepts 2, spun on a full ring.
+    //   slot 1 (MDEC-out) <- 0x8002B28C, from the intro FMV player's init 0x8002B1FC
+    //                        (FUN_80085BC0 -> DMACallback(1, ...)). This is what uploads a decoded
+    //                        strip to VRAM. It was NEVER CALLED over a whole run while the port
+    //                        signalled channel 3 only — measured with PSXPORT_FNTRACE, denominator
+    //                        4653 movie-loop iterations, and that is why the movies decoded but
+    //                        stayed invisible (RE-07).
+    //
+    // The guest's own DICR value confirms which channels it wants: 0x009A0000 = master + 1, 3, 4.
+    /* dmaCallbackTable */ 0x800B4388u,
 
     // --- pad driver (re-frontier: RE-05) ---------------------------------------------------------
     // The game uses STOCK libpad in direct mode. Pad init 0x8006AE34 ends with

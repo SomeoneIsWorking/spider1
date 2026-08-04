@@ -1,7 +1,7 @@
 ---
 id: 2
 title: Boot is black for the first ~1200 frames (was "every presented frame is pure black"; that is no longer true)
-status: investigating
+status: resolved
 symptom: black screen at boot, no Activision logo visible, display area collapses to 512x2 for hundreds of frames
 tags: render,gpu,fmv,black-screen
 created: 2026-08-04
@@ -53,8 +53,15 @@ loading is what the guest chose to do, and reproducing it is faithful.
 Denominator for the negative: 550 consecutive presents with a 512x2 area, 0 prims on every one
 of them, and 0 non-zero pixels anywhere in either framebuffer at the one frame sampled.
 
-## What is left
+## What is left — NOTHING. Closed 2026-08-05.
 
-The real user-visible defect in this window is the **missing Activision / Whoopee logo movies** —
-tracked as issue #4, root-caused to the libstr sector-ring consumer index. Everything else in the
-window is loading time.
+The real user-visible defect in this window was the **missing Activision / Neversoft logo movies**,
+issue #4, and they now play: frame 120 is 99.95% non-black / 11395 colours in a 320x240 24-bit
+display area at (0,256). Everything else in the window is loading time.
+
+**The "512x1 / 512x2 intro display area" was never a third gate on the FMV, and the frontier note
+that called it one was wrong.** It was the FRONT-END asset load blanking its own display, exactly as
+this issue already established — a phase that begins AFTER the movies. Once the movies actually
+decode, the guest sets the movie's own 320x240 24-bit area itself, at frame 5, and the 512x240 menu
+area later. Nothing in the port had to change for that. The correction matters because "a decoded
+frame has nowhere to land" would have sent the next session at the GPU.

@@ -1,7 +1,7 @@
 ---
 id: 4
 title: Intro logo FMVs never reach the screen: the libstr sector ring deadlocks (StGetNext parks on a slot the producer never marks)
-status: partially-fixed
+status: resolved
 symptom: boots to black screen, no Activision logo; MDEC decodes exactly one macroblock column per movie then stops; StGetNext returns not-ready forever
 tags: fmv,str,mdec,cd,black-screen,re-07
 created: 2026-08-04
@@ -136,7 +136,83 @@ DecDCTin/DecDCTout pair per movie. See the next section.
   is not in this port's path at all; the A/B is a provable no-op.
 * Not the 512x2 display area - see issue 0002.
 
-## The SECOND blocker, now the frontier (open)
+## RESOLVED 2026-08-05 — the movies play. Two more causes, both real, both now fixed.
+
+Frames read off the PPMs of a 180 s headless run (`PSXPORT_SHOT_AT=120,300,2400,4000,6000,8000`):
+
+    frame  120   320x240 24-bit @0,256   99.95% non-black  11395 colours   ACTIVISION logo
+    frame  300   320x240 24-bit @0,256   25.70%             8773           Neversoft eyeball
+    frame 4000   512x240                 99.44%             1061           main menu, unchanged
+    frame 6000   512x240                 99.44%             1070
+    frame 8000   512x240                 99.43%             1105
+
+PNGs: `scratch/screenshots/re07_fmv_120.png`, `re07_fmv_300.png`, `re07_menu_4000.png`.
+Log: `scratch/logs/re07b_gate.log` — 0 abort, 0 fatal, 0 recomp-MISS; the single `error` line is the
+expected `CdSearchFile: /CINEMAS/TTSLOGO.STR;1 not found` (that file is not on the retail disc).
+
+### Cause 2 — RE-16: the recompiler unwound the bit-stream decoder after one block
+
+`0x8002A338` is libpress's `DecDCTvlc`, hand-written assembly that uses `jal` / `jr $ra` as an
+INTERNAL coroutine inside one stack frame. `jal 0x8002A478` at `0x8002A41C` made the emitter promote
+that internal block to a FUNCTION entry, splitting the body — so the routine's own loop back-edge,
+the unconditional `bgez $zero, 0x8002A478` at `0x8002A43C`, was emitted as `func_8002A478(c);
+return;`. The decoder ran one block and returned out of itself, skipping its epilogue.
+
+Measured live, with a fntrace ABI check validated BOTH ways (`PSXPORT_FNTRACE_SELFTEST=1` makes the
+control leaves `0x8008735C` / `0x8008710C` report a violation; without it they report 0 over 4 and 49
+calls, so the checker is not blanket-reporting):
+
+    BEFORE  0x8002A338  4 calls, 8 ABI violations — sp 807FFF00 -> 807FFEFC, ra -> 8002A424
+            0x8002B430  44 calls, 12 violations   — downstream damage from the leaked 4 bytes
+            DecDCTin    2 calls in a whole run
+    AFTER   0x8002A338  423 calls, 0 violations; 0x8002B430 4653, 0; DecDCTin 421
+
+The ABI lead recorded below as "untriaged, instrument suspect" was therefore REAL. So was the
+attribution: `0x8002B430`'s violation is entirely explained by its callee leaving sp 4 low, so its
+own epilogue reloaded ra/s0 from the wrong stack words.
+
+The fix is `demote_internal_labels`, which already existed (psxport 77386b68), was unit-tested, and
+was **never called from `emit_module`** — dead code for a week. Wiring it needed two companions: an
+intra-function `jal` must emit `$ra = <ret>; goto L_<target>;` (its target is no longer a function),
+and the matching `jr $ra` must become a SWITCH over this body's own link constants — the revert of
+`d2d99ff7` is undone, and its router dispatch replaced by that switch, which is why the earlier
+attempt's `recomp-MISS 0x03FF03FF` cannot recur. On the real executable the emitter now reports
+exactly one demotion (`0x8002A478`) and exactly one computed `jr $ra` (`0x8002A460`, cases
+`0x8002A424 / 0x8002A708 / 0x8002A774`).
+
+With cause 2 alone the player loops (421 decodes) and the display finally switches into the movie's
+own 24-bit 320x240 @ (0,256) mode — but the picture is still 0.00% non-black, because of:
+
+### Cause 3 — only channel 3's DMA completion was ever announced to the guest
+
+The player registers an MDEC-OUT completion callback at init: `0x8002B1FC` calls
+`FUN_80085BC0(0x8002B28C)` -> `DMACallback(1, ...)` through the BIOS thunk `0x8008B89C`, which stores
+it into libcd's per-channel table at `0x800B4388 + 4*ch`. `0x8002B28C` is what LoadImages each
+decoded 16-px strip into VRAM and advances the destination x at `gp+0x6D4` — the very value the
+player's `dsx` wait at `0x8002AD64` spins on. The framework signalled channel 3 only, so:
+
+* `PSXPORT_FNTRACE=0x8002B28C` -> **NEVER CALLED**, over a whole run, while its registrar ran 4 times
+  and the movie loop pumped 4653 iterations. That is the third gate, and it is why the dsx wait was
+  one of the two surviving suspects: with the callback dead, `gp+0x6D4` never moves, so before RE-16
+  the wait was trivially satisfied and after it the loop just spun.
+* The guest's own DICR is `0x009A0000` — master plus channels 1, 3 and 4. It asked for all three.
+
+Fixed by making the dispatch per-channel: `GameConfig::cdDmaDoneCbPtr` (one slot) becomes
+`dmaCallbackTable` (the table base), `DmaDone` in `dma_irq.h` is a per-channel pending SET, every one
+of `mem.cpp`'s six completion points signals through the same DICR gate, and `Hle::irqPoll` scans all
+seven channels.
+
+### Cause 4 — a deferred completion was consumed without being delivered
+
+These callbacks CHAIN: `0x8002B28C` starts the next strip's `DecDCTout`, and that transfer finishes
+while the handler is still running, so the second completion always lands with `in_irq` set. The
+first version took the pending flag and *then* declined the dispatch, dropping it — the chain died
+after two strips per movie and the decoder was left holding 1640 abandoned input words
+(`scratch/logs/re07b_fix3c.log`: `owed ch1 -> callback 8002B28C  DEFERRED: a guest callback is
+running`). A completion is now consumed only when it is delivered, and the deferred-work gate stays
+armed while any channel is owed. `0x8002B28C` calls: 0 -> 2 -> **8420**.
+
+## The SECOND blocker (historical — this is what cause 2 turned out to be)
 
 The player is `FUN_8002AA0C` (`gp = 0x800B47F4`). Its `while(true)` body is rotated: the loop-back
 target is the frame wait at `0x8002AD38`, and DecDCTin (`0x80085B24`) + DecDCTout (`0x80085BA0`) sit

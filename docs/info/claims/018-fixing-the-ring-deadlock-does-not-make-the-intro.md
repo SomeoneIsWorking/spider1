@@ -1,9 +1,10 @@
 ---
 id: C018
 kind: claim
-status: holds
+status: falsified
 created: 2026-08-05
 tags: fmv,str,mdec,re-07
+falsified_on: 2026-08-05
 ---
 
 ## Claim
@@ -17,3 +18,9 @@ With the DICR gate in place the ring is healthy and two full STR frames per movi
 ## What would falsify it
 
 if a run is found where the movie loop performs more than one DecDCTin per movie, this is not a single hard blocker but a timing-dependent one
+
+## FALSIFIED 2026-08-05
+
+PARTLY. Its headline was right — the ring fix alone does not play the movies — but its narrowing was wrong in a way worth keeping. The 'one DecDCTin per movie' was a RECOMPILER defect (RE-16): 0x8002A338, libpress DecDCTvlc, uses jal/jr-$ra as an internal coroutine, its internal block 0x8002A478 was promoted to a function entry, and the routine's own loop back-edge (bgez $zero at 0x8002A43C) was emitted as call+return, so it unwound after one block with sp 4 low. Fixed -> DecDCTin 2 -> 421 per run, 0 ABI violations. The claim listed that lead as 'untriaged, instrument suspect'; the instrument was fine (validated both ways, INST-017) and the lead was the answer. Of its two named suspects the DSX WAIT was the exit, but not for a timing reason: the MDEC-out DMA callback 0x8002B28C that advances gp+0x6D4 was NEVER dispatched, because the framework signalled DMA completions on channel 3 only. Both fixed; both movies now render (issue 0004).
+
+> Anything that cited this claim as proof must be re-checked. Grep the repo for it.
