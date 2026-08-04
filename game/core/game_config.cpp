@@ -337,7 +337,12 @@ static const GameConfig g_spiderman_cfg = {
     // what the implicit zero-init already gave; it is spelled out so windowTitle can follow it.
     // The framework must not name a game — gpu_vk.cpp hardcoded Tomba!2's title, so this port
     // announced itself as Tomba!2 in the title bar (psxport 53916f0d).
-    /* paceQuota       */ 0u,
+    // Vblanks one gpu_pace_frame call represents. 0 used to fall through to a scratchpad read of
+    // 0x1F800235 — Tomba!2's engine field, ordinary working memory here — so this port slept on
+    // garbage and ran ~2.3x slower windowed than headless. That fallback is deleted (psxport
+    // gpu_native.cpp). 2 = this game's 30fps base cadence; NOT yet measured against the real
+    // vblank rate, so if windowed still diverges from headless, derive it before trusting it.
+    /* paceQuota       */ 2u,
     /* windowTitle     */ "Spider-Man",
 };
 
