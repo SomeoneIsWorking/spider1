@@ -253,6 +253,29 @@ tail-call behaviour under investigation.
 
 ---
 
+## INST-16 — `tools/check_module_slot.py` (module co-residency in a RAM dump) — **trusted, negative-validated**
+
+*What it shows:* every LIVE descriptor node on the guest loader's module list in a 2 MB RAM dump —
+address, body pointer, name hash, and the module NAME resolved from that hash — and flags the case
+where two or more share a body pointer (which the one-slot design makes into silent code overwriting).
+
+*Validated in both directions, and by two mechanisms:*
+- `--selftest` runs a POSITIVE (two linked nodes, same body -> exit 1, both named), a NEGATIVE (one
+  node -> exit 0 with its denominator), a stray-word case (an unlinked coincidental word must be
+  REJECTED by linkage validation, not counted), and a VOID (missing dump -> exit 2, never "clean").
+- The hash function is self-checked against a value measured in a real dump (`crc32("venom")` must
+  equal `0xD098961B`). If the CRC table or the byte order were wrong, every name would be wrong and
+  the selftest fails rather than printing plausible garbage.
+- Independently corroborated by the LIVE run: `PSXPORT_DEBUG=module` shows exactly the three loads
+  (`L5A5LSC`, `LIZMAN`, `VENOM`) with no unload between them that the dump analysis names.
+
+*Its blind spot, printed on every clean verdict:* a dump is ONE instant. "At most one live" cannot
+rule out a co-residency before or after the dump.
+
+*Exit codes:* 0 clean, 1 violation, 2 could not look (no dump / no slot base / file too small).
+
+---
+
 ## INST-07 — `PSXPORT_DEBUG=cdcw,cdcbt` (CD register writer) — **trusted, with one hard caveat**
 
 *What it shows:* every write to a CD controller register with the register, value, current bank, and

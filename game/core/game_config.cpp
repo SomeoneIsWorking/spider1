@@ -324,6 +324,13 @@ static const GameConfig g_spiderman_cfg = {
     // game's card file. Exactly the defect discEnvVar exists to prevent, in a second subsystem.
     /* cardEnvVar      */ "PSXPORT_SPIDERMAN_CARD",
     /* cardDefaultPath */ "scratch/saves/spiderman.mcr",
+
+    // GameConfig is initialised POSITIONALLY here, so these trail in struct order. paceQuota 0 is
+    // what the implicit zero-init already gave; it is spelled out so windowTitle can follow it.
+    // The framework must not name a game — gpu_vk.cpp hardcoded Tomba!2's title, so this port
+    // announced itself as Tomba!2 in the title bar (psxport 53916f0d).
+    /* paceQuota       */ 0u,
+    /* windowTitle     */ "Spider-Man",
 };
 
 extern void spiderman_install_game_hooks();   // game/core/game_hooks.cpp

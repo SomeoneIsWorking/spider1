@@ -107,6 +107,72 @@ by a runtime instrument. **Reach for the store watch before concluding anything 
 
 ---
 
+## CLAIM-09 — "Only ONE runtime-loaded module is ever resident" — **FALSIFIED 2026-08-04**
+
+*Was claimed* (in the header comment of `game/core/module_loader.cpp`, and it is the entire
+justification for pinning all 30 CD.WAD modules to one address): *"the game only ever has ONE module
+resident (measured: the shell -> thug transition reuses descriptor node 0x80149D34)."*
+
+*What falsified it:* the guest's loader `FUN_8001B990` maintains a doubly-linked LIST of loaded
+modules (head at `gp+0x5C8`, `node[+0x2C]`=next, `node[+0x30]`=prev, `node[+0x04]`=body,
+`node[+0x08]`=crc32(name), `sizeof=0x34` — all read off the disassembly at `0x8001B990..0x8001BB40`).
+A list exists precisely because more than one can be loaded. Two independent measurements:
+
+1. **Live, on a plain boot** (`PSXPORT_DEBUG=module`, `scratch/logs/mod_dbg.log`). Every earlier load
+   is bracketed by an unload — `SHELL`, `THUG`, `SHELL`, `COP`, `SHELL`, `SHELL`, each preceded by
+   *"guest freed the module slot — refused"*. Then **three loads in a row with no unload between
+   them**: `L5A5LSC`, `LIZMAN`, `VENOM`, whose name strings sit 10 bytes apart at
+   `0x8016A84A/54/5E` — one table, one deliberate set. The `recomp-MISS 0x800C6684` abort follows
+   immediately.
+2. **From the RAM dump at the abort** (`scratch/raw/miss_ram.bin`): three descriptor nodes, mutually
+   consistent next/prev links, all with `body = 0x800C65EC`:
+   `0x80165DB4` venom -> `0x80165D78` lizman -> `0x80165D3C` l5a5lsc -> 0.
+
+*Why the original measurement did not catch it:* it was real, and it was of ONE transition. The
+shell<->stage transitions genuinely are one-at-a-time; the level/demo load is not. This is the sixth
+wrong attribution-by-generalisation recorded in this project.
+
+*CONFIRMED BY DECOMPILATION 2026-08-04, not by hand-walking disassembly.* `decomp.sh all
+scratch/raw/miss_ram.bin scratch/decomp/loader.c list 0x8001B990 0x8001BDF4 0x8001BEC4 0x8001BF58`
+(output kept at `scratch/decomp/loader.c`) agrees with the hand-derived layout field for field, and
+adds the two routines that make the fault unambiguous:
+
+- **`FUN_8001BDF4(nameHash)` is UNLOAD** — find by hash, call `node->dtor()` (`node[+0x00]`), free the
+  BODY, unlink, free the node. `FUN_8001BB3C` is a BULK unload calling it for ~30 modules.
+- **`FUN_8001BEC4(name, i, a, b)` is DISPATCH**, and it is the faulting frame:
+  `for (n = head; n; n = n->next) if (hash == n->nameHash && n->method(i)) return n->method(i)(a,b);`
+
+**That reframes the fault, and the new framing is stronger.** This is not a "stale pointer" in any
+sense the guest is responsible for: the guest hashes a name, finds the CORRECT still-live node for
+LIZMAN, and calls `node[+0x0C]` — LIZMAN's own method table, filled in by LIZMAN's own entry point.
+Every step is correct. The ONLY thing wrong is that the port put VENOM's bytes at that address.
+**The port's pinning is the entire fault; nothing about the guest's behaviour is unusual.**
+
+*Also confirmed:* `FUN_8001BF58` (the relocator) matches `tools/extract_modules.py`'s `relocate()`
+exactly, including that a site offset is ABSOLUTE (`w & 0xFFFFFFFC`), not cumulative — see CLAIM-C012,
+where re-deriving it as cumulative produced a lying instrument.
+
+*Consequence, and it is the whole of RE-16's `0x800C6684`:* venom's image overwrote lizman's, so
+lizman's still-live node keeps `node[+0x0C] = 0x800C6684` — measured to be exactly what lizman's entry
+point writes (`tools/check_module_slot.py` names the module from the hash; the entry stores were
+decoded from all 30 images). In venom, `0x800C6684` is `lw $s0,0x10($sp); jr $ra; addiu $sp,$sp,0x20`
+— a function EPILOGUE, not an entry. So the miss is the "stale pointer / wrong overlay resident" horn
+of the runtime's own diagnostic, **not** a function-discovery gap, and seeding `0x800C6684` would be a
+bandaid that executes venom's epilogue as if it were lizman's function.
+
+*Reproduce:*
+
+    python3 tools/check_module_slot.py --selftest            # POSITIVE / NEGATIVE / VOID all reachable
+    python3 tools/check_module_slot.py scratch/raw/miss_ram.bin   # exit 1, names all three modules
+
+*Expires if:* a multi-slot loader lands and `check_module_slot.py` reports at most one live node on a
+dump taken during a level load.
+
+*Who relied on it:* `game/core/module_loader.cpp` (the whole one-slot design), `game/recomp_seeds.json`
+(`overlay_base_patterns` maps every module to one base), and `docs/re-frontier.md` RE-09.
+
+---
+
 ## CLAIM-08 — The offline module relocation reproduces the guest's own loader exactly — **holds**
 
 *Claim:* `tools/extract_modules.py` — which reads the `CD.HED` index, pulls a module out of `CD.WAD`,

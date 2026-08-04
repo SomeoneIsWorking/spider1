@@ -93,12 +93,23 @@ from the disc image), and drive whatever completion the guest is waiting on. Har
 still worth having where it is genuinely simpler or serves other consumers — but it is not the
 default answer to "the guest is waiting". (USER directive, 2026-07-28.)
 
-## Diagnostics go through the framework's channel logger
+## Diagnostics go through `lucent::` — one line, no `if` around it
 
-`cfg_logi` / `cfg_logw` / `cfg_loge` for what a normal run should print; `cfg_dbg("chan")` +
-`cfg_logf("chan", …)` for anything channel-gated (`PSXPORT_DEBUG=chan,chan`). Never scatter raw
-`printf`/`fprintf` diagnostics or ad-hoc `getenv` reads through the code. One diagnostic, one line,
-one channel.
+`lucent::info` / `warn` / `error` for what a normal run should print; `lucent::debug("chan", …)` for
+anything channel-gated (`PSXPORT_DEBUG=chan,chan`). Include `<lucent/log.h>`; it is vendored at
+`external/psxport/vendor/lucent` and already linked. Pick by AUDIENCE, not by wrapping.
+
+**Never wrap a log call in a condition.** `lucent::debug` is channel-gated internally and does not
+evaluate its arguments when the channel is off, so `if (cfg_dbg(c)) cfg_logf(c, …)` is pure noise
+re-creating the `if (dbg) fprintf(…)` idiom the logger exists to abolish. The ONE legitimate guard is
+around expensive NON-LOGGING work (walking a structure, building a dump), and it guards a BLOCK.
+
+`cfg_logi/logw/loge/logf/dbg` are a printf-style shim that forwards 1:1 to lucent and is **being
+retired** — add no new call sites, and convert any you touch. Format strings become `std::format`:
+`%08X`→`{:08X}`, `%u`/`%zu`→`{}`, `%.2f`→`{:.2f}`, `%%`→`%`. **Trap:** `printf("%s", p)` on a null
+`const char*` prints `(null)`; `std::format` on one is undefined behaviour — check every `%s`.
+
+Never scatter raw `printf`/`fprintf` diagnostics or ad-hoc `getenv` reads through the code.
 
 An instrument is only worth citing if it can show the OTHER answer — validate it against a case that
 must differ, and record it in `docs/info/instruments.md`.

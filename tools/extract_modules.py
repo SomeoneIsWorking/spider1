@@ -40,29 +40,32 @@ VERIFIED, not inferred: relocating shell.bin offline at its observed load base r
 running game's memory image byte-for-byte over all 112912 bytes, with the .rel stream consuming
 exactly its 8416 bytes and terminating cleanly. See docs/info/claims.md CLAIM-08.
 
-THE LOAD BASE IS A MEASUREMENT, AND IT IS CHECKED. The module's address comes from the game's own
-allocator, not from a fixed slot, so it cannot be read out of the binary — it is observed, and
-observed to be identical across runs. That makes it exactly the kind of constant this project
-distrusts, so it is not merely written down. The framework's overlay router (overlay_router.cpp)
-compares a 32-byte content signature — baked into generated/overlay_table.c at emit time — against
-guest RAM at the base, and an address with no matching resident overlay fails fast in
-rec_dispatch_miss. A wrong base therefore surfaces as a loud MISS rather than as one module's
-recompiled code silently running against another's data.
+THERE IS NO LOAD ADDRESS TO RECORD, and that is the point. The game allocates each module from
+its own heap, so where it lands depends on load order and differs per module and per playthrough,
+and several modules are resident at once. The images written here are therefore relocated to an
+arbitrary LINK base and recompiled BASE-RELATIVE (external/psxport/tools/recomp/emit.py); the port
+observes the real base at load time (game/core/module_loader.cpp) and the framework's live registry
+routes dispatch by it. Nothing downstream may bake a module address in.
 """
+import json
 import os
 import struct
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-SLOT_BASE = 0x800C65EC   # must equal overlay_base_patterns in game/recomp_seeds.json
+# The LINK base every module is relocated to for recompilation. It is NOT where a module runs: the
+# game's allocator picks that at load time and it differs per module and per playthrough. The
+# recompiled code is emitted BASE-RELATIVE (external/psxport/tools/recomp/emit.py, ModuleReloc) and
+# the runtime adds the difference, so this value only has to be a fixed, valid guest address that the
+# whole build agrees on — it must equal overlay_base_patterns in game/recomp_seeds.json.
+LINK_BASE = 0x800C65EC
 
-# Every module pair in CD.HED, all relocated to the SAME slot base — only one is ever resident and
-# the framework's overlay router identifies it by content signature. Discovered from the index rather
-# than listed by hand, so a module that exists on disc cannot be silently skipped.
+# Every module pair in CD.HED. Discovered from the index rather than listed by hand, so a module that
+# exists on disc cannot be silently skipped.
 def modules_from_index(index):
     stems = {n[:-4] for n in index if n.endswith(".bin")} & {n[:-4] for n in index if n.endswith(".rel")}
-    return {s: SLOT_BASE for s in sorted(stems)}
+    return {s: LINK_BASE for s in sorted(stems)}
 
 
 def parse_index(hed: bytes):
@@ -121,6 +124,35 @@ def relocate(img: bytearray, rel: bytes, base: int) -> dict:
     return counts
 
 
+def hi16_offsets(rel: bytes):
+    """The byte offsets at which the .rel stream relocates a HI16 — the ONLY thing the recompiler
+    needs in order to emit a module base-relative.
+
+    WHY ONLY HI16. A module's base-dependent words are of four kinds, and three of them need nothing
+    from this table. The R_MIPS_32 data words are relocated by the GAME in its own RAM and the port
+    reads them from there. The R_MIPS_26 jump targets and the low halves are handled by the emitter
+    from the instruction stream itself: a jump target is base-dependent exactly when it lands inside
+    the module (an address test, not a table lookup — and unlike this table that test also covers
+    PC-relative BRANCH targets, which no relocation table ever names), and a low half needs no
+    adjustment at all once the `lui` feeding it carries the module delta. What the emitter cannot
+    derive is WHICH `lui` builds a module-relative address rather than a resident-executable one.
+    That is what this returns.
+    """
+    out, i = [], 0
+    while True:
+        if i + 4 > len(rel):
+            raise ValueError("relocation stream ran off the end without a 0xFFFFFFFF terminator")
+        (w,) = struct.unpack_from("<I", rel, i)
+        i += 4
+        if w == 0xFFFFFFFF:
+            break
+        t = w & 3
+        if t == 1:
+            out.append(w & ~3)
+            i += 4                      # HI16 is the only type that carries an addend word
+    return out
+
+
 def extract(hed_path: str, wad_path: str, out_dir: str, quiet: bool = False) -> int:
     index = parse_index(open(hed_path, "rb").read())
     os.makedirs(out_dir, exist_ok=True)
@@ -139,10 +171,20 @@ def extract(hed_path: str, wad_path: str, out_dir: str, quiet: bool = False) -> 
 
         for stem, base in modules_from_index(index).items():
             img = bytearray(grab(f"{stem}.bin"))
-            counts = relocate(img, grab(f"{stem}.rel"), base)
+            rel_bytes = grab(f"{stem}.rel")
+            counts = relocate(img, rel_bytes, base)
             dest = os.path.join(out_dir, f"{stem}.bin")
             with open(dest, "wb") as f:
                 f.write(img)
+            # The relocation SIDECAR, read by the recompiler. The framework knows nothing about this
+            # console's relocation format — the game hands it plain offsets. `counts` travels with it
+            # so a disagreement between what was applied here and what the emitter consumed is
+            # visible instead of silent.
+            with open(os.path.join(out_dir, f"{stem}.reloc.json"), "w") as f:
+                json.dump({"size": len(img), "link_base": base,
+                           "hi16": hi16_offsets(rel_bytes),
+                           "counts": {"w32": counts[0], "hi16": counts[1],
+                                      "lo16": counts[2], "j26": counts[3]}}, f)
             n += 1
             if not quiet:
                 print(f"[modules] {stem}: {len(img)} bytes @ 0x{base:08X} "

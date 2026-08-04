@@ -25,38 +25,32 @@
 //   overlay_bases         {STEM: addr}         overlay load addresses
 //   overlay_seeds         {STEM: [addr, ...]}  per-overlay seeds
 //
-// RUNTIME-LOADED MODULES (corrected 2026-07-29 — this file previously said "this game has none").
-// SLUS_008.75 is not the whole game: further CODE lives in CD.WAD as <name>.bin + <name>.rel pairs,
-// loaded and relocated at runtime by FUN_8001B990. tools/extract_modules.py performs that load
-// offline (CD.HED index -> extract -> apply the .rel relocations) and writes a relocated image the
-// recompiler consumes as an ordinary overlay. The earlier "no overlays" reading came from the ISO
-// tree having no overlay FILES, which is true and was quietly taken as a claim about code coverage.
+// RUNTIME-LOADED MODULES. SLUS_008.75 is not the whole game: further CODE lives in CD.WAD as
+// <name>.bin + <name>.rel pairs, loaded and relocated at runtime by FUN_8001B990.
+// tools/extract_modules.py performs that load offline (CD.HED index -> extract -> apply the .rel
+// relocations) and writes a relocated image the recompiler consumes as an overlay, plus a
+// <stem>.reloc.json sidecar naming the module's HI16 sites.
 //
-// The base below is MEASURED, not read out of the binary — the game allocates the module from its
-// own heap, so no static address exists to cite. It is the value observed at the module's entry
-// call, identical across runs. It is not merely trusted: the framework's overlay router compares a
-// 32-byte CONTENT SIGNATURE (baked into generated/overlay_table.c at emit time) against guest RAM at
-// this base, and an address with no matching resident overlay fails fast in rec_dispatch_miss rather
-// than routing to the wrong code. So a wrong base shows up as a loud MISS, not as silent corruption.
-// Confirmed by relocating offline at this base and matching the running game's memory byte-for-byte
-// over all 112912 bytes (CLAIM-08).
+// THE BASE BELOW IS A LINK BASE, NOT A LOAD ADDRESS. The game allocates each module from its own
+// heap, so where it runs depends on load order and differs per module and per playthrough, and
+// several modules are resident at once (a level load puts L5A5LSC, LIZMAN and VENOM on the loader's
+// list together). These modules are therefore emitted BASE-RELATIVE: the recompiler renders every
+// address that moves with the module as `link address + delta`, and the port learns the real base by
+// watching the guest's own allocator (game/core/module_loader.cpp). Changing this value changes
+// nothing observable — it only has to be a fixed, valid guest address the whole build agrees on, and
+// it must equal LINK_BASE in tools/extract_modules.py.
 {
   "main": [],
   "main_reentry": [],
-  // ALL runtime-loaded modules share ONE slot, so they share one base. The port reserves that slot
-  // as the heap's first block (game/core/module_loader.cpp) and intercepts the loader's body
-  // allocation to place every module there; only one is ever resident, and the framework's overlay
-  // router picks it by 32-byte content signature. The base is heapBase(0x800C65D4) + 0x18, MEASURED
-  // with PSXPORT_DEBUG=alloc -- the allocator's `return puVar11 + 2` invites an 8-byte header
-  // assumption and the real offset is 0x18. The runtime re-checks this against the reservation and
-  // refuses to run quietly if they disagree.
+  // Every runtime-loaded module is recompiled at this LINK base (see the note above); it is not
+  // where any of them runs.
   "overlay_base_patterns": [ [ ".*", "0x800C65EC" ] ],
 
   // Each module's ENTRY POINT is its base address, and nothing `jal`s to it: the loader calls it
   // through a pointer (`(*(code *)node[1])(node)` at the tail of FUN_8001B990), which is invisible
   // to jal-discovery. Without this seed a module's emitted set starts at its SECOND function and the
   // very first call into it fails with a recomp MISS on its base. Every module needs it, and they
-  // all share the slot base.
+  // are all expressed in the LINK base above.
   "overlay_seeds": {
     "SHELL": ["0x800C65EC"], "THUG": ["0x800C65EC"], "BLACKCAT": ["0x800C65EC"],
     "CARNAGE": ["0x800C65EC"], "CHOPPER": ["0x800C65EC"], "COP": ["0x800C65EC"],

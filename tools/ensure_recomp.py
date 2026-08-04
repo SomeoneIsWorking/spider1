@@ -9,10 +9,8 @@ What it does, in order:
   1. Resolve the disc image (CLI arg > $PSXPORT_SPIDERMAN_DISC > .env > *.chd drop-in — this
      mirrors run.sh exactly, so both agree on which disc is in play).
   2. Extract the boot executable SLUS_008.75 from the disc via the framework's `discdump`.
-     Spider-Man ships ONE executable and NO overlay modules — SYSTEM.CNF boots SLUS_008.75
-     directly, and the rest of the game lives in the packed archive CD.WAD, which the recompiler
-     does not consume. So unlike Tomba!2 (BIN/START|DEMO|GAME|A00..A0L) there is nothing else to
-     extract, and emit.py reports "0 overlay module(s)".
+     SYSTEM.CNF boots SLUS_008.75 directly; the rest of the game lives in the packed archive
+     CD.WAD, from which step 2b pulls 30 runtime-loaded code modules (see MODULE_SRCS below).
   3. Compute the recomp IDENTITY = emit.py's RECOMP_VERSION + a hash of the INPUTS (the executable,
      this game's seed file, and the recompiler module sources). The seed set is a GAME fact the
      framework no longer ships, and changing it changes the emitted function set, so it is an input
