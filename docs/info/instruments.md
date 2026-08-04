@@ -22,6 +22,80 @@ on screen. Uniform output — all-black frames, all-zero dumps, "no diff", an em
 Validate an instrument by feeding it a case that **must** differ and watching it say so. When one is
 caught lying, mark it distrusted and re-check every result that used it.
 
+> **THIRD RULE, 2026-08-05, and it is the most expensive one so far: an instrument that measures a
+> DIFFERENT STAGE of the pipeline than the one you are asking about is not a weak instrument, it is
+> a lying one — and it lies with true numbers.** `PSXPORT_SHOT_AT` reported 99.95% non-black on the
+> intro logo while the USER, watching the window, saw a black screen. Every number was correct: it
+> reads back guest VRAM, which did contain the logo, in the headless leg it was run in. Nothing in
+> its output said "this never touched the swapchain". Two instruments (INST-18, INST-19) certified
+> that false negative and one of them, the watchdog, is structurally incapable of ever contradicting
+> it. **Before quoting an instrument, name the stage it samples and check that it is the stage in
+> question.** See issue 0005.
+
+---
+
+## INST-18 — `PSXPORT_SHOT_AT` / `GpuVkState::shot()` PPM histogram — **DISTRUSTED 2026-08-05 for "what the player sees"; trusted for guest VRAM content**
+
+*What it ACTUALLY shows:* `GpuVkState::shot()` (`external/psxport/runtime/recomp/gpu_vk.cpp:1202`)
+calls `dump_to()` (`:1171`), which reads back the **guest VRAM texture `s_vram_tex`** and decodes
+the display region itself. It never samples the swapchain. It is a measurement of VRAM CONTENT at a
+present index, and of nothing downstream of that.
+
+*What it was read as showing, for a whole session:* what is on screen.
+
+*How it lied, with true numbers (MEASURED 2026-08-05, spider1 `3381fcc` / psxport `3f6a1e14`):* it
+reported f120 = 99.95% non-black / 11395 colours for the Activision logo, and RE-07 was closed on
+that. The USER, watching a window on the same build, saw a black screen. Windowed, the same
+instrument reads 0.00% / 1 colour at every present index to f2400 — also true, and also not a
+statement about the window. Root cause was upstream of both readings (C021, guest starvation) and
+the instrument is blind to the whole segment where it lived.
+
+*Validated where it IS good:* it does show the other answer within its own stage — 0.00% / 1 colour
+on every intro shot before the RE-07 fixes, 99.95% / 11395 after (C020).
+
+*Trust it for:* guest VRAM content at a present index, **with the headless/windowed leg stated**.
+*Do NOT trust it for:* whether anything reached the display; whether present, composite, letterbox
+or fade work; whether the window is alive; or distinguishing "the guest drew nothing" from "the
+window shows nothing" — it gives the identical answer to both.
+
+*The missing instrument, named so it stops being a surprise:* **nothing in this port samples the
+SWAPCHAIN.** Until something does, every "the picture is correct" result in this repo is a claim
+about VRAM. Building one is the cheapest way to stop repeating this failure.
+
+*Structured entry:* `I013` (distrusted). *See:* issue 0005, C019 (falsified), C020 (scoped re-issue).
+
+---
+
+## INST-19 — The frame-progress watchdog (`PSXPORT_WATCHDOG=<sec>`) used as a GUEST-progress gate — **DISTRUSTED 2026-08-05; see INST-03 for what it is genuinely good at**
+
+*The defect, and it is structural rather than a bug:* `watchdog_pet()` is called from
+`gpu_present_ex` (`external/psxport/runtime/recomp/gpu_native.cpp:1399`). Presents are driven by the
+host-turn timer whether or not the GUEST advances, so the pet has **no guest-side denominator at
+all**. A run can be completely wedged in guest terms and the watchdog will never fire.
+
+*MEASURED, not argued (2026-08-05, `PSXPORT_DEBUG=presentskip`):* a windowed run produced
+
+    presents=4027  reuse_last=4027  rebuild_geom=0  rebuild_vram=0  vram_writes=0
+
+— the guest wrote zero bytes to VRAM across 4027 presents — and the watchdog reported nothing. The
+headless leg of the same build, same duration: `presents=4106 reuse_last=2165 rebuild_geom=1511
+rebuild_vram=430 vram_writes=12812`.
+
+*What this invalidates:* **every gate result of the form "0 abort, ran N frames".** That phrasing
+appears throughout this repo's logs and reports; it means "presents kept happening" and never "the
+game is running". Re-read any conclusion that leaned on it.
+
+*Trust it for:* a hard hang where the present loop itself stops, and for its backtrace when it does
+fire — with INST-03's caveats (single sample, corroborate against the disassembly).
+*Do NOT trust it for:* guest liveness, boot progress, or any part of a pass/fail gate.
+
+*The missing instrument:* a watchdog fed by a **guest-side** counter — guest vblank count, VRAM
+writes, or recompiled-function dispatches — printing its denominator, so a negative reads "guest
+advanced 0 of N" instead of silence. Until that exists, quote the `presentskip` counters
+(`vram_writes`, `rebuild_geom`) rather than the frame count.
+
+*Structured entry:* `I014` (distrusted). *See:* issue 0005, C021, and INST-03.
+
 ---
 
 ## INST-01 — `PSXPORT_DEBUG=vsync` (VSync call log) — **trusted**
@@ -253,26 +327,60 @@ tail-call behaviour under investigation.
 
 ---
 
-## INST-16 — `tools/check_module_slot.py` (module co-residency in a RAM dump) — **trusted, negative-validated**
+## INST-17 — "do two resident modules share guest bytes?" — the `overlay_place()` abort — **trusted; a runtime invariant, not a check tool**
 
-*What it shows:* every LIVE descriptor node on the guest loader's module list in a 2 MB RAM dump —
-address, body pointer, name hash, and the module NAME resolved from that hash — and flags the case
-where two or more share a body pointer (which the one-slot design makes into silent code overwriting).
+*The question this answers:* how do I know two live CD.WAD modules are not overlapping in guest RAM
+— the failure that silently makes one module's code run as another's, and that killed the port at
+recomp-MISS `0x800C6684`?
 
-*Validated in both directions, and by two mechanisms:*
-- `--selftest` runs a POSITIVE (two linked nodes, same body -> exit 1, both named), a NEGATIVE (one
-  node -> exit 0 with its denominator), a stray-word case (an unlinked coincidental word must be
-  REJECTED by linkage validation, not counted), and a VOID (missing dump -> exit 2, never "clean").
-- The hash function is self-checked against a value measured in a real dump (`crc32("venom")` must
-  equal `0xD098961B`). If the CRC table or the byte order were wrong, every name would be wrong and
-  the selftest fails rather than printing plausible garbage.
-- Independently corroborated by the LIVE run: `PSXPORT_DEBUG=module` shows exactly the three loads
-  (`L5A5LSC`, `LIZMAN`, `VENOM`) with no unload between them that the dump analysis names.
+*The answer is that you cannot reach a state where they do.* The check is not a tool you remember to
+run against a dump; it is enforced on **every** placement, in
+`external/psxport/runtime/recomp/overlay_router.cpp:132-151`:
 
-*Its blind spot, printed on every clean verdict:* a dump is ONE instant. "At most one live" cannot
-rule out a co-residency before or after the dump.
+```cpp
+    // The invariant the base-relative design rests on: no two resident modules overlap. Checked on
+    // every placement, because the alternative is one module's code silently running as another's.
+    const uint32_t lo = base & 0x1FFFFFFFu, hi = lo + size;
+    for (int j = 0; j < R->overlay_count && j < Core::kRecMaxOverlays; j++) {
+      if (j == i || !c->ovBase[j]) continue;
+      const uint32_t jlo = c->ovBase[j] & 0x1FFFFFFFu;
+      const uint32_t jhi = jlo + (R->overlays[j].end - R->overlays[j].base);
+      if (lo < jhi && jlo < hi) {
+        lucent::error("ovload", …);
+        fflush(stderr);
+        abort();
+      }
+    }
+```
 
-*Exit codes:* 0 clean, 1 violation, 2 could not look (no dump / no slot base / file too small).
+The diagnostic it aborts with names both modules and both live ranges, and states the only two
+things that can produce it: *"The game's own allocator cannot produce this — it means the loader
+intercept named the wrong allocation as the module body, or a body was freed without evicting it
+from this registry."*
+
+*Why this is a better instrument than any dump scanner.* A scanner samples ONE instant and its clean
+verdict has to carry "cannot rule out an overlap before or after the dump". This has no sampling
+window at all: `overlay_place()` is the single writer of `Core::ovBase`/`ovDelta` (see
+`runtime/recomp/core.h:114`), so a violating state is unreachable, not merely unobserved. And a
+scanner's silence is ambiguous — the abort's silence is not, because the *absence* of the abort over
+a run is the same evidence as a green check at every load in that run.
+
+*Note the invariant CHANGED, and is not the one a slot-era check would test.* Co-residency itself is
+now **normal and correct** — L5A5LSC, LIZMAN and VENOM are simultaneously live at
+`0x8014A6D0` / `0x801BDA30` / `0x801C6238` on a real boot. Only *overlap* is a fault. A check that
+flags "two modules live at once" would today report a violation on every healthy run.
+
+*Corroborating instrument for the live picture:* `PSXPORT_DEBUG=ovload` logs each placement with its
+name, live range and delta from the link base, and each eviction — so the residency set over time is
+observable without a dump.
+
+*Its blind spot, stated plainly:* the abort branch itself is **not covered by a test**.
+`external/psxport/tests/test_overlay_reloc.cpp` exercises 6 cases (co-resident routing, half-open
+ranges, eviction, reload, per-`Core` isolation, fixed-base/unknown-name refusal) and none of them
+places an overlapping pair, because tripping it calls `abort()` and the harness has no death-test
+facility. So the *routing* around the invariant is proven; the abort's own firing is proven only by
+reading it. Adding a death test is the outstanding work — until then, treat "it would have caught
+it" as reasoning, not measurement.
 
 ---
 
@@ -365,6 +473,20 @@ only ever print OK produced none of that.
 *The reusable lesson, and it is the same one this page keeps teaching:* I diagnosed a uniform-output
 instrument from its OUTPUT FORMAT and stopped there. The cheap check I skipped was "does the input
 file it reads actually exist" — one `os.path.isfile` away.
+
+*Invocation correction (2026-08-05):* use the IN-REPO path, `python3 tools/re_frontier.py`, from the
+repo root. `$CLAUDE_SKILLS` is unset in a plain shell, so the form above collapses to
+`/re-frontier/re_frontier.py` and fails. The `RE_FRONTIER_ROADMAP=docs/re-frontier.md` prefix is
+still required.
+
+*SECOND DEFECT, found 2026-08-05 and it DESTROYS DATA: `re_frontier.py set` silently deletes any
+field not in its schema.* `FIELDS = ["status", "area", "deps", "evidence", "where", "gap", "notes"]`
+(`tools/re_frontier.py:61`); a step is re-serialised from that list on every `set`, so anything else
+is dropped with no warning and no diff the tool shows you. **Measured:** a `set RE-07 status=... gap=...`
+silently removed RE-07's hand-written `- where-2:` line (the per-channel DMA-completion `where`),
+caught only by reading `git diff` afterwards. It has been merged into `where:` and is not lost.
+**So: never add a non-schema field to this file, and always read `git diff` after a `set`.** The
+proper fix is for `set` to preserve unknown fields (or refuse), and it is NOT done.
 
 ---
 
