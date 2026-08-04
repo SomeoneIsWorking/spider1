@@ -24,6 +24,7 @@
 #include "game_iface.h"
 #include "cfg.h"
 #include "memcard.h"   // card_overrides_init
+#include "fntrace.h"   // fntrace_init — PSXPORT_FNTRACE guest-function reach tracing
 #include <stdlib.h>
 
 // ── boot ────────────────────────────────────────────────────────────────────────────────────────
@@ -56,6 +57,10 @@ static void spiderman_registerOverrides(Game* g) {
   // "CHECKING MEMORY CARD" screen has nothing to answer it.
   card_overrides_init(g);
   spiderman_install_diag_overrides(g);
+  // PSXPORT_FNTRACE=<addr>,... — "did control REACH this guest function?". Off unless asked for, and
+  // it MUST be installed last: it claims the override slot, so anything registered after it would
+  // displace it silently and the tracer would report "never called" for a function that runs.
+  fntrace_init();
 }
 
 static void spiderman_renderFadeState(Core*, FadeState* out) {

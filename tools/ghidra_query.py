@@ -69,16 +69,30 @@ def main():
                       "(installed into a table / called through a pointer), not dead code." % len(refs))
 
         elif mode == "func":
-            f = fm.getFunctionContaining(addr)
-            if f is None:
-                print("no function contains %s (data, or not yet defined)" % addr)
-                return 1
-            print("// %s  entry=%s  body=%s" % (f.getName(), f.getEntryPoint(), f.getBody()))
+            # Accepts MANY addresses in one invocation. Ghidra/PyGhidra start-up dominates the cost
+            # of a single query (tens of seconds), so decompiling a subsystem one function per
+            # process was paying that toll a dozen times over. Every address given is decompiled
+            # into the same output; unresolvable ones are reported and counted, never skipped
+            # silently, so a run that decompiles nothing says so and exits non-zero.
             di = DecompInterface()
             di.openProgram(prog)
-            res = di.decompileFunction(f, 120, ConsoleTaskMonitor())
-            print(res.getDecompiledFunction().getC() if res.decompileCompleted()
-                  else "// decompilation failed: %s" % res.getErrorMessage())
+            ok = miss = 0
+            for addr_arg in sys.argv[2:]:
+                a = af.getAddress(addr_arg)
+                f = fm.getFunctionContaining(a)
+                if f is None:
+                    print("// no function contains %s (data, or not yet defined)" % addr_arg)
+                    miss += 1
+                    continue
+                print("// %s  entry=%s  body=%s" % (f.getName(), f.getEntryPoint(), f.getBody()))
+                res = di.decompileFunction(f, 120, ConsoleTaskMonitor())
+                print(res.getDecompiledFunction().getC() if res.decompileCompleted()
+                      else "// decompilation failed: %s" % res.getErrorMessage())
+                ok += 1
+            print("// decompiled %d of %d requested address(es), %d unresolved"
+                  % (ok, ok + miss, miss))
+            if ok == 0:
+                return 1
 
         elif mode == "calls":
             f = fm.getFunctionContaining(addr)
