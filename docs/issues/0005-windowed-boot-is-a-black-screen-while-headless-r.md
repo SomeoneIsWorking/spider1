@@ -192,3 +192,63 @@ have bit 2 set, the classification path is being reached differently than assume
 side is back in scope.
 
 Report the denominator either way — "no audio sectors" means nothing without "of N sectors read".
+
+## 2026-08-05 — RESOLVED (the audio half): the port never drove the SPU mixer
+
+The `COMPILED.XA` hypothesis above is **FALSIFIED**, and so was the premise underneath it. Measured
+with the existing `discdump subhdr` tool against three sector ranges, including a positive control:
+
+| range | sectors read | XA-audio-flagged (submode bit 2) |
+|---|---|---|
+| `CINEMAS/ATVILOGO.STR` (LBA 128304) | 199 | **6** (submode 0x64) |
+| `CINEMAS/LOGO.STR` (LBA 280000) | 199 | **25** |
+| `COMPILED.XA` (LBA 31263) — positive control | 199 | 199 |
+
+The STRs *do* carry interleaved XA audio (one audio sector every ~32, e.g. LBA 128335, 128367). So
+the audio was never in the wrong file.
+
+**The `0 of 66` figure was measured on the wrong player.** `native_fmv.cpp` does not play this
+game's intro at all — boot logs `no boot FMV configured (GameConfig::bootFmv is empty)` and the
+guest's own libstr/MDEC path plays the movies. The audio path for those is `xa_stream.cpp`, armed
+from `cd_override.cpp` on ReadS.
+
+**Root cause: nothing ever advanced the SPU mixer.** `main.cpp:74` calls `spu_audio.init()` and
+`spu_audio.frame()` was called *nowhere in this port*. The mixer is what pulls
+`CDC_GetCDAudioSample`, which is what decodes XA sectors — so the streamer armed at the movie's LBA
+and stopped there without reading one sector. That is not an intro bug: the port had **no audio at
+all**, SPU voices included.
+
+Evidence, from a census added to `XaState` (`pulls` / `sectors`, reported at stop so a silent stream
+says WHICH side failed):
+
+    before:  [xa] STOP @ LBA 128304 — 0 pull(s) from the SPU, 0 audio sector(s) decoded
+    after:   [xa] STOP @ LBA 128816 — 149940 pull(s) from the SPU, 16 audio sector(s) decoded
+    after:   [xa] STOP @ LBA 280552 — 160965 pull(s) from the SPU, 69 audio sector(s) decoded
+
+16 audio sectors over a 512-sector span matches the disc's measured ~3% interleave exactly.
+
+**The fix** (`game/core/sync_native.cpp`): drive `spu_audio.frame()` once per OWED field from
+`vblank_advance`, the port's field clock — the same seam the framework's own native frame loop calls
+"tick + per-vblank audio + present + pace". Per owed field rather than per presented frame: presents
+are capped for catch-up, and throttling audio to that cap drifts sound behind picture under load.
+
+**Two defects fell out of wiring it up, both fixed:**
+
+1. `spu_audio.cpp:176` called the OPTIONAL `audioMixFrame` hook guarded only by `if (game)`. This
+   port binds hooks by name, so unbound hooks are null — the first frame of audio segfaulted at
+   address 0. The framework's own idiom for optional hooks is a null test (`native_boot.cpp:422`).
+   Extracted as `spu_mix_game_audio()` and gated by `tests/test_spu_mix_optional_hook.cpp`
+   (3 cases / 9 checks, shown RED as SIGSEGV before the guard, and it asserts the hook IS still
+   called when a port supplies one).
+2. `PSXPORT_WAV` captured nothing on exactly the runs it exists for. `wavClose` patches the RIFF
+   sizes from an `atexit` hook, but the watchdog ends on SIGINT/SIGTERM with `_exit(130)` and no
+   port here ever returns from its frame loop — so every headless capture was a 0-byte file with
+   the PCM still in the stdio buffer. The header is now patched + flushed about once a second, so
+   the capture is a valid WAV at all times.
+
+**Verification, headless, real disc** (`scratch/wav/intro_after.wav`, 99 s, 17.6 MB): 198 buckets of
+0.5 s, **115 audible** (peak > 64, peaks to 16572), 83 silent. The analyser distinguishes both
+classes within the one file, so "audible" is not an artefact of the measurement.
+
+**NOT closed by me.** The user reports and the user closes: this needs a windowed run where they
+actually hear the intro.

@@ -172,6 +172,12 @@ static uint32_t h_counter(Core* c) {
 // under load; a dropped COUNT would corrupt the guest's own timing arithmetic.
 static constexpr uint32_t kMaxPresentCatchup = 4;
 
+// Audio catch-up bound. Higher than the present cap because a dropped FRAME is invisible and a
+// dropped audio field is an audible gap, and because advancing the mixer is cheap next to a present.
+// Same value and same rationale as the vsync-callback catch-up below (kMaxCallbackCatchup): both are
+// real-time-derived work that must not be silently throttled to the present rate.
+static constexpr uint32_t kMaxAudioCatchup = 16;
+
 static void vblank_advance(Core* c) {
   using clock = std::chrono::steady_clock;
   static const clock::time_point t0 = clock::now();
@@ -211,6 +217,30 @@ static void vblank_advance(Core* c) {
     }
   }
   c->mem_w32(kVblankCount, fields);
+
+  // ---- per-field AUDIO -------------------------------------------------------------------------
+  // The SPU mixer is PULL-driven and something has to pull it. `spu_audio.frame()` advances the SPU
+  // by exactly one video field of clocks, drains the mixed PCM to the sink, and — the part that
+  // matters for CD audio — is the only thing that ever calls CDC_GetCDAudioSample, which is what
+  // decodes XA-ADPCM sectors off the disc into the SPU's CD input.
+  //
+  // This port initialised the sink (main.cpp `spu_audio.init()`) and then never drove it, so the
+  // mixer never advanced a single clock: no SPU voices, and the intro's XA audio stream armed at the
+  // movie's LBA and stopped there without decoding one sector (`PSXPORT_DEBUG=xa` reported
+  // "STOP @ LBA 128304 — 0 pull(s) from the SPU, 0 audio sector(s) decoded"). The framework's own
+  // native frame loop does this as "tick + per-vblank audio + present + pace" (native_boot.cpp);
+  // this game runs the guest's loop instead, so its field clock is the equivalent seam and this is
+  // where the per-vblank half belongs.
+  //
+  // Once per OWED field, not once per PRESENT: audio is a real-time stream, and `present` is capped
+  // for catch-up. Advancing audio by the capped count would run the mixer slower than wall clock and
+  // drift the sound behind the picture under load. Uses the same cap and the same reasoning as the
+  // callback dispatch below.
+  {
+    uint32_t audio_fields = fields - cur;
+    if (audio_fields > kMaxAudioCatchup) audio_fields = kMaxAudioCatchup;
+    for (uint32_t i = 0; i < audio_fields; ++i) c->game->spu_audio.frame();
+  }
 
   // Announce each elapsed field to the guest by invoking the callback it registered. This is the
   // ISR's OTHER job, and the one that was missing: advancing the counter told the guest that time
