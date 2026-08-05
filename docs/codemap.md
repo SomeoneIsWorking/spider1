@@ -101,6 +101,21 @@ Cite the exact form. `CLAIM-Cnnn` in this file means the per-file `Cnnn`.
 ## Current state in one line
 
 The port provisions, recompiles, builds, boots, loads and rotates its 30 runtime code modules,
-renders, and responds to input: **main menu → memory-card check → new game → name entry**, all drawn
-correctly and driven by pad input. It stops on an unmapped read at `0x80800004` when advancing
-further — one address past the mirrored 8 MB window, walking upward off the stack top (RE-16).
+renders, and responds to input. It plays its intro FMVs, draws its front-end correctly (main menu →
+memory-card check → new game → name entry), and **reaches 3D GAMEPLAY**.
+
+**CORRECTED 2026-08-05 — this line previously said the port "stops on an unmapped read at
+`0x80800004` when advancing further" past name entry. It does not.** Driving the front-end with
+pulsed CROSS (`PSXPORT_FORCE_BUTTONS=4000`) runs to present 10000+ over 200 s with no abort, no
+recomp miss and no watchdog trip, through the city-skyline screen and into a third-person 3D scene
+with plausible geometry, camera and HUD. The stale line understated the port by a whole phase, and
+it survived because until this session nothing could show the presented picture — so nobody had
+driven past the front-end and *looked*. Treat the reach as verified; treat what it draws as not:
+
+**WHAT IT DRAWS THERE IS WRONG, and is the top open render defect** — the 3D world is flat/gouraud
+shaded with no texture detail at all: 369 distinct colours in a full-screen 3D frame, where this
+port's own menu has 1048 and its FMV frames 8825–11395. Not a global tint (a blue prop and the brown
+HUD box keep their colours). Proven UPSTREAM of the present stage: the guest-VRAM shot and the
+present shot at the same index are the same picture with an identical colour count. See issue 0007.
+The city-skyline screen (present 4500) additionally shows heavy blocky corruption — separate
+symptom, probably separate cause, also in 0007.
