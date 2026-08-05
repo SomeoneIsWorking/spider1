@@ -95,3 +95,41 @@ CAVEAT ON THE DENOMINATOR, stated rather than glossed: GPU_TRACE samples every 2
 only one of six sampled presents in the tail showed non-zero draw counts. 200 is even, so the sample
 lands on a fixed parity against a 30 Hz draw cadence — the sampling is biased and the true
 per-present distribution is NOT established. Do not read "1 of 6" as a duty cycle.
+
+### Note (2026-08-05)
+FORK SPLIT 2026-08-05: the texture atlas IS uploaded and IS full of real texture data. So "the atlas
+was never uploaded for this scene" is REFUTED, and the remaining cause is ADDRESSING or SAMPLING.
+
+MEASURED. Full CPU-side VRAM dumped during the 3D scene and tiled 64x64, scored by distinct 16-bit
+values (tools/vram_tiles.py, written for this so the analysis stops being re-derived by hand — issue
+0006 did the same thing manually):
+
+    PSXPORT_NOWINDOW=1 PSXPORT_NOAUDIO=1 PSXPORT_FORCE_BUTTONS=4000 \
+    PSXPORT_VRAMDUMP="11900:scratch/raw/vram3d.bin" PSXPORT_WATCHDOG=120 timeout 220 ./run.sh
+    python3 tools/vram_tiles.py scratch/raw/vram3d.bin
+
+    rich tiles (>16 distinct): 60 of 128 scanned
+      x<512  (display half): 0
+      x>=512 (atlas half)  : 60      <- 700..2786 distinct values per tile
+
+WHY THAT SETTLES IT: GpuVkState::present() is handed the CPU-side s_vram as `src` and uploads it as
+BOTH the render target seed and the texture-source snapshot (upload_vram -> s_vram_tex + s_vram_snap,
+which is what render_geom binds as the sampler). So the very buffer whose atlas half is provably rich
+IS the texture source the native raster samples from. The data is there and the sampler can reach it.
+
+Combined with the previous note (969 textured prims per frame ARE submitted and rasterised), the
+cause is now bounded to: the texture PAGE / CLUT coordinates the prims carry, the texture window, or
+the sampling arithmetic in the shader — i.e. the prims are addressing the atlas wrongly, not missing
+it. Still not distinguished between those, and still not to be closed by picking one.
+
+DENOMINATOR AND BLIND SPOT, stated: the display half of that dump reads BLANK (1-2 distinct values
+per tile), and that is EXPECTED, not a finding — with the VK backend on, the composite is built in
+the GPU texture and never written back to CPU s_vram (issue 0006, INST-18). A CPU-side VRAM dump can
+speak about the ATLAS half only. tools/vram_tiles.py prints that caveat itself so the next reader
+cannot mistake the blank half for "the port renders nothing" — which is exactly the false conclusion
+issue 0006 was opened to record.
+
+NEXT MEASUREMENT (not done): compare the texture-page / CLUT coordinates the submitted prims actually
+carry against where the rich atlas tiles physically are. PSXPORT_PRIMDUMP exists (gpu_native.cpp
+prim_dump_close_if_done) and is the likely instrument. If the prims point outside the rich region, it
+is addressing; if they point into it, it is the sampling/CLUT decode.
