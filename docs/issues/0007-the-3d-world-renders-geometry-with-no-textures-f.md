@@ -348,3 +348,63 @@ INSTRUMENT ADDED, and it closes INST-22's gap: PSXPORT_GRAMDUMP="frame:path" dum
 guest RAM at a GPU frame, from the gpu path — so it works on spider1, which never runs the native
 frame loop that PSXPORT_RAMDUMP_FRAME depends on. It found the save buffers still holding heap
 poison at exactly the malloc'd sizes: 0x801E4648 len 34816 (0x8800) and 0x801ECE50 len 6144 (0x1800).
+
+### Note (2026-08-05)
+=============================================================================================
+GP0(0xC0) IMPLEMENTED. The poison is gone from the CLUT strip at every phase sampled, and the
+world is textured. FRAMEWORK CHANGE, not a spider1 one — patch at
+coord/patches/gpu-vram-readback.diff, claim at coord/claims/gpu-vram-readback/.
+=============================================================================================
+
+WHAT WAS ACTUALLY MISSING, both halves. The previous note named GP0(0xC0) but not the drain: psxport
+had TWO dead paths, not one.
+  * `mem.cpp` GPUREAD (0x1F801810 read) was a hard `return 0`.
+  * `gpu_dma2_block`'s `to_gpu == 0` arm advanced its address pointer and did NOTHING else, so a
+    VRAM->CPU DMA "completed", CHCR's busy bit cleared, the guest's DrawSync passed, and the
+    destination buffer kept what it already held. That is the silence.
+
+THE FIX: GP0(0xC0) arms a readback cursor (s_rd*) that mirrors the A0 upload cursor exactly, and both
+drains call ONE `GpuState::gpu_read_word()`. The two parameter words are decoded by a shared
+`vram_xfer_rect()` used by A0 and C0 alike, so the directions cannot drift apart; wrap is `vram()`'s
+existing &1023/&511, matched rather than invented.
+
+WHICH DRAIN THIS GAME USES — settled by ABLATION, run in BOTH directions rather than reasoned about:
+    GPUREAD live, DMA2 drain disabled : strip at present 10032 = 1 distinct, 0x3333 100.0%  (bug back)
+    DMA2 drain live, GPUREAD disabled : strip at present 10032 = 62 distinct, 0x3333 0.0%   (fixed)
+So spider1 drains readbacks EXCLUSIVELY through DMA channel 2. GPUREAD is implemented and covered by
+the hermetic test, but this game never reads it.
+
+NEGATIVE CONTROL, stated because this issue's history is a chain of measurements that could not have
+shown the failure. Same instrument (tools/clut_strip.py, 20480 halfwords scanned, denominator
+printed, wrong-sized dump refused), same headless mode, MY run, on a build with both drains reverted
+to HEAD behaviour:
+    before, present 10000 : 61 distinct, 0x3333 =   0.0%
+    before, present 10032 :  1 distinct, 0x3333 = 100.0%     <- the failing answer
+AFTER, FIVE PHASES sampled because four same-phase dumps once produced a confident false conclusion
+here (INST-24):
+    10000: 62 distinct | 10009: 62 | 10016: 62 | 10032: 3246 | 10048: 62   — 0.0% poison at ALL FIVE
+The phase that was 100% poison is the one that now reads 3246 distinct values. CAVEAT ON THAT
+DENOMINATOR: four of the five give an IDENTICAL histogram, because after the fix the auto-drive parks
+in the pause menu and the strip stops cycling — they are not five independent samples of the old
+alternation. The load-bearing comparison is the SAME INDEX: present 10032, 100.0% poison before,
+0.0% after.
+
+THE VK WRITE-BACK LIMITATION IS REAL AND DOES NOT BITE HERE, and that is a measurement, not an
+assumption. s_vram is the readback's source of truth; under the VK backend the RENDERED picture lives
+in the GPU texture and is never written back (issue 0006 / INST-18), so a readback of a natively
+rasterised region would return stale data. The implementation counts exactly that case (s_c0_stale,
+reported on the per-frame texwatch line). One run: 28946 readbacks, 0 of them overlapping the display
+area. Every readback this game makes is of guest-uploaded CLUT/texture content, so all 28946 are
+exact. If a future scene reads back the framebuffer, the counter says so out loud instead of serving
+a plausible wrong answer.
+
+THE PICTURE: present shot 960x720 at 10000, 372 distinct colours before -> 528 after. The before
+frame is this issue's pale-green untextured world; the after frame has brick, windows, water, HUD
+glyphs and Spider-Man in red/blue. NOT A CLEAN A/B, said plainly: once the game gets its palettes
+back the CROSS-pulse auto-drive walks differently, so the after frame is a different scene (a pause
+overlay over gameplay) rather than the same one re-rendered. NOT VERIFIED: an unpaused 3D gameplay
+frame after the fix — the auto-drive parked in the pause menu across 10000..11600.
+
+VERDICT IS STILL THE USER'S. The palette-poison mechanism this issue root-caused is fixed and
+measured gone; whether the 3D world now LOOKS right in a window is not something these numbers
+settle.

@@ -74,9 +74,13 @@ Cite the exact form. `CLAIM-Cnnn` in this file means the per-file `Cnnn`.
 - **The RE'd guest addresses** → `game/core/game_config.cpp`, each cited with its instruction.
 - **Why a value is zero** → `docs/re-frontier.md`, by step. Query it with
   `RE_FRONTIER_ROADMAP=docs/re-frontier.md python3 tools/re_frontier.py next` (run from the repo
-  root) — **the env var is required**, or the tool silently validates nothing (INST-14). Do not use
-  a `$CLAUDE_SKILLS`-relative path: that variable is unset in a plain shell, so the command
-  collapses to `/re-frontier/re_frontier.py` and fails.
+  root) — **the env var is required**, or the tool points at a path that does not exist (INST-14;
+  it now exits 1 saying it checked NOTHING instead of printing OK). Do not use a
+  `$CLAUDE_SKILLS`-relative path: that variable is unset in a plain shell, so the command
+  collapses to `/re-frontier/re_frontier.py` and fails. **`set`/`add` are safe on a prose-bearing
+  roadmap again** (issue 0003): they edit only the field lines named and refuse the write, naming
+  what would be lost, if anything else would go missing. Guarded by
+  `pytest tools/test_re_frontier.py` / `python3 tools/re_frontier.py selftest`.
 - **What is proven and whether it still holds** → `docs/info/claims.md`.
 - **Whether a measurement tool can be trusted** → `docs/info/instruments.md`.
 - **A bug, a ruled-out cause, or a framework wart** → `docs/issues/`.
@@ -88,6 +92,9 @@ Cite the exact form. `CLAIM-Cnnn` in this file means the per-file `Cnnn`.
   questions. Confusing them cost this project a whole session (issue 0005), so pick deliberately:
   - `PSXPORT_SHOT_AT=<present>,...` → `scratch/screenshots/shot_<n>.ppm`. **Guest VRAM** at that
     present: what the game DREW. Blind to the entire composite (INST-18).
+  - `python3 tools/present_geometry.py <shot.ppm>` — **is the picture the right SHAPE?** Every other
+    check here is invariant under a stretch (issue 0008 hid behind that for a whole session), so
+    this is the only one that can answer it. `--expect 16:9` when the widescreen mod is on.
   - `PSXPORT_PRESENT_SHOT_AT=<present>,...` → `scratch/screenshots/present_<n>.ppm`. **The presented
     picture**: after letterbox, fade, native-vs-ires selection and 24bpp decode — what a player
     SEES. Works in both legs (the headless sink defaults to the window's 960x720; override with

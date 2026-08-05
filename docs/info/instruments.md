@@ -183,6 +183,53 @@ failure class issue 0005 turned out to be. Not built yet.
 
 ---
 
+## INST-25 — `tools/present_geometry.py` — **the SHAPE check, built because every other instrument here is blind to shape**
+
+*Why it exists, and it is the most important sentence in this entry:* issue 0008 (the picture
+presented 1.6x too wide) survived a full session of numeric checking because **every instrument in
+this repo is INVARIANT UNDER IT**. A uniform rescale changes no non-black coverage, no
+distinct-colour count, no mean brightness, no per-tile richness. `ppm_look.py` reported
+"real frame, 62.0% non-black, 528 colours" on a stretched frame and every number was correct. The
+bug was found by the USER asking "are these stretched wide?" — no check here could have found it,
+and none of them was wrong. **The gap was a missing DIMENSION, not a weak instrument.**
+
+*What it measures:* the content band (non-black bounding box) inside the sink, its aspect against an
+expected one, the stretch factor, and the bars — explicitly, because "big black bars" is what this
+bug looks like to a human and bars read as deliberate letterboxing. That misreading is exactly how
+the defect was dismissed repeatedly in one day.
+
+    python3 tools/present_geometry.py <shot.ppm> [--expect 16:9] [--tol 0.02]
+
+*Validated in FOUR directions, not one:*
+
+| input | result |
+|---|---|
+| the real defect frame | `STRETCHED 1.600x WIDE`, rc=1 |
+| synthetic correct 4:3 (fills the sink) | `OK`, rc=0, `bars none` |
+| synthetic 16:9 band, default expectation | `STRETCHED 1.333x` |
+| same band, `--expect 16:9` | `OK` |
+| entirely black frame | **REFUSES**, rc=2 |
+
+That last row is the load-bearing one: a 0x0 band would compare unequal to any expected aspect and
+print a confident "STRETCHED" for a frame containing no picture at all.
+
+*Do NOT trust it for:* whether the picture's CONTENT is undistorted — it measures the frame's
+geometry, not the geometry of things drawn in it, and cannot tell a correct 4:3 picture from a
+square picture of a square thing. It also measures the NON-BLACK band, not the intended picture
+rectangle, so a fade or a genuinely dark scene can measure smaller than the real picture; it prints
+a CAUTION when the band covers under 5% of the sink rather than reporting a confident aspect.
+
+*A defect found in the tool in its first minute, recorded because it is this file's whole subject:*
+the first argument parser filtered on a leading `--`, leaving the VALUE of `--expect` ("16:9") in the
+positional list to be opened as a PPM. It crashed loudly, which is the only reason it was caught
+immediately — an arg parser that mistakes a flag's value for an input is otherwise exactly how a
+tool measures the wrong file and reports it with confidence. Unknown options now refuse (rc=2)
+instead of being silently ignored.
+
+*See:* issue 0008.
+
+---
+
 ## INST-24 — VRAM/RAM DUMPS AS EVIDENCE ABOUT A PERIODIC SIGNAL — **four "independent" dumps agreed, and all four were the same systematic error**
 
 *This is the most expensive instrument lesson in the file, because nothing about it looked like an
@@ -709,6 +756,31 @@ silently removed RE-07's hand-written `- where-2:` line (the per-channel DMA-com
 caught only by reading `git diff` afterwards. It has been merged into `where:` and is not lost.
 **So: never add a non-schema field to this file, and always read `git diff` after a `set`.** The
 proper fix is for `set` to preserve unknown fields (or refuse), and it is NOT done.
+
+*THAT SECOND DEFECT IS FIXED 2026-08-05 — and the paragraph above is now out of date on purpose,
+kept because it names the failure.* The cause was bigger than the field schema: `save()`
+REGENERATED the whole file from the parsed model, so unknown fields, the file's own header and
+1846 lines of prose all died the same death (issue 0003). `tools/re_frontier.py` now edits the
+lines it means to change and copies every other byte through, and every write is gated on a
+preservation check that refuses (exit 2, naming the lost lines, writing nothing) if anything else
+would go missing. **You may again add a non-schema field** — `show` reports it as
+`(extra field this tool does not parse, kept verbatim)`.
+
+*Validated against BOTH classes, which is the bar this page keeps setting.* Same harness, same
+corpus (the 1979-line prose roadmap, `git show 74af0c6:docs/re-frontier.md`): against the OLD tool
+`re_frontier.py selftest --tool <old> --corpus …` reports **1562 of 1641 non-blank lines DROPPED**
+and exits 1; against the new one, **0 lost** and exit 0. The preservation gate itself was proven to
+fire by sabotaging the editor. Run it any time: `python3 tools/re_frontier.py selftest`, or
+`pytest tools/test_re_frontier.py` (2 tests: the embedded prose fixture and this repo's real
+roadmap).
+
+*A THIRD defect, found the same day: the INST-14 fix above never reached THIS repo's copy.* The
+entry says the early-return was deleted "in the global skill"; `tools/re_frontier.py check` on a
+missing roadmap still printed "re-frontier OK" and exited 0 as of 2026-08-05 — the exact
+green-over-nothing this entry exists for, alive in the copy the CLAUDE.md tells you to run. It now
+exits 1 with "does not exist — checked NOTHING", `add` refuses to create a roadmap at a mistyped
+path, and every OK line carries its denominator (`23 entr(ies) parsed from docs/re-frontier.md
+(218 lines)`). **Lesson: a fix recorded against a tool is not a fix of every copy of that tool.**
 
 ---
 
