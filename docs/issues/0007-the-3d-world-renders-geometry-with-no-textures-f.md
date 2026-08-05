@@ -239,3 +239,62 @@ TWO INSTRUMENTS CAUGHT LYING ON THE WAY, both worth more than the progress above
     field an RE session would act on. Recorded as INST-23.
     (This is why the RE-first rule matters: hand-walking from that pc would have produced a fifth
     wrong attribution of the kind tools/ghidra_query.py's own header documents.)
+
+### Note (2026-08-05)
+=============================================================================================
+CORRECTION + ROOT CAUSE, 2026-08-05. MY EARLIER HEADLINE CLAIM WAS WRONG, AND THE WAY IT WAS
+WRONG IS THE MOST REUSABLE LESSON IN THIS ISSUE.
+=============================================================================================
+
+WHAT I WROTE: "that rectangle is 100.0% the single value 0x3333, confirmed on FOUR INDEPENDENT
+VRAM dumps". Every dump really did read 100.0%. The generalisation was still false.
+
+THE STRIP ALTERNATES. It is BIMODAL with a period of roughly 64 presents: either 61 distinct
+values (REAL palettes) or exactly 1 (100% 0x3333). Never anything between. Verified by me across
+every dump on disk:
+
+    vram_11600 / 11604 / 11900 / alt10000 / pal2020      61 distinct, 0x3333 =   0.0%
+    vram3d / 3d_a / 3d10000 / coordlens / lens / lens9800
+      / menu3900 / pal9612 / pay / alt10032                1 distinct, 0x3333 = 100.0%
+
+alt10000 vs alt10032 — thirty-two presents apart, same run — are the two halves of the cycle.
+
+MY FOUR DUMPS WERE NOT INDEPENDENT IN THE WAY THAT MATTERED. They were independent in COUNT and
+identical in PHASE: all four were taken at present indices that happen to land in the wiped half.
+Four confirmations of the same systematic error read exactly like four confirmations of a fact.
+**When sampling a signal, independence means independence in PHASE, not in number.** Recorded as
+instruments.md INST-24.
+
+THE ACTUAL ROOT CAUSE — A MISSING FRAMEWORK FEATURE, not a guest bug:
+
+  **psxport does not implement GP0(0xC0), VRAM->CPU readback.** Before today it was recognised only
+  as a 3-word FIFO header (gpu_native.cpp:1260) and then fell through to gp0_exec() and was silently
+  ignored — no pixels returned, no diagnostic.
+
+  The guest performs a SAVE / modify / RESTORE round-trip over the palette strip (the RE lens names
+  0x80069D44 and 0x8006A154, a save-greyscale-restore). The SAVE half is GP0(0xC0): read the live
+  palettes out of VRAM into a RAM buffer. Because the port never returns any pixels, that buffer is
+  left holding whatever it already held — the guest allocator's 0x33333333 poison fill, which is
+  where the 0x33 comes from and why no palette load appeared to be missing. The RESTORE half is
+  GP0(0xA0), which faithfully uploads that poison back over the whole strip.
+
+  So: the palette load RUNS, it LANDS EXACTLY WHERE THE PRIMS POINT, and it is then overwritten by
+  the port's own unimplemented readback. Both branches of the fork I posed ("never runs" vs "lands
+  elsewhere") were wrong, and three lenses said so independently.
+
+CONFIRMED IN CODE BY ME: `grep -rn 'StoreImage' runtime/recomp/` returns nothing, and the 0xC0 arm
+of the GP0 dispatcher did not exist at HEAD (`git show HEAD:runtime/recomp/gpu_native.cpp` has
+op==0xC0 only in the FIFO-length table). The handler now present in the working tree — which reports
+every readback with its rect and destination address, so that silence is evidence of absence — was
+added during this investigation and is NOT yet committed to psxport.
+
+WHY THIS ALSO EXPLAINS EVERY EARLIER OBSERVATION:
+  * the strip being poison in every dump we ever took — sampling phase, above;
+  * the guest "filling" the buffer with 0x33333333 at frame 3 — that is the ALLOCATOR's poison in a
+    buffer the guest expects the GPU to fill, not a placeholder the guest wrote as data;
+  * why the textures are rich and correctly addressed — nothing was ever wrong with them;
+  * why untextured prims keep correct colour — they never sample a CLUT.
+
+NOT YET DONE: implementing GP0(0xC0). That is the fix, it is a framework change, and it is unwritten.
+The blast radius is wider than this issue — ANY guest that saves and restores a VRAM region is
+affected on ALL THREE ports, and the failure is silent by construction.

@@ -183,6 +183,43 @@ failure class issue 0005 turned out to be. Not built yet.
 
 ---
 
+## INST-24 — VRAM/RAM DUMPS AS EVIDENCE ABOUT A PERIODIC SIGNAL — **four "independent" dumps agreed, and all four were the same systematic error**
+
+*This is the most expensive instrument lesson in the file, because nothing about it looked like an
+instrument failure.* Issue 0007's headline read: "the CLUT strip is 100.0% the single value 0x3333,
+confirmed on FOUR INDEPENDENT VRAM DUMPS". Every dump genuinely read 100.0%. The conclusion was
+still false.
+
+The strip is **bimodal with a period of ~64 presents** — either 61 distinct values (real palettes)
+or exactly 1 (0x3333), never anything between. Measured across every dump on disk:
+
+    11600 / 11604 / 11900 / alt10000 / pal2020            61 distinct,   0.0% 0x3333
+    3d / 3d_a / 3d10000 / coordlens / lens / lens9800
+      / menu3900 / pal9612 / pay / alt10032                1 distinct, 100.0% 0x3333
+
+`alt10000` and `alt10032` are thirty-two presents apart in one run — the two halves of the cycle.
+
+*The defect in the reasoning, stated so it generalises:* the four dumps were independent in COUNT
+and identical in PHASE. They were taken at present indices chosen for other reasons (a scene of
+interest, a round number), and those indices all happened to land in the wiped half. **Repetition
+only buys independence if the repeats differ in the dimension that matters.** For a periodic signal
+that dimension is phase, and none of the four varied it.
+
+*How to not repeat it:* when a dump-based claim is about state that could be REBUILT PER FRAME —
+anything in VRAM, any buffer the guest re-uploads — sample at several phases before generalising.
+Two dumps a half-period apart would have caught this instantly; so would one `PSXPORT_TEXWATCH` run,
+which shows the writes rather than a single instant (and is what finally did).
+
+*Corollary, and the reason this sat undetected through a whole investigation:* a single-instant
+instrument cannot distinguish "this value is always here" from "this value is here right now". Its
+clean verdict has to carry "cannot rule out a different value before or after the dump" — the same
+caveat `docs/info/instruments.md` already records for scanners under INST-13's entry.
+
+*See:* issue 0007. *Cost:* an entire investigation branch chasing a missing palette load that was
+never missing.
+
+---
+
 ## INST-22 — `PSXPORT_RAMDUMP_FRAME` — **USELESS ON spider1, AND SILENT ABOUT IT**
 
 *What it claims:* dump 2 MB of guest RAM mid-run at frame N.

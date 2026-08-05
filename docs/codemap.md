@@ -112,17 +112,19 @@ with plausible geometry, camera and HUD. The stale line understated the port by 
 it survived because until this session nothing could show the presented picture — so nobody had
 driven past the front-end and *looked*. Treat the reach as verified; treat what it draws as not:
 
-**WHAT IT DRAWS THERE IS WRONG, and it is ROOT-CAUSED (issue 0007): the palettes are empty, not the
-textures.** Every CLUT the 3D scene uses is the constant `0x3333` = RGB(152,200,96), pale
-yellow-green; all 1765 textured prims in a 6-frame window are CLUT-indexed (0 direct-colour) and all
-carry `raw=0` (modulate), so every textured pixel is `vertex_colour x pale-green` — a smooth gouraud
-gradient with no detail, 369 distinct colours in the frame. The 358 untextured prims are unaffected,
-which is why a blue prop and the brown HUD box keep correct colour. Texture PAGES are rich and
-correctly addressed (up to 11027 distinct words in one prim's uv box); the texture window is
-irrelevant (913 prims carry a zero window and are equally flat); and an independent decode sharing
-no code with the shader reproduces the same result, so the sampling arithmetic is faithful.
-**The fault is UPSTREAM OF THE GPU — an asset/palette LOAD problem. Nothing in `gpu_native.cpp`,
-`gpu_vk.cpp` or the shaders needs to change.** The guest re-uploads the whole CLUT strip every frame
-from guest RAM that is already `0x33`-filled. Lead, not yet chased: one CLUT upload descriptor reads
-`src=0x801FFD20` for 34816 bytes, ending past the 2 MB RAM end. The city-skyline screen (present
-4500) additionally shows heavy blocky corruption — separate symptom, also in 0007.
+**WHAT IT DRAWS THERE IS WRONG, and it is ROOT-CAUSED to a MISSING FRAMEWORK FEATURE (issue 0007):
+`psxport` does not implement `GP0(0xC0)`, VRAM→CPU readback.** The guest saves the palette strip out
+of VRAM, modifies it, and restores it. The save is `GP0(0xC0)`, which the port silently ignored — no
+pixels returned — so the guest's destination buffer keeps its allocator poison (`0x33333333`), and
+the restore uploads that poison back over the live palettes. Every textured prim is CLUT-indexed and
+`raw=0` (modulate), so a poisoned strip makes every textured pixel `vertex_colour x RGB(152,200,96)`
+— smooth gouraud, no detail. The 358 untextured prims never sample a CLUT, which is why a blue prop
+and the brown HUD box keep correct colour. Textures were never at fault: pages are rich and
+correctly addressed, the texture window is irrelevant, and an independent decode reproduces the
+port's own result.
+**The strip ALTERNATES real/poison with a ~64-present period** — a whole investigation branch was
+spent hunting a "missing palette load" that was never missing, because four VRAM dumps taken at
+different times all landed in the wiped half of that cycle (see INST-24: independence in count is
+not independence in phase). **Fix is unwritten and its blast radius is all three ports** — any guest
+that saves and restores a VRAM region is affected, silently. The city-skyline screen (present 4500)
+additionally shows heavy blocky corruption — separate symptom, also in 0007.
