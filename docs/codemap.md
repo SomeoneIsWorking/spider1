@@ -112,10 +112,17 @@ with plausible geometry, camera and HUD. The stale line understated the port by 
 it survived because until this session nothing could show the presented picture — so nobody had
 driven past the front-end and *looked*. Treat the reach as verified; treat what it draws as not:
 
-**WHAT IT DRAWS THERE IS WRONG, and is the top open render defect** — the 3D world is flat/gouraud
-shaded with no texture detail at all: 369 distinct colours in a full-screen 3D frame, where this
-port's own menu has 1048 and its FMV frames 8825–11395. Not a global tint (a blue prop and the brown
-HUD box keep their colours). Proven UPSTREAM of the present stage: the guest-VRAM shot and the
-present shot at the same index are the same picture with an identical colour count. See issue 0007.
-The city-skyline screen (present 4500) additionally shows heavy blocky corruption — separate
-symptom, probably separate cause, also in 0007.
+**WHAT IT DRAWS THERE IS WRONG, and it is ROOT-CAUSED (issue 0007): the palettes are empty, not the
+textures.** Every CLUT the 3D scene uses is the constant `0x3333` = RGB(152,200,96), pale
+yellow-green; all 1765 textured prims in a 6-frame window are CLUT-indexed (0 direct-colour) and all
+carry `raw=0` (modulate), so every textured pixel is `vertex_colour x pale-green` — a smooth gouraud
+gradient with no detail, 369 distinct colours in the frame. The 358 untextured prims are unaffected,
+which is why a blue prop and the brown HUD box keep correct colour. Texture PAGES are rich and
+correctly addressed (up to 11027 distinct words in one prim's uv box); the texture window is
+irrelevant (913 prims carry a zero window and are equally flat); and an independent decode sharing
+no code with the shader reproduces the same result, so the sampling arithmetic is faithful.
+**The fault is UPSTREAM OF THE GPU — an asset/palette LOAD problem. Nothing in `gpu_native.cpp`,
+`gpu_vk.cpp` or the shaders needs to change.** The guest re-uploads the whole CLUT strip every frame
+from guest RAM that is already `0x33`-filled. Lead, not yet chased: one CLUT upload descriptor reads
+`src=0x801FFD20` for 34816 bytes, ending past the 2 MB RAM end. The city-skyline screen (present
+4500) additionally shows heavy blocky corruption — separate symptom, also in 0007.

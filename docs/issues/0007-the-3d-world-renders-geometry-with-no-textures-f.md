@@ -133,3 +133,68 @@ NEXT MEASUREMENT (not done): compare the texture-page / CLUT coordinates the sub
 carry against where the rich atlas tiles physically are. PSXPORT_PRIMDUMP exists (gpu_native.cpp
 prim_dump_close_if_done) and is the likely instrument. If the prims point outside the rich region, it
 is addressing; if they point into it, it is the sampling/CLUT decode.
+
+### Note (2026-08-05)
+ROOT CAUSE FOUND 2026-08-05. The textures are fine. THE PALETTES ARE NOT: every CLUT the scene uses
+is the constant 0x3333, and 0x3333 in PSX 1555 is RGB(152,200,96) — pale yellow-green. That single
+value IS the symptom.
+
+    python3 -c "v=0x3333; print((v&31)<<3, ((v>>5)&31)<<3, ((v>>10)&31)<<3)"   ->  152 200 96
+
+THE CHAIN, each link measured:
+ 1. ALL 1765 textured prims in a 6-frame window are CLUT-INDEXED — 1230 4bpp, 535 8bpp, ZERO
+    15bpp-direct. So every textured surface's colour comes through a palette lookup, with no
+    direct-colour path to mask the fault.
+ 2. ALL 1765 point their CLUT into VRAM x=512..767, y=0..79.
+ 3. That rectangle is 100.0% the single value 0x3333. Independently confirmed on FOUR separate VRAM
+    dumps (three by an agent, one by me: 20480/20480 halfwords, 1 distinct value). 0x3333 occupies
+    21919 of 524288 VRAM words (4.2%) and is confined to exactly that rectangle.
+ 4. ALL 1765 prims carry raw=0, i.e. MODULATE. So the shader computes
+    vertex_colour x RGB(152,200,96) for every textured pixel in the scene — a smooth gouraud
+    gradient tinted pale green, with no texture detail. That is precisely the reported picture, and
+    it is why the frame holds only 369 distinct colours.
+ 5. AND IT EXPLAINS THE ANOMALY THAT DID NOT FIT ANY EARLIER STORY: the blue prop and the brown HUD
+    box keep correct colour because they are among the 358 UNTEXTURED prims in the same window.
+    Untextured prims never touch a CLUT, so they are the only things on screen unaffected.
+
+WHY THE ADDRESSING WAS NEVER THE PROBLEM (all three original candidates are now dead):
+ (A) tpage/CLUT coords — 0 of 1765 prims have texpage x<512; their addressed texels are RICH (up to
+     11027 distinct words in one prim's uv box; 1543/1765 address >16). The coordinates land on real
+     texture data AND on the strip the guest itself re-uploads. They are correct.
+ (B) texture window — 913 of 1765 prims carry a ZERO window (no mask, no offset) and are just as
+     flat as the 852 that carry a real one. A pass-through window cannot cause a defect.
+ (C) sampling/CLUT-decode arithmetic — an INDEPENDENT Python decode sharing no code with
+     tritex.frag, fed the same prims and the same VRAM, reproduces the same impoverished result
+     (30 distinct colours over 2.69M texels sampled). The port's arithmetic is faithfully decoding
+     what its VRAM says. Separately, a static read found the 4bpp/8bpp unpack and the window formula
+     character-identical to the nocash spec, and NO vertex-colour fallback: tritex.frag does
+     `if (texel == 0u) discard;`.
+
+DECISIVE POSITIVE CONTROL, which is what makes this a root cause and not a correlation: feeding the
+SAME 597-prim set through the SAME decode against a VRAM dump whose CLUT strip holds REAL palettes
+yields median 6 / max 11 distinct texels per prim and only 14.6% flat, versus 597/597 flat on the
+defect dump. Same coordinates, same code, different palette data, different answer.
+
+WHO WRITES 0x3333 — THE GUEST DOES, from guest RAM that is already 0x33-filled.
+PSXPORT_TEXWATCH="512,0,768,80" (18923 hits in an agent's run, 29419 in mine) shows the guest
+re-uploading the whole CLUT strip every drawing frame via GP0(0xA0), and the SOURCE BYTES are
+already wrong in RAM:
+    [texwatch] f133 A0 dest=(640,0) 16x1 src=0x801461A4 srcbytes: 33 44 44 44 44 33 33 33 00 33 33 33
+    [texwatch] f15427 A0 dest=(512,0) 256x12 src=0x801E4060 srcbytes: 33 33 33 33 33 33 33 33 ...
+No FILL and no 0x80 VRAM->VRAM copy touches the strip — and that negative is now worth something,
+because TEXWATCH previously watched only A0 and 80copy and was BLIND to both GP0(0x02) fills and the
+native upload path. Those two coverage holes were closed before this negative was taken; without
+that, "nothing else wrote here" would have been a confident silent lie.
+
+SO THE FAULT IS UPSTREAM OF THE GPU ENTIRELY — it is an asset/palette LOAD problem, not a renderer
+problem. The renderer is faithfully drawing the data it was given. Nothing in gpu_native.cpp,
+gpu_vk.cpp or the shaders needs to change for this.
+
+STRONGEST LEAD FOR THAT UPSTREAM BUG, observed but NOT chased: one CLUT upload descriptor reads
+src=0x801FFD20 for 256x68 halfwords = 34816 bytes, ending at 0x80208520 — PAST THE 2 MB RAM END
+(core.h: uint8_t ram[0x200000], i.e. valid through 0x801FFFFF). That upload cannot be reading a
+valid source from where it points. Whether the descriptor is wrong, or the palette DMA/decompression
+that should have filled that buffer never ran, is the next question. Start there.
+
+NOT FIXED, NOT CLOSED. This is a root-cause identification backed by measurement; the fix is
+upstream and unwritten, and per PROTOCOL the user closes the bug, not our own numbers.
