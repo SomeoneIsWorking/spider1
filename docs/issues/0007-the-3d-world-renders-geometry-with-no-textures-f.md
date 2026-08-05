@@ -298,3 +298,53 @@ WHY THIS ALSO EXPLAINS EVERY EARLIER OBSERVATION:
 NOT YET DONE: implementing GP0(0xC0). That is the fix, it is a framework change, and it is unwritten.
 The blast radius is wider than this issue — ANY guest that saves and restores a VRAM region is
 affected on ALL THREE ports, and the failure is silent by construction.
+
+### Note (2026-08-05)
+FULLER PICTURE, 2026-08-05 (second workflow). Three corrections/extensions to the entry above, one of
+which could otherwise produce a FALSE "fixed".
+
+1. IT IS NOT ONE MISSING PATH, IT IS THREE. All verified in code by me:
+     * GP0(0xC0)  — length-parsed as a 3-word header, then dropped. No pixels produced.
+     * DMA2 device->RAM — gpu_native.cpp:2075, the loop body is
+         for (i..count) { if (to_gpu) { ...gpu_gp0... } addr += 4; }
+       so with to_gpu==0 it advances the address and writes NOTHING to guest RAM.
+     * GPUREAD  — mem.cpp:487, `if (p == 0x1F801810) return 0;   // GPUREAD (VRAM-store path: minimal)`
+   A fix that implements only GP0(0xC0) leaves two silent holes. Whichever path this game uses,
+   all three should end up honest — either implemented, or refusing out loud.
+
+2. THE GUEST CODE IS IDENTIFIED FROM THE BINARY'S OWN STRINGS, which is the strongest form of
+   identification available (spider1/CLAUDE.md: the most useful ID in this port so far came from a
+   diagnostic string the binary emits, not from pattern-matching control flow):
+     FUN_80081C50 -> FUN_80081a0c(s_LoadImage_80095e4c, ...)   == LoadImage
+     FUN_80081CB0 -> FUN_80081a0c(s_StoreImage_80095e58, ...)  == StoreImage
+     FUN_80069D44 == the SAVE + luminance-convert half (mallocs 0x8800 and 0x1800 — exactly the
+                     256x68x2 and 256x12x2 upload chunk sizes — then per row: StoreImage(256x1) ->
+                     convert 256 entries in place -> LoadImage(row))
+     FUN_8006A154 == the RESTORE half (LoadImage 256x68, LoadImage 256x12, free both)
+   Host backtrace confirms the live chain (guest pc is fiction per INST-23; the HOST stack is not):
+     gpu_gp0 <- gen_func_80082EF4 <- gen_func_800834C4 <- gen_func_80081C50 (LoadImage)
+             <- gen_func_8006A154 <- ... <- gen_func_8002C354 (guest main)
+   MEASURED VOLUME: 29760 GP0(0xC0) readbacks in one run, 29520 of them overlapping the CLUT strip,
+   at rects (512,12) 256x68, (512,0) 256x12, and (512,y) 256x1 for every y in 0..79. The counter is
+   printed every 1000 frames EVEN WHEN ZERO, so silence would have been evidence.
+
+3. **THE CAVEAT THAT MATTERS MOST — DO NOT EXPECT COLOUR BACK, AND DO NOT CLAIM IT AS THE GATE.**
+   This is a GREYSCALE FILTER: the guest deliberately reads the palette page, luminance-converts it,
+   and writes it back. In the NON-poison half of the cycle every value in the strip is already
+   greyscale in 1555 (r==g==b): 0x0421, 0x8421, 0xFBDE(30,30,30), 0x7BDE, 0x14A5, 0x8C63.
+   So implementing the readback correctly should make the world properly GREY, not colourful.
+   The level's TRUE colour palettes DO load correctly much earlier (f133-f135, e.g.
+   dest=(512,13) 256x1 distinct=8+: 9000 800A AC00 BC00), and the filter overwrites them.
+   THE REMAINING QUESTION, now the top open one: WHY is a greyscale filter running during ordinary
+   gameplay at all? Candidates, none established: a pause/menu effect stuck on; a damage or
+   cutscene flash whose exit condition never fires; a game mode the port lands in by accident; or a
+   filter that is SUPPOSED to run and whose result the game later blends. Do not implement the
+   readback and declare the picture fixed — verify what the filter is FOR first.
+   (A further tell that the current "rich" phase is itself corrupt, not merely grey: the per-row
+   distinct count decays monotonically down the strip — y0:46, y1:44, y2:42 ... y19:11 — the
+   signature of a stack buffer being re-converted rather than a row genuinely read back from VRAM.)
+
+INSTRUMENT ADDED, and it closes INST-22's gap: PSXPORT_GRAMDUMP="frame:path" dumps the full 2 MB of
+guest RAM at a GPU frame, from the gpu path — so it works on spider1, which never runs the native
+frame loop that PSXPORT_RAMDUMP_FRAME depends on. It found the save buffers still holding heap
+poison at exactly the malloc'd sizes: 0x801E4648 len 34816 (0x8800) and 0x801ECE50 len 6144 (0x1800).
