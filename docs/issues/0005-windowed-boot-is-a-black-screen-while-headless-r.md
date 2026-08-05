@@ -252,3 +252,32 @@ classes within the one file, so "audible" is not an artefact of the measurement.
 
 **NOT closed by me.** The user reports and the user closes: this needs a windowed run where they
 actually hear the intro.
+
+## 2026-08-05 — A/V sync measured, root-caused and closed (headless)
+
+With audio finally being produced, the open question was whether it stays in sync. It did not, and
+the two read heads make that measurable without listening to anything: the XA audio head is paced by
+real time (the SPU consumes 735 frames per video field off the field clock), so how far the guest's
+DATA head runs ahead of it over the same file IS the sync error.
+
+| movie | video head | audio head | ratio |
+|---|---|---|---|
+| ATVILOGO.STR before | 2040 sectors | 512 | **3.98x** |
+| LOGO.STR before | 2190 sectors | 552 | **3.97x** |
+| ATVILOGO.STR after | 2040 sectors | 2048 | **1.00x** |
+| LOGO.STR after | 2190 sectors | 2200 | **1.00x** |
+
+**Root cause:** `Cd::pumpStream` had no rate limit — it delivered a sector every time `StGetNext`
+found none ready, so the movie ran as fast as the host could walk the file. Fixed in psxport
+`fdaf9b0d` by pacing delivery at the drive's real rate (75 sectors/s per speed multiple; Setmode bit
+0x80 = double speed, and the guest programs 0xE0). Not a tuned constant.
+
+Corroborated three independent ways: the head ratio above; audio sectors decoded rising 16 -> 64 on
+ATVILOGO (~3% interleave of 2040 = 61 expected) and 69 -> 275 on LOGO (~12.5% of 2190 = 274); and
+the movie's duration, now 600495 SPU pulls = 13.6 s against the 14.1 s the hardware rate predicts
+for its 2112 sectors, versus ~3.4 s before.
+
+Boot still reaches menu mode past both movies, so the slower (correct) stream does not wedge it.
+
+**Still not closed by me.** Ratio 1.00 says the heads traverse the file together; it does not prove
+the sound is aligned to the picture at the sample level, and no one has listened.
