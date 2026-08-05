@@ -99,9 +99,42 @@ as a black frame. And every successful capture carries its non-black count AND i
 the same line, unconditionally — an all-black present is a real answer that must stay
 distinguishable from a capture that never ran.
 
-*Trust it for:* what the composite hands to the sink — whether the game has a picture, whether the
-letterbox/fade/24bpp path is right, and comparing the two legs pixel-for-pixel (the headless sink
-defaults to the window's own 960x720 precisely so that comparison needs no arithmetic).
+*CORRECTION, same day, and the reason this entry is worth re-reading rather than trusting:* when
+first written, the paragraph above was FALSE in its most important case. `image_write_rgb24` was
+`void` with a bare `if (fopen)`, and nothing in the framework creates `scratch/screenshots/` — so
+run from any cwd lacking that directory, the instrument logged
+`wrote scratch/screenshots/present_200.ppm ... non-black 11.20%` and produced **no file at all**.
+Measured: 2 armed captures, 2 success lines, 0 files on disk. The instrument built to stop this
+project certifying measurements it never took was doing exactly that, and the guarantee was written
+into its own claim before anyone tried it from a fresh directory. The pre-existing VRAM shots
+(`gpu_shot`, `shot_region`, `vram_region`, the software-GPU shot) had the identical defect.
+NOW FIXED AND VERIFIED IN BOTH DIRECTIONS: the writer returns bool, creates the parent directory,
+and names the failing step itself; every capture path says `NOTHING captured` instead of `wrote`.
+Forced-failure control (make `scratch/screenshots` a regular file):
+
+    [image_write:error] cannot create the parent directory of ... — NOTHING written
+    [present_shot:error] NOTHING captured for ... — the picture itself was 12.10% non-black
+
+The measurement still rides with the failure, so a failed WRITE does not also lose the READING.
+*Lesson worth keeping:* the first repair printed `strerror(errno)` = "Timer expired" for a failed
+mkdir, because `std::filesystem` reports via `error_code` and never sets errno. A diagnostic that
+states a confidently wrong cause is worse than one that states none.
+
+*A SECOND WAY IT WAS SILENT, found by measuring on Tomba2 rather than by reading:* both
+`PSXPORT_SHOT_AT` and `PSXPORT_PRESENT_SHOT_AT` were armed inside `GpuState::gpu_present`, but
+`Fps60::present_vk` calls `gpu_present_ex` directly, so a port running fps60 never reaches them.
+Tomba2Engine ships `fps60=1`: `PSXPORT_SHOT_AT` over 2802 presents there produced ZERO files and
+ZERO log lines, while the same binary with `fps60=0` captured normally. Both instruments were
+structurally inert on the reference consumer, and "no capture" was indistinguishable from "not wired
+here". The triggers now live at the tail of `gpu_present_ex`, the chokepoint every presenter shares.
+
+*Trust it for:* what the composite hands to the sink — whether the game has a picture, and whether
+the letterbox/fade/24bpp path is right. Cross-leg comparison holds **only in a windowed,
+non-fullscreen, 1x-display-scale run**: the headless sink defaults to the window's *logical* creation
+size (960x720), but the windowed sink is the DRAWABLE, so HiDPI gives the same window a 1920x1440
+shot, `PSXPORT_FULLSCREEN` makes it the monitor size, and the window is resizable. Every capture logs
+its sink size and leg so the mismatch is visible in the output rather than assumed away — an earlier
+version of this entry promised "directly comparable pixel for pixel" without those three conditions.
 
 *Do NOT trust it for — and this is the honest edge of it:* anything in the LAST HOP. It reads the
 image the swapchain blit consumes, not the swapchain image. It is therefore still blind to a failed
@@ -111,6 +144,21 @@ composited into the sink pass, not into the picture), and anything the composito
 **If the user says the window is black and this instrument says it is not, believe the user: the
 fault is in the hop this cannot see.** That hop is now the only uninstrumented one, which is a much
 smaller unknown than "everything after VRAM", but it is not zero.
+
+*AND IT CANNOT BE CLOSED BY A READBACK — settled 2026-08-05, so nobody spends a session trying.*
+`SDL_gpu.h:4306`: "The swapchain texture is write-only and cannot be used as a sampler or for another
+reading operation." `SDL_gpu_vulkan.c:4699` creates it with `COLOR_ATTACHMENT|TRANSFER_DST` only — no
+`TRANSFER_SRC`, no `SAMPLED` — and no hint, property or device-create option adds them.
+`SDL_DownloadFromGPUTexture` carries no usage assertion (`SDL_gpu.c:2931`), so calling it on a
+swapchain texture returns **no error and a plausibly all-zero buffer**: a black PPM, i.e. exactly the
+false-negative shape INST-18 already produced once. **Do not build it, not even to see.**
+Corroboration that this is the right architecture rather than a limitation we are stuck behind: SDL's
+own GPU renderer draws into an offscreen `COLOR_TARGET|SAMPLER` backbuffer and blits that to the
+swapchain, and `GPU_RenderReadPixels` (`SDL_render_gpu.c:1353`) reads **the backbuffer**.
+`s_present_img` is SDL's own answer to this problem.
+*The instrument that COULD cover this hop* is not a picture at all: a sink ledger counting acquire
+failures, null swapchain textures and presents that never reached the sink. That is precisely the
+failure class issue 0005 turned out to be. Not built yet.
 
 *Reproduce:*
 
