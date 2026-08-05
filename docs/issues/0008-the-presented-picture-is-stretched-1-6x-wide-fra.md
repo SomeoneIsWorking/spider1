@@ -198,3 +198,35 @@ STILL TO DO when the tree frees: plumb native_w at the call site in gpu_vk.cpp's
 (the game's native width is gpu.s_disp_w, the same source wide_native_w already scales from), then
 re-run the real-data gate with tools/present_geometry.py as the acceptance check — a 512x240 frame
 must report OK / "bars none (fills the sink)" instead of STRETCHED 1.600x.
+
+### Note (2026-08-06)
+FIXED AND VERIFIED ON REAL DATA 2026-08-06.
+
+CALL SITE: present_inputs() now sets in.native_w from the DISPLAY REGISTER (g.game->gpu.s_disp_w via
+present()'s pre-widening `w`), not from disp_w — disp_w has already been widened when the widescreen
+mod is active, so passing it would have restored the stretch. Same source wide_native_w already
+scales from, so both sides of the widescreen mechanism now agree on what "native" means.
+
+GATE, on the real game, with the instrument built for exactly this (INST-25):
+  BEFORE  content x 0..959 (960 wide), y 135..584 (450 tall), aspect 2.133:1
+          verdict STRETCHED 1.600x WIDE, bars top/bottom 135+135 px
+  AFTER   content x 0..959 (960 wide), y 0..719 (720 tall), aspect 1.333:1
+          verdict OK, bars none (fills the sink)
+Same instrument, same headless mode, both sides — and it produced the failing answer before.
+
+Framework suite 17/17. test_present_plan 12/12, 1703 checks; its legacy negative control still fails
+10/11, so the older invariants stay pinned rather than loosened to let the new rule through.
+
+THE PICTURE, same present index, with the GP0(0xC0) readback fix also in the tree:
+    369 colours, uniformly pale green, stretched  ->  1581 colours, 99.7% non-black, correct 4:3
+Spider-Man renders in red and blue on a New York rooftop with a correct HUD. TWO INDEPENDENT DEFECTS
+were stacked on the same frame — a missing framework feature destroying the palettes, and a wrong
+aspect constant — and NEITHER WAS VISIBLE WHILE THE OTHER STOOD. The green hid the stretch (a flat
+pale field has no shape to judge) and the stretch hid nothing about the green. That is worth
+remembering: "fix the top defect and re-look" is the only way to find the second one.
+
+TREE STATE, stated because it matters for landing: spider1/external/psxport now carries FOUR
+uncommitted areas from this session — present-image-sink, gpu-diagnostics-0007, gpu-vram-readback,
+and this. A plain git diff of that tree is all four together;
+coord/patches/COMBINED-psxport-alltrees.diff is that combined diff (9 files, +683/-101) and is NOT
+four applyable patches. The operator should split it or land it as one reviewed unit.
