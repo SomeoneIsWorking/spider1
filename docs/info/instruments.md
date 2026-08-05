@@ -183,6 +183,44 @@ failure class issue 0005 turned out to be. Not built yet.
 
 ---
 
+## INST-22 — `PSXPORT_RAMDUMP_FRAME` — **USELESS ON spider1, AND SILENT ABOUT IT**
+
+*What it claims:* dump 2 MB of guest RAM mid-run at frame N.
+*What it does here:* nothing at all. The trigger lives in the NATIVE frame loop
+(`native_boot.cpp:555`, `for (uint32_t f = 0; ...)`). spider1 does not run that loop — it dispatches
+the guest's own `main()` on the recompiled substrate ("[boot] Phase 0: dispatching guest main()
+0x8002C354"). MEASURED 2026-08-05: a 400 s run with `PSXPORT_RAMDUMP_FRAME=11900` produced **no file
+and no log line of any kind**.
+*Why it belongs in this ledger rather than a bug list:* "no dump was produced" and "this knob is not
+wired on this port" are indistinguishable on screen, which is the failure shape this file exists to
+catch. A knob that cannot fire must SAY it cannot fire.
+*Until fixed:* to read guest RAM mid-run on spider1, use `PSXPORT_WWATCH` (see INST-23 for its one
+untrustworthy field) or the debug server. *Fix would be:* arm it from the substrate path too, or
+refuse at startup with a diagnostic naming the reason.
+
+---
+
+## INST-23 — `PSXPORT_WWATCH` — **trusted for address/value/width/frame; the `pc` it names is FICTION in recompiled code**
+
+*The trap.* Watching the CLUT source buffer, it reported
+
+    [wwatch] f3 store [801461A4]=33333333 by pc=80064FA0 ra=800653D4
+
+and `pc=0x80064FA0` disassembles to `sll $a1, $a1, 2` — **not a store**. The containing function
+decompiles (Ghidra) to heap free-list coalescing, which has nothing to do with palettes. `Core::pc`
+is not updated per-instruction inside recompiled bodies, so the reported pc is wherever it was last
+written, not the storing instruction.
+
+*Trust it for:* that a store of value V hit address A at width W on frame F. All of that is real and
+reproduces — it is how the 0x33 fill was found at all, and the watch is genuinely good at that.
+*Do NOT trust:* `pc` or `ra`, unless the run is under the interpreter rather than recompiled code.
+Acting on that pc is how an RE session acquires a wrong attribution — the exact class
+`tools/ghidra_query.py`'s own header documents four instances of.
+*If you need the writing site:* re-run the region under the interpreter, or use
+`PSXPORT_WWATCH_BT=1` (host backtrace, names the `gen_func_*` chain) rather than the guest pc.
+
+---
+
 ## INST-21 — `PSXPORT_GPU_TRACE`'s `batch tri=/tex=/semi=` counters — **DISTRUSTED as "is the native raster drawing?"; use the `drawn` counters added beside them**
 
 *The trap, and it caught me within minutes of relying on it (2026-08-05).* The trace line samples

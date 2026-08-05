@@ -198,3 +198,44 @@ that should have filled that buffer never ran, is the next question. Start there
 
 NOT FIXED, NOT CLOSED. This is a root-cause identification backed by measurement; the fix is
 upstream and unwritten, and per PROTOCOL the user closes the bug, not our own numbers.
+
+### Note (2026-08-05)
+UPSTREAM CHASE, 2026-08-05 — partial, and the honest boundary is stated at the end.
+
+WHO FILLS THE PALETTE BUFFER: guest code, at guest frame 3, as a WORD FILL of 0x33333333.
+PSXPORT_WWATCH=801461A4,801461C4 (96 hits over the run) on the CLUT source buffer TEXWATCH named:
+
+    [wwatch] f3   store [801461A4]=33333333 ... ra=800653D4
+    [wwatch] f134 store [801461C0]=00000044 ... ra=80064E20   (byte stores, later)
+
+RULED OUT — the PORT is not the source of the pattern:
+  * psxport's native heap HLE (hle.cpp heapAlloc/heapFree, A0:0x33/0x34) does NOT poison memory —
+    grepped, there is no fill of any kind in either body. The 0x33/A0:0x33 coincidence is just the
+    BIOS malloc function number.
+  * the framework nowhere fills guest RAM with 0x33 (grepped runtime/recomp).
+So the 0x33 is the GUEST's own write, most plausibly a memset(buf, 0x33, n) placeholder (the BIOS
+memset is HLE'd at hle.cpp:368, A0:0x2B) that a later real palette load was supposed to overwrite.
+The 0x44 byte stores at f134 show SOMETHING writes the buffer later — but not real palette data.
+
+STILL OPEN: which load should have filled that buffer, and why it does not. Two shapes remain — the
+palette load never runs, or it runs and targets a different address. Not distinguished.
+
+TWO INSTRUMENTS CAUGHT LYING ON THE WAY, both worth more than the progress above:
+
+ 1. PSXPORT_RAMDUMP_FRAME IS STRUCTURALLY INERT ON THIS PORT, AND SAYS NOTHING. It fires from the
+    NATIVE frame loop (native_boot.cpp:555). spider1 does not run that loop — it dispatches the
+    guest's own main() on the recompiled substrate ("[boot] Phase 0: dispatching guest main()
+    0x8002C354"). A 400 s run with PSXPORT_RAMDUMP_FRAME=11900 produced NO file and NO log line of
+    any kind. "No dump" and "this knob does nothing here" are indistinguishable, which is this
+    project's recurring failure shape. Do not use it on spider1 until it either works or refuses out
+    loud. Recorded as instruments.md INST-22.
+
+ 2. PSXPORT_WWATCH's `pc` IS NOT TRUSTWORTHY IN RECOMPILED CODE — the address and value are.
+    It attributed the fill to pc=0x80064FA0. That address disassembles to `sll $a1, $a1, 2` — not a
+    store at all, and the containing function decompiles (Ghidra) to heap free-list coalescing.
+    Core::pc is not updated per-instruction inside recompiled bodies, so the reported pc is wherever
+    it was last set, not the storing instruction. The WATCH ITSELF IS GOOD: address, value, width
+    and frame are real and reproducible. Only the attribution is fiction, and it is exactly the
+    field an RE session would act on. Recorded as INST-23.
+    (This is why the RE-first rule matters: hand-walking from that pc would have produced a fifth
+    wrong attribution of the kind tools/ghidra_query.py's own header documents.)
