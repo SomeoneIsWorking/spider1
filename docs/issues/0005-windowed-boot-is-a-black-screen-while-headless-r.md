@@ -164,3 +164,31 @@ here.
 OPEN. The measurements above are ours; per PROTOCOL a user-reported bug is closed by the USER. The
 window now reports `[gpu_vk] swapchain present mode: MAILBOX` and our shots show the logos — the
 user needs to confirm they see them.
+
+## 2026-08-05 — the XA submode read is CORRECT; suspect the wrong FILE
+
+Narrowing, so the next session does not start where this one did.
+
+`native_fmv.cpp:231` classifies an audio sector with `int submode = raw[18]; if (submode & 0x04)`.
+Both halves check out:
+
+- `disc_read_raw` (`disc.cpp:108`) copies from the CHD hunk at `RAW_FRAME` stride — a FULL 2352-byte
+  raw frame including the 12-byte sync and 4-byte header. So the CD-XA subheader is at `raw[16..23]`
+  and `raw[18]` genuinely is the submode byte.
+- `0x04` is the correct CD-XA submode bit for an audio sector.
+
+So "0 of 66 and 0 of 277 audio sectors decoded" is NOT a broken decode of sectors we found. It is
+consistent with there being no XA-audio sectors interleaved in these STR files at all.
+
+**Hypothesis to test first (NOT verified — do not act on it before measuring):** this disc carries a
+separate `COMPILED.XA` (LBA 31263, 198737920 bytes) alongside `CINEMAS/*.STR`. If the intro movies
+are video-only STR with their audio streaming from `COMPILED.XA`, then the FMV player is reading
+audio from the wrong file by construction, and no amount of fixing the decoder will produce sound.
+
+**The measurement that settles it, and it is cheap:** dump the submode byte (`raw[18]`) of the first
+~200 sectors of `CINEMAS/ATVILOGO.STR` (LBA 128304) and histogram it. If no sector has bit 2 set,
+the STR is video-only and the question becomes "who streams COMPILED.XA, and when". If sectors DO
+have bit 2 set, the classification path is being reached differently than assumed and the decode
+side is back in scope.
+
+Report the denominator either way — "no audio sectors" means nothing without "of N sectors read".
