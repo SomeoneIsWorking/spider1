@@ -46,3 +46,37 @@ screen at present 4500 shows a large translucent spider-emblem polygon overlayin
 and its content band measures 16:9 (960x540) rather than 4:3 in a run where the display register
 reads 512x240. Either the widescreen mod was active for that frame or something else is, and I did
 not establish which. Neither observation is diagnosed; both need a run anchored on state, not index.
+
+### Note (2026-08-06)
+PARTIAL FIX 2026-08-06: tools/make_pad_replay.py + PSXPORT_PAD_REPLAY. Input determinism removes the
+LARGE divergence but NOT all of it, and the residual is measured rather than hand-waved.
+
+    python3 tools/make_pad_replay.py scratch/bin/drive.pad --frames 20000 --button 4000
+    PSXPORT_NOWINDOW=1 PSXPORT_PAD_REPLAY=scratch/bin/drive.pad PSXPORT_PRESENT_SHOT_AT=10000 ./run.sh
+
+The file is one uint16 LE active-low mask per pad frame, forced back verbatim, generated with the
+same pulse shape FORCE_BUTTONS uses (8 on / 24 off). --button takes the SAME hex a human writes for
+PSXPORT_FORCE_BUTTONS and inverts it internally, so the two knobs cannot disagree about polarity —
+getting that backwards produces a replay holding every button except the intended one, which reads
+as "the game ignored my input".
+
+MEASURED, two runs, same replay, same present index 10000, both logging "replaying 20000 frames":
+    det_A: 99.8% non-black, 1712 colours
+    det_B: 99.8% non-black, 1720 colours
+    cmp: differ at byte 730
+SO: the same SCENE both times — which is the property that was missing and the reason 0009 exists —
+but NOT the same FRAME. Compare that to the failure this issue was opened for, where the same index
+gave a city skyline and a pause menu.
+
+WHAT THAT IS AND IS NOT GOOD FOR, stated so nobody over-trusts it:
+  * GOOD ENOUGH for "did this defect survive the fix?" — you are looking at the same content, so a
+    before/after comparison is answering the question you asked.
+  * NOT good enough for byte-exact diffing or for a pixel-level regression gate. 8 colours of drift
+    means the two frames are a few animation/pacing ticks apart, not identical.
+  * The residual is NOT the input any more. It is whatever else the port derives from wall-clock —
+    frame pacing, CD delivery timing, the host turn. Naming that is the next step if byte-exactness
+    is ever needed; PSXPORT_NOPACE=1 is the obvious first thing to try, and I did not.
+
+STILL OPEN, unchanged: the original city-skyline corruption has STILL not been re-observed, and the
+pause-screen spider-emblem overlay / 16:9 band is still undiagnosed. Both now have a repeatable way
+to be looked at, which they did not before.
