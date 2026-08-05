@@ -57,3 +57,41 @@ worth its own entry once someone looks at it.
 VERDICT IS THE USER'S. This is a measurement, not a closed diagnosis: the port reaches 3D gameplay
 and draws recognisable geometry, and the surfaces are untextured. Whether that is the expected state
 of this port today or a regression is not something our own numbers can settle.
+
+### Note (2026-08-05)
+NARROWED 2026-08-05, and one reading taken during the follow-up was WRONG — recorded because the way
+it was wrong is a reusable trap.
+
+THE FALSE NEGATIVE FIRST. PSXPORT_GPU_TRACE prints `batch tri= tex= semi=` and it read 0/0/0 at
+EVERY sampled present in the 3D scene. Read naively that says "no primitive reaches the native
+rasterizer" — dramatic, and wrong. `batch` is the LIVE accumulator (s_tri_n/s_tex_n/s_semi_n)
+sampled at the TOP of GpuVkState::present(): AFTER the previous frame_end reset it (gpu_vk.cpp:1569)
+and BEFORE this frame's drawing. On a game that presents at the top of its frame loop it is
+LEGITIMATELY 0 every time. The trace line now also prints `drawn tri= tex= semi=` (s_dbg_*_c — what
+render_geom actually rasterised, the counters gpu_vk_stats and the debug server already report), so
+that sample point can no longer produce the lie.
+
+WHAT THE CORRECTED INSTRUMENT SAYS: textured primitives DO reach the native rasterizer and ARE drawn.
+Sampled present 11600:
+
+    batch tri=0 tex=969 semi=204 | drawn tri=0 tex=969 semi=204
+
+969 textured + 204 semi-transparent, and tri=0 — essentially EVERYTHING the native raster draws in
+this scene is submitted as TEXTURED. Corroborated at the GP0 level: PSXPORT_DEBUG=gpu reports 924
+prims / 10114 gp0words per drawing frame (~11 words/prim = textured shaded polys), alternating with
+0-prim frames (the game draws at 30 Hz).
+
+REFUTED, so nobody re-derives them:
+  * "the guest never issues textured primitives" — it issues ~924/frame and they are textured.
+  * "the primitives never reach the native rasterizer" — 969 tex + 204 semi drawn in one present.
+  * "the native raster is not running in the 3D scene" — it is.
+
+WHICH LEAVES, still not distinguished: texture SAMPLING produces no detail. Narrowed to texture-page
+/ CLUT content or addressing — the atlas not uploaded for this scene, texture page / CLUT
+coordinates resolving wrong, or the texture window applied wrong. 369 distinct colours over a
+full-screen frame that submits 969 textured prims is consistent with sampling a flat or empty region.
+
+CAVEAT ON THE DENOMINATOR, stated rather than glossed: GPU_TRACE samples every 200th present, and
+only one of six sampled presents in the tail showed non-zero draw counts. 200 is even, so the sample
+lands on a fixed parity against a 30 Hz draw cadence — the sampling is biased and the true
+per-present distribution is NOT established. Do not read "1 of 6" as a duty cycle.

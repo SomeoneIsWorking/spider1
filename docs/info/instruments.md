@@ -183,6 +183,36 @@ failure class issue 0005 turned out to be. Not built yet.
 
 ---
 
+## INST-21 — `PSXPORT_GPU_TRACE`'s `batch tri=/tex=/semi=` counters — **DISTRUSTED as "is the native raster drawing?"; use the `drawn` counters added beside them**
+
+*The trap, and it caught me within minutes of relying on it (2026-08-05).* The trace line samples
+`s_tri_n / s_tex_n / s_semi_n` — the LIVE accumulator — at the **top of `GpuVkState::present()`**,
+which is *after* the previous `frame_end` reset it (`gpu_vk.cpp:1569`) and *before* the current
+frame's drawing. On a game that presents at the top of its frame loop, it therefore reads **0 every
+single time no matter how much the native raster is doing**. In spider1's 3D scene it read
+`batch tri=0 tex=0 semi=0` at every sampled present, which reads exactly like "no primitive reaches
+the native rasterizer" — a dramatic conclusion, and false. The reset point, not the renderer, is what
+the number described.
+
+*The fix, in the same line so the two can never be confused again:* the trace now also prints
+`drawn tri= tex= semi=` from `s_dbg_tri_c/tex_c/semi_c` — what `render_geom` actually rasterised, the
+same counters `gpu_vk_stats()` and the debug server report. Same scene, same run:
+
+    batch tri=0 tex=969 semi=204 | drawn tri=0 tex=969 semi=204     (present 11600)
+
+*Trust `drawn` for:* whether the native rasterizer is doing anything, and how much of it is textured
+vs flat vs semi-transparent.
+*Do NOT trust `batch` for that at all* — it is only meaningful read at a point where the accumulator
+is known to be full, and the trace is not such a point.
+*Known limitation of both:* GPU_TRACE samples every 200th present. 200 is even, so against a 30 Hz
+draw cadence the sample lands on a fixed parity — the per-present distribution it shows is biased and
+must not be read as a duty cycle.
+
+*See:* issue 0007. *Generalises to:* any counter sampled near its own reset. The denominator rule
+this ledger opens with has a sibling — **a counter's sample POINT is part of what it measures.**
+
+---
+
 ## INST-19 — The frame-progress watchdog (`PSXPORT_WATCHDOG=<sec>`) used as a GUEST-progress gate — **DISTRUSTED 2026-08-05; see INST-03 for what it is genuinely good at**
 
 *The defect, and it is structural rather than a bug:* `watchdog_pet()` is called from
