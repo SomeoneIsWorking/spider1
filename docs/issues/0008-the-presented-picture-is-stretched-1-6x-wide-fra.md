@@ -5,7 +5,7 @@ status: open
 symptom: everything on screen is too wide and too short; a 512x240 game presents as a 2.133:1 letterboxed strip with big top/bottom bars instead of filling a 4:3 window
 tags: render,present,aspect,letterbox,framework,all-ports
 created: 2026-08-05
-updated: 2026-08-05
+updated: 2026-08-06
 ---
 
 FOUND 2026-08-05 by the USER, looking at a screenshot I sent: "are these stretched wide?". Yes.
@@ -160,3 +160,41 @@ this file exists for: the first argument parser filtered on a leading "--", whic
 which is the only reason it was caught immediately — an arg parser that mistakes a flag's value for
 an input is otherwise exactly how a tool measures the wrong file and reports it with confidence.
 Unknown options now refuse (rc=2) rather than being ignored.
+
+### Note (2026-08-06)
+FIX DESIGNED AND HERMETICALLY VERIFIED 2026-08-06 — developed in scratch/aspect/ because the shared
+psxport tree was held by another agent's build. Ready to apply; artifacts staged at
+coord/patches/present-aspect-0008.NEW.{present_plan.h,test_present_plan.cpp}.
+
+THE CHANGE: PresentInputs gains `native_w` (the game's own 4:3 framebuffer width), and the letterbox
+becomes
+    pane_letterbox(4 * disp_w, 3 * native_w, sink_w, sink_h)
+i.e. 4:3 scaled by how much wider than ITS OWN NATIVE WIDTH the framebuffer is. native_w <= 0
+degrades to 4:3 (every PSX mode is 4:3, so that is the only safe default, and it cannot divide by
+zero).
+
+RED, seen and pasted, against the shipped rule with the new field present but unused:
+    test native_width_sets_the_aspect_not_the_framebuffer_width
+        FAIL: plan(b).viewport.h == 720: got 450 want 720      <- 512-wide native, the bug
+    test unknown_native_width_degrades_to_4_3
+        FAIL: p.viewport.h == 720: got 450 want 720
+    9/11 tests passed, 157 checks run, 2 failed
+GREEN after: 12/12, 1703 checks. The suite's built-in legacy control
+(-DPSXPORT_TEST_LEGACY_PRESENT_PLAN) still fails 10/11, so the older invariants are still pinned.
+
+**THE FIX IS A PROVABLE NO-OP FOR TOMBA2, AND THAT IS ASSERTED, NOT ARGUED.** The old rule was
+disp_w : 240; the new one is 4*disp_w : 3*native_w; at native_w == 320 that is 4*disp_w : 960 ==
+disp_w : 240 — algebraically identical. So a 320-wide game cannot change in ANY mode at ANY
+framebuffer width. test_a_320_wide_game_is_bit_identical_to_the_old_rule compares the new viewport
+against a literal transcription of the old rule for every disp_w in 256..640 (385 widths, x/y/w/h
+each) and asserts the denominator. This matters because Tomba2Engine is the consumer I cannot test
+from here, and "it should be identical" is exactly the sort of claim this project keeps getting
+burned by.
+
+The existing widescreen case is likewise untouched: a 320-native game widened to 512 still gives
+1280x600 in a 1280x960 sink, before and after.
+
+STILL TO DO when the tree frees: plumb native_w at the call site in gpu_vk.cpp's present_inputs()
+(the game's native width is gpu.s_disp_w, the same source wide_native_w already scales from), then
+re-run the real-data gate with tools/present_geometry.py as the acceptance check — a 512x240 frame
+must report OK / "bars none (fills the sink)" instead of STRETCHED 1.600x.
