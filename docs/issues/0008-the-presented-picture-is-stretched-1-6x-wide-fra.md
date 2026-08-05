@@ -125,3 +125,38 @@ than any of the numeric checks run against these frames all day. Coverage percen
 and non-black ratios are ALL invariant under this bug; not one of the instruments used today could
 have caught it, and none of them was wrong. The missing check was geometric, and there was no
 instrument for shape at all.
+
+### Note (2026-08-05)
+INSTRUMENT BUILT, 2026-08-05: tools/present_geometry.py — the missing SHAPE check.
+
+The reason this bug survived a full session of numeric checking is that every instrument in the repo
+is INVARIANT UNDER IT. A uniform rescale changes no coverage percentage, no distinct-colour count,
+no mean brightness, no per-tile richness. ppm_look.py reported "real frame, 62.0% non-black, 528
+colours" on a frame stretched 1.6x, and every one of those numbers was correct. The gap was not a
+weak instrument — it was a MISSING DIMENSION.
+
+    python3 tools/present_geometry.py <present shot.ppm> [--expect 16:9] [--tol 0.02]
+
+It finds the content band inside the sink, reports its aspect against the expected one, names the
+stretch factor, and reports the bars explicitly (because "big black bars" is what this bug looks
+like to a human, and a reader tends to assume bars are deliberate letterboxing).
+
+VALIDATED IN ALL FOUR DIRECTIONS, which is more than "it printed the number I wanted":
+  * the real defect frame          -> STRETCHED 1.600x WIDE, rc=1
+  * a synthetic correct 4:3 frame  -> OK, rc=0, "bars none (fills the sink)"
+  * a synthetic 16:9 band          -> STRETCHED 1.333x under the 4:3 default, OK under --expect 16:9
+  * an entirely black frame        -> REFUSES with rc=2 and says so, because a 0x0 band would
+                                      otherwise compare unequal to any expected aspect and print a
+                                      confident "STRETCHED" for a frame with no picture in it.
+
+ITS OWN LIMITS ARE IN ITS HEADER: it measures the non-black bounding box, not the intended picture
+rectangle, so a fade or a genuinely dark scene can measure smaller than the real picture (it prints
+a CAUTION when the band covers <5% of the sink); and it cannot tell a correctly-4:3 picture from a
+square picture of a square thing.
+
+A DEFECT IN THE TOOL, FOUND AND FIXED IN ITS FIRST MINUTE, recorded because it is the failure mode
+this file exists for: the first argument parser filtered on a leading "--", which left the VALUE of
+--expect ("16:9") in the positional list, and the tool tried to open it as a PPM. It crashed loudly,
+which is the only reason it was caught immediately — an arg parser that mistakes a flag's value for
+an input is otherwise exactly how a tool measures the wrong file and reports it with confidence.
+Unknown options now refuse (rc=2) rather than being ignored.
