@@ -1,7 +1,7 @@
 ---
 id: 6
 title: headless frame dumps cannot show this port's picture - the SW rasterizer is bypassed when VK is on
-status: open (narrowed - see the 2026-08-05 update: the positive control passed and the present stage is now instrumented; only the swapchain hop remains)
+status: resolved
 tags: render,headless,instrument,vk
 created: 2026-08-05
 updated: 2026-08-05
@@ -34,3 +34,45 @@ AND THE DEEPER GAP IS NOW CLOSED TOO. The reason no capture could speak about th
 REMAINING, and deliberately not claimed as fixed: nothing samples the SWAPCHAIN IMAGE itself. INST-20 reads the composite the blit consumes, so the acquire/blit/compositor hop is still uninstrumented.
 
 CROSS-REF: spyro docs/issues #45 attributes a "headless stall" to the port. That conclusion is still suspect for the same reason and must be re-checked - now with PSXPORT_PRESENT_SHOT_AT, which is the instrument it wanted. Spyro's tree does not yet carry this patch (coord/patches/present-image-sink.diff).
+
+### Resolution (2026-08-05)
+CLOSED 2026-08-05 under the amended rule. The instrument gap this issue recorded is closed as far as
+SDL_GPU permits, and the part that cannot be closed is now settled as IMPOSSIBLE rather than left
+open as a to-do.
+
+WHAT THIS ISSUE ASKED FOR: a headless capture that can show this port's picture, plus a positive
+control before trusting any of them.
+
+ 1. POSITIVE CONTROL — PASSED, and it fires in both directions on the same run. PSXPORT_SHOT_AT
+    (VK readback) headless: f120 0.0% / 1 colour (nothing drawn yet), f1200 25.9% / 8825 colours,
+    legibly the Neversoft logo. The instrument that was flat is PSXPORT_GPU_DUMP's s_vram
+    software-rasterizer path, NOT the VK readback — exactly as this issue's own analysis predicted.
+ 2. THE DEEPER CAUSE IS FIXED. GpuVkState::present() used to return at
+    `if (s_headless) { submit; return; }` ABOVE the composite, so headless never ran the picture
+    stage at all. It is now split into build_present_image (BOTH legs, driven by the pure
+    present_plan.h) and show_present_image (the swapchain blit, windowed only), pinned by
+    tests/test_present_plan.cpp — 9/9, 150 checks, with a compile-selectable negative control
+    (-DPSXPORT_TEST_LEGACY_PRESENT_PLAN) that fails 8/9 against the old rule.
+ 3. THE NEW INSTRUMENT IS VALIDATED BY FORCED DISAGREEMENT, not by agreement:
+    PSXPORT_PRESENT_SHOT_AT with a square 800x800 sink reads 20.2% while the VRAM shot stays pinned
+    at 26.9% — 26.9 x 600/800 = 20.2, the letterbox a present-stage instrument MUST see and a
+    VRAM-stage one CANNOT. Confirmed again on a natively rendered frame: menu at 512x240, VRAM 99.4%
+    vs present 62.13%, and 99.4 x 0.625 = 62.1.
+
+THE REMAINING HOP IS NOT A TO-DO, IT IS A WALL — recorded so nobody spends a session on it.
+A true swapchain readback is IMPOSSIBLE under SDL_GPU: SDL_gpu.h:4306 declares the swapchain texture
+write-only; SDL_gpu_vulkan.c:4699 creates it COLOR_ATTACHMENT|TRANSFER_DST with no TRANSFER_SRC and
+no SAMPLED; no hint, property or device-create option adds them; and SDL_DownloadFromGPUTexture has
+no usage assertion (SDL_gpu.c:2931), so calling it there returns no error and a plausibly ALL-ZERO
+buffer — a black PPM, the precise false-negative shape this issue exists to record. SDL's own GPU
+renderer solves this the same way we now do: render to an offscreen COLOR_TARGET|SAMPLER backbuffer
+and read THAT (SDL_render_gpu.c:1353). s_present_img is SDL's own answer.
+
+WHAT I DID NOT VERIFY: anything past the blit — a failed acquire, a blocking present mode, a
+minimised window, the compositor. Covering that needs a SINK LEDGER (counting acquire failures and
+presents that never reached the sink), not a picture. Not built. If a capture ever disagrees with
+what you see on screen, that is where the difference lives — reopen and say so.
+
+CROSS-REF now actionable: spyro issue #45's "headless stall" was diagnosed with the VRAM-stage
+instrument this issue distrusts, and should be re-checked with PSXPORT_PRESENT_SHOT_AT. spyro's tree
+does not yet carry the patch (coord/patches/present-image-sink.diff).

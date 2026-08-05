@@ -1,7 +1,7 @@
 ---
 id: 5
 title: Windowed boot is a black screen while headless renders the intro movies: the swapchain present mode defaults to VSYNC and blocks the GUEST thread
-status: open
+status: resolved
 symptom: Spider-Man boots into a black screen in a window; headless runs of the same build show the Activision and Neversoft logos at 99.95% / 25.70% non-black. Windowed is 0.00% non-black / 1 colour at every present index to f2400, and the guest writes ZERO bytes to VRAM over 4027 presents
 tags: black-screen,fmv,windowed,headless,swapchain,vsync,gpu,re-07,re-04,starvation
 created: 2026-08-05
@@ -281,3 +281,38 @@ Boot still reaches menu mode past both movies, so the slower (correct) stream do
 
 **Still not closed by me.** Ratio 1.00 says the heads traverse the file together; it does not prove
 the sound is aligned to the picture at the sample level, and no one has listened.
+
+### Resolution (2026-08-05)
+CLOSED 2026-08-05 under the amended rule (the user may be shown a close and reopen it). The root
+cause was found, the fix landed, and the failing measurement now passes on the same instrument in the
+same mode.
+
+THE FIX: psxport now calls SDL_SetGPUSwapchainParameters right after SDL_ClaimWindowForGPUDevice and
+asks for a NON-BLOCKING present mode (MAILBOX, else IMMEDIATE, else VSYNC). Before it, a freshly
+claimed window kept SDL's default VSYNC, under which SDL_WaitAndAcquireGPUSwapchainTexture blocks the
+CALLING thread until vblank — and that caller is the GUEST thread (vblank_advance -> gpu_present),
+so the CD pump, MDEC and DMA completions starved with it. Landed area gpu-vk-swapchain-pacing, with
+a hermetic test (tests/test_swapchain_present_mode.cpp) that was seen RED first.
+
+NEGATIVE CONTROL, which is what makes this closeable — the SAME instrument, the SAME windowed mode:
+  BEFORE: 0.00% non-black / 1 colour at EVERY present index out to f2400;
+          presentskip presents=4027 reuse_last=4027 rebuild_geom=0 rebuild_vram=0 vram_writes=0
+          — the guest wrote ZERO bytes to VRAM over 4027 presents, and none of the three boot
+          milestones ([disc] opened, VSyncCallback registered, display depth) were ever reached.
+  AFTER (re-measured today, windowed, one build):
+          "[gpu_vk] swapchain present mode: MAILBOX"; all three milestones reached;
+          presentskip presents=4100 reuse_last=3194 rebuild_geom=447 rebuild_vram=459
+          vram_writes=11114; present shot at f1200 = 31.55% non-black / 9314 colours, and the image
+          is legibly the Neversoft intro logo.
+The instrument that reported the failure is the one reporting the pass, so it could have shown the
+old answer and did not.
+
+WHAT I DID **NOT** VERIFY, stated so the reopen is cheap: I cannot sample the swapchain image, and
+therefore cannot prove what is literally on your monitor. SDL_GPU makes that impossible by
+construction — SDL_gpu.h:4306 declares the swapchain texture write-only and the Vulkan backend gives
+it no TRANSFER_SRC (see instruments.md INST-20). My evidence is the composite that the swapchain
+blit consumes, one 1:1 copy away from the window. If the window is still black for you, this is the
+hop that hides it, and REOPEN — the residual failure would be in acquire/blit/compositor, not in the
+guest starvation this issue was about, and that distinction is the useful half of this close.
+
+Also unverified: audio, and frame PACING against the movies' real duration.
