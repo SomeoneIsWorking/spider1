@@ -61,8 +61,62 @@ window shows nothing" — it gives the identical answer to both.
 *The missing instrument, named so it stops being a surprise:* **nothing in this port samples the
 SWAPCHAIN.** Until something does, every "the picture is correct" result in this repo is a claim
 about VRAM. Building one is the cheapest way to stop repeating this failure.
+**PARTLY BUILT 2026-08-05 — see INST-20.** `PSXPORT_PRESENT_SHOT_AT` now samples the PRESENT stage
+(the composite the swapchain blit consumes), which covers letterbox / fade / source-selection /
+24bpp. It still does not sample the swapchain image itself, so the last hop remains uninstrumented;
+INST-20 states exactly where its blindness starts.
 
 *Structured entry:* `I013` (distrusted). *See:* issue 0005, C019 (falsified), C020 (scoped re-issue).
+
+---
+
+## INST-20 — `PSXPORT_PRESENT_SHOT_AT` / `GpuVkState::present_shot()` — **trusted for the PRESENTED PICTURE, in either leg, after passing a discriminator in both directions**
+
+*What it shows:* a readback of `s_present_img`, the sink-resolution composite built by
+`GpuVkState::build_present_image` — the picture AFTER letterbox, fade, native-vs-ires source
+selection and 24bpp decode. It is the first capture in this project that samples the present stage
+rather than guest VRAM, and it exists in BOTH legs because the composite itself now does (the
+`if (s_headless) return` that sat above it is gone; see issue 0006 and the psxport
+`present-image-sink` patch).
+
+*Why it can be believed where INST-18 could not:* it was validated by forcing the two instruments to
+DISAGREE, not by watching them agree. MEASURED 2026-08-05, spider1, one build, headless, present
+1200:
+
+| sink | `PSXPORT_SHOT_AT` (VRAM) | `PSXPORT_PRESENT_SHOT_AT` (present) |
+|---|---|---|
+| 960x720 (4:3) | 320x240, 25.9% non-black, 8825 colours | 960x720, **25.9%**, 8825 colours |
+| 800x800 (square, `PSXPORT_PRESENT_SINK=800x800`) | 320x240, **25.9%** — unchanged | 800x800, **19.42%**, 8825 colours |
+
+The square sink letterboxes a 4:3 picture into 800x600 of 800x800 rows, so a present-stage
+instrument MUST read 25.9% x 600/800 = 19.43%; it read 19.42%. A VRAM-stage instrument cannot move
+at all, and did not. That is the discriminator run against BOTH classes: the tool showed the other
+answer when the other answer was true, and refused to when it was not.
+
+*Also validated:* it reports its own negative. With no composite yet it logs
+"no present image yet ... NOTHING captured" and writes no file, so a missing capture cannot be read
+as a black frame. And every successful capture carries its non-black count AND its denominator on
+the same line, unconditionally — an all-black present is a real answer that must stay
+distinguishable from a capture that never ran.
+
+*Trust it for:* what the composite hands to the sink — whether the game has a picture, whether the
+letterbox/fade/24bpp path is right, and comparing the two legs pixel-for-pixel (the headless sink
+defaults to the window's own 960x720 precisely so that comparison needs no arithmetic).
+
+*Do NOT trust it for — and this is the honest edge of it:* anything in the LAST HOP. It reads the
+image the swapchain blit consumes, not the swapchain image. It is therefore still blind to a failed
+`SDL_WaitAndAcquireGPUSwapchainTexture`, a blocking present mode starving the guest thread
+(INST-18's issue 0005 root cause), a minimised or dead window, the RmlUi overlay (deliberately
+composited into the sink pass, not into the picture), and anything the compositor does afterwards.
+**If the user says the window is black and this instrument says it is not, believe the user: the
+fault is in the hop this cannot see.** That hop is now the only uninstrumented one, which is a much
+smaller unknown than "everything after VRAM", but it is not zero.
+
+*Reproduce:*
+
+    PSXPORT_NOWINDOW=1 PSXPORT_NOAUDIO=1 PSXPORT_PRESENT_SHOT_AT=1200 \
+    PSXPORT_PRESENT_SINK=800x800 PSXPORT_WATCHDOG=90 timeout 90 ./run.sh
+    python3 ../spyro/tools/ppm_look.py scratch/screenshots/present_1200.ppm
 
 ---
 

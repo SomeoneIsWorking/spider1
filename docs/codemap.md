@@ -59,7 +59,7 @@ Cite the exact form. `CLAIM-Cnnn` in this file means the per-file `Cnnn`.
 | Runtime module placement + routing | `game/core/module_loader.cpp`, framework `overlay_router.cpp` | **done** — modules are recompiled BASE-RELATIVE and the game's own allocator places each body, as the console does. This file only OBSERVES (name at load, base at allocation #2, eviction at free); nothing is pinned or redirected. Three modules co-resident at distinct bases verified on a real boot: 7176 frames, 0 `recomp-MISS` (CLAIM-C013, re-frontier RE-09/HACK-02) |
 | Input (pad) | `GameConfig` pad group | **done** — verified behaviourally: a forced DOWN moves the menu selection and changes the screen |
 | Memory card | `GameConfig` card group + framework `memcard.cpp` | **done** — 128 KB image created/formatted; the card check COMPLETES and the game advances |
-| Rendering (via the framework's VK path) | framework `gpu_native.cpp`, `gpu_vk.cpp` | **done for Phase 0 HEADLESS; the WINDOW is black** — the guest's own draw path fills guest VRAM and the menu reads 99.4% coverage there, but that number comes from `PSXPORT_SHOT_AT`, which reads back `s_vram_tex` and **never samples the swapchain** (INST-18). Windowed the same build reaches 0.00% / 1 colour with `vram_writes=0`; root cause is the swapchain present mode (C021, issue 0005), fix in flight |
+| Rendering (via the framework's VK path) | framework `gpu_native.cpp`, `gpu_vk.cpp` (present stage: `present_plan.h` → `build_present_image` / `show_present_image`) | **renders in BOTH legs, and the present stage is now instrumented.** The windowed black screen is fixed (swapchain present mode, C021/issue 0005 — MAILBOX is requested at claim time; a windowed run reaches `vram_writes=11324` over 4354 presents and shows the picture). The composite no longer branches on the leg: `present()` used to return above `show_composite` when headless, so headless skipped the picture stage entirely — that was the mechanism behind every "99.95% non-black headless / black in a window" reading. Verified 2026-08-05 on real data, both legs, f1200 = the Neversoft logo (headless 25.9%, windowed 31.6%). **Not verified:** anything past the blit — the swapchain image itself is still unsampled (INST-20) |
 | Native frame loop / OT / packet pool | — | **missing** — that `GameConfig` group is deliberately zero; Phase 0 runs the guest's loop instead (RE-12) |
 | Scheduler | — | **missing** — the SDK task model may not apply to this engine (RE-13) |
 | Renderer: GTE tap → native depth / widescreen | recompiler tap in `generated/` | **wired, never executed** — 10 `gte_record_pz` sites in 6 projection fns; `records=0` over a full boot because the port never reaches 3D (RE-08) |
@@ -84,9 +84,17 @@ Cite the exact form. `CLAIM-Cnnn` in this file means the per-file `Cnnn`.
   **Read the disassembly, not the decompiler**, for anything control-flow or timing shaped: Ghidra has
   twice sent this project down a wrong path (it hid that `$fp` was a global base register, and renders
   a snapshotted wait loop as an infinite one).
-- **A picture of what the port actually draws** → `PSXPORT_SHOT_AT=<present>,...` writes
-  `scratch/screenshots/shot_<n>.ppm`. Prefer this over primitive counters: counters say the pipeline
-  moved data, only an image says what a player sees.
+- **A picture of what the port actually draws** — TWO instruments, and they answer DIFFERENT
+  questions. Confusing them cost this project a whole session (issue 0005), so pick deliberately:
+  - `PSXPORT_SHOT_AT=<present>,...` → `scratch/screenshots/shot_<n>.ppm`. **Guest VRAM** at that
+    present: what the game DREW. Blind to the entire composite (INST-18).
+  - `PSXPORT_PRESENT_SHOT_AT=<present>,...` → `scratch/screenshots/present_<n>.ppm`. **The presented
+    picture**: after letterbox, fade, native-vs-ires selection and 24bpp decode — what a player
+    SEES. Works in both legs (the headless sink defaults to the window's 960x720; override with
+    `PSXPORT_PRESENT_SINK=WxH`). Still blind to the swapchain hop itself — INST-20 states where.
+
+  Prefer either over primitive counters: counters say the pipeline moved data, only an image says
+  what a player sees.
 - **Driving the game without a controller** → `PSXPORT_FORCE_BUTTONS=<hex active-low mask>`
   (`0040` DOWN, `4000` CROSS, `0008` START).
 

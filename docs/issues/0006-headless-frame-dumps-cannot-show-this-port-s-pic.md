@@ -1,7 +1,7 @@
 ---
 id: 6
 title: headless frame dumps cannot show this port's picture - the SW rasterizer is bypassed when VK is on
-status: open
+status: open (narrowed - see the 2026-08-05 update: the positive control passed and the present stage is now instrumented; only the swapchain hop remains)
 tags: render,headless,instrument,vk
 created: 2026-08-05
 updated: 2026-08-05
@@ -19,6 +19,18 @@ CONSEQUENCE, and the trap: any capture that reads VRAM is STRUCTURALLY INCAPABLE
 
 THE CORRECT INSTRUMENT is the VK readback: gpu_native_shot takes the "if (vk_path())" branch and calls gpu_vk_shot_region over the display region. That is what Tomba's REPL shot uses, and why Tomba captures fine headless while these two do not.
 
-STILL OPEN, do not assume: a VK-headless GPU_DUMP ALSO came back flat here, so the readback path is not yet confirmed working for this port. Before trusting any headless capture on spider1/spyro, run the positive control - capture a frame the game is definitely drawing and assert it has more than one colour. Do NOT conclude anything about rendering from a headless capture until that control passes.
+THE POSITIVE CONTROL HAS NOW RUN, AND IT PASSES (2026-08-05, spider1, psxport af28715a + the present-image-sink patch). PSXPORT_SHOT_AT - the VK readback, gpu_vk_shot -> dump_to - produces real frames headless on this port:
 
-CROSS-REF: spyro docs/issues #45 attributes a "headless stall" to the port. That conclusion is now suspect for the same reason and must be re-checked with the VK readback before being believed.
+  f120  0.0% non-black,    1 colour   (genuinely nothing drawn yet)
+  f200  11.4%,          1969 colours
+  f300  19.7%,          3068 colours
+  f600  23.3%,          5215 colours
+  f1200 25.9%,          8825 colours  - legibly the Neversoft eyeball logo
+
+So the instrument that was flat is PSXPORT_GPU_DUMP (the s_vram software-rasterizer path described above), NOT the VK readback. The f120 flat frame is the negative half of the same control: the tool says "1 colour" when there is nothing, and thousands when there is, on the same run. Headless SHOT_AT can be believed on spider1 - as a statement about GUEST VRAM (see instruments.md INST-18 for why that qualifier is load-bearing).
+
+AND THE DEEPER GAP IS NOW CLOSED TOO. The reason no capture could speak about the PICTURE was one line in GpuVkState::present(): `if (s_headless) { SDL_SubmitGPUCommandBuffer(cmd); return; }` sat ABOVE show_composite, so headless did not merely present to a different sink - it never ran the composite stage at all. That violates the absolute "headless and windowed are ONE code path" rule, and it is the mechanism behind issue 0005. The present stage is now split into build_present_image (the picture, BOTH legs, driven by the pure present_plan.h) and show_present_image (the swapchain blit, windowed only), and PSXPORT_PRESENT_SHOT_AT reads the picture back in either leg. See instruments.md INST-20, including what it still cannot see.
+
+REMAINING, and deliberately not claimed as fixed: nothing samples the SWAPCHAIN IMAGE itself. INST-20 reads the composite the blit consumes, so the acquire/blit/compositor hop is still uninstrumented.
+
+CROSS-REF: spyro docs/issues #45 attributes a "headless stall" to the port. That conclusion is still suspect for the same reason and must be re-checked - now with PSXPORT_PRESENT_SHOT_AT, which is the instrument it wanted. Spyro's tree does not yet carry this patch (coord/patches/present-image-sink.diff).
