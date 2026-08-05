@@ -96,3 +96,32 @@ REVISED TEST MATRIX for tests/test_present_plan.cpp (the RED is the two WRONG ro
     N=512 disp_w=683 sink 960x720 -> 16:9 band      <- currently ~2.85:1, RED
 This needs the game's native width plumbed into PresentInputs, which it currently is not — that
 plumbing is the substance of the fix, not the arithmetic.
+
+### Note (2026-08-05)
+BLAST RADIUS CONFIRMED FROM EACH PORT'S OWN DATA, and the bug has a visible signature nobody named.
+
+spyro's own logs (grep over spyro/scratch/logs): it runs BOTH
+    disp 320x240   and   display depth -> 15-bit (GP1(08)=08000002, 512x240)
+So spyro is affected, confirmed from its data rather than inferred from the framework comment.
+
+THE SIGNATURE, which is a testable prediction and not a story: because the formula is
+(4/3) x (disp_w / 320), a game that SWITCHES horizontal mode changes PRESENTED ASPECT mid-run.
+    320-wide mode -> pane_letterbox(320,240,960,720) -> 960x720, FILLS a 4:3 sink, no bars
+    512-wide mode -> pane_letterbox(512,240,960,720) -> 960x450, 1.6x too wide, BIG TOP/BOTTOM BARS
+Both spider1 and spyro switch between these modes (spider1: 24-bit 320x240 for FMV, 15-bit 512x240
+for the game; spyro likewise). So on both ports the picture VISIBLY CHANGES SHAPE at every FMV ->
+gameplay transition, and the black bars appear and disappear with it.
+
+ALREADY CORROBORATED BY CAPTURES TAKEN EARLIER TODAY, before the bug was known: the Neversoft intro
+logo (320x240 24-bit FMV) filled the whole 960x720 present shot edge to edge, while the pause screen
+and menu (512x240) sit in a 960x450 band with heavy bars above and below. Those two screenshots are
+the same bug photographed twice; nobody read the bars as a defect because a letterbox looks
+deliberate.
+
+WHY THAT MATTERS BEYOND THE ASPECT ITSELF: 'the picture has black bars' is the kind of thing an
+observer explains away as intended letterboxing. It is the sort of defect that survives review by
+looking like a feature — which is why it needed a USER to ask "are these stretched wide?" rather
+than any of the numeric checks run against these frames all day. Coverage percentages, colour counts
+and non-black ratios are ALL invariant under this bug; not one of the instruments used today could
+have caught it, and none of them was wrong. The missing check was geometric, and there was no
+instrument for shape at all.
