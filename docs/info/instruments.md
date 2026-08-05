@@ -79,9 +79,24 @@ rather than guest VRAM, and it exists in BOTH legs because the composite itself 
 `if (s_headless) return` that sat above it is gone; see issue 0006 and the psxport
 `present-image-sink` patch).
 
+*READ THIS BEFORE THE TABLE BELOW — the USER caught it, 2026-08-05.* Every capture in the original
+validation (presents 120/200/300/600/1200) was taken while the display register was in **24-bit
+320x240 — the MDEC/FMV mode**. All five were intro-movie frames. Not one was a frame this port
+RENDERED; the game's own mode is 15-bit 512x240 and I sampled none of it, then wrote up "the port
+renders in both legs" and put the Neversoft logo in the codemap as the proof. The instrument was
+fine; the INFERENCE from it was the same false generalisation this ledger exists to catch — I picked
+the present indices, and every one of them landed in the movie.
+
+*Re-measured on a NATIVELY RENDERED frame (present 3900, main menu, 15-bit 512x240):* VRAM 99.4%
+non-black / 1048 colours; present shot at a 960x720 sink 62.13% / 1048. The gap is the widescreen
+letterbox and it is arithmetic, not hand-waving: 512:240 is width-limited in a 4:3 sink, so the
+picture fills 960x450 of 960x720 = 62.5% of rows, and 99.4 x 0.625 = 62.1. This is the STRONGER
+validation, because a 512x240 frame exercises the widescreen letterbox path that a 320x240 FMV frame
+never touches — the FMV captures could not have caught a bug in it.
+
 *Why it can be believed where INST-18 could not:* it was validated by forcing the two instruments to
 DISAGREE, not by watching them agree. MEASURED 2026-08-05, spider1, one build, headless, present
-1200:
+1200 — **an FMV frame, per the correction above**:
 
 | sink | `PSXPORT_SHOT_AT` (VRAM) | `PSXPORT_PRESENT_SHOT_AT` (present) |
 |---|---|---|
