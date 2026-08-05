@@ -119,19 +119,14 @@ with plausible geometry, camera and HUD. The stale line understated the port by 
 it survived because until this session nothing could show the presented picture — so nobody had
 driven past the front-end and *looked*. Treat the reach as verified; treat what it draws as not:
 
-**WHAT IT DRAWS THERE IS WRONG, and it is ROOT-CAUSED to a MISSING FRAMEWORK FEATURE (issue 0007):
-`psxport` does not implement `GP0(0xC0)`, VRAM→CPU readback.** The guest saves the palette strip out
-of VRAM, modifies it, and restores it. The save is `GP0(0xC0)`, which the port silently ignored — no
-pixels returned — so the guest's destination buffer keeps its allocator poison (`0x33333333`), and
-the restore uploads that poison back over the live palettes. Every textured prim is CLUT-indexed and
-`raw=0` (modulate), so a poisoned strip makes every textured pixel `vertex_colour x RGB(152,200,96)`
-— smooth gouraud, no detail. The 358 untextured prims never sample a CLUT, which is why a blue prop
-and the brown HUD box keep correct colour. Textures were never at fault: pages are rich and
-correctly addressed, the texture window is irrelevant, and an independent decode reproduces the
-port's own result.
-**The strip ALTERNATES real/poison with a ~64-present period** — a whole investigation branch was
-spent hunting a "missing palette load" that was never missing, because four VRAM dumps taken at
-different times all landed in the wiped half of that cycle (see INST-24: independence in count is
-not independence in phase). **Fix is unwritten and its blast radius is all three ports** — any guest
-that saves and restores a VRAM region is affected, silently. The city-skyline screen (present 4500)
-additionally shows heavy blocky corruption — separate symptom, also in 0007.
+**AND IT DRAWS CORRECTLY THERE (2026-08-06).** Two independent defects were stacked on the same
+frame and neither was visible while the other stood. (1) `psxport` implemented no VRAM->CPU readback
+(`GP0(0xC0)`, GPUREAD and the DMA2 read direction were all dead), so the guest's save/modify/restore
+over the palette strip restored allocator poison `0x33333333` over the live CLUTs and every textured
+pixel became `vertex_colour x RGB(152,200,96)` — issue 0007. (2) The present letterbox used the
+framebuffer width as the display aspect, stretching a 512x240 frame 1.6x wide — issue 0008.
+Verified at present 10000: **1581 colours, 99.7% non-black, correct 4:3, no bars** (was 369 colours
+of pale green in a 960x450 band). Spider-Man renders in red and blue on a New York rooftop with a
+working HUD. **Still open:** the city-skyline screen (present 4500) shows heavy blocky corruption —
+separate symptom, unexamined, and NOT assumed to be covered by either fix.
+

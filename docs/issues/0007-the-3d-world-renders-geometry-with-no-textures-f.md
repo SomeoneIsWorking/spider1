@@ -1,11 +1,11 @@
 ---
 id: 7
 title: the 3D world renders geometry with no textures — flat/gouraud only
-status: open
+status: resolved
 symptom: gameplay 3D scene is monochrome green: character, floor, walls all flat-shaded with no texture detail; only 369 distinct colours in a full-screen 3D frame
 tags: render,3d,texture,gameplay,unverified-cause
 created: 2026-08-05
-updated: 2026-08-05
+updated: 2026-08-06
 ---
 
 FOUND 2026-08-05 by driving the port past the front-end for the first time and LOOKING at a picture.
@@ -408,3 +408,41 @@ frame after the fix — the auto-drive parked in the pause menu across 10000..11
 VERDICT IS STILL THE USER'S. The palette-poison mechanism this issue root-caused is fixed and
 measured gone; whether the 3D world now LOOKS right in a window is not something these numbers
 settle.
+
+### Resolution (2026-08-06)
+CLOSED 2026-08-06. The cause was found, the fix is in, and the picture is right.
+
+THE FIX: psxport now implements VRAM->CPU readback — and it was TWO dead paths, not one:
+  * mem.cpp GPUREAD (0x1F801810) was a hard `return 0;`
+  * gpu_dma2_block's to_gpu==0 arm advanced its address pointer and wrote NOTHING
+GP0(0xC0) itself was only a FIFO-length entry. The transfer therefore LOOKED complete to the guest
+(busy bit cleared, DrawSync passed) while returning zero bytes — silent by construction, which is
+why the symptom presented as "the textures are broken" for so long.
+The guest's save/modify/restore over the palette strip then restored its allocator's 0x33333333
+poison over the live CLUTs. Every textured prim is CLUT-indexed and raw=0 (modulate), so every
+textured pixel became vertex_colour x RGB(152,200,96) — the pale green.
+
+WHICH DRAIN THIS GAME USES WAS ESTABLISHED BY ABLATION, RUN IN BOTH DIRECTIONS rather than reasoned:
+  GPUREAD live, DMA2 drain disabled -> strip at present 10032: 1 distinct, 0x3333 = 100% (bug BACK)
+  DMA2 drain live, GPUREAD disabled -> strip at present 10032: 62 distinct, 0x3333 = 0%  (fixed)
+spider1 drains exclusively through DMA2. Both paths are implemented anyway, because both are
+reachable framework paths and the sibling ports are unmeasured.
+
+NEGATIVE CONTROL: the hermetic test went 0/5 -> 5/5, and its headline failure is the game bug in
+miniature ("poison == 0: got 32" — all 32 destination words still held 0x33333333 after the save).
+On real data, a build with the drains reverted reproduces 100% poison at the same present index.
+
+THE PICTURE, same present index, verified by me: 369 distinct colours of uniform pale green ->
+1581 colours at 99.7% non-black, Spider-Man in red and blue on a New York rooftop with a working
+HUD. (The 4:3 half of that came from issue 0008, fixed alongside.)
+
+A PREDICTION OF MINE THAT WAS WRONG, kept because it was load-bearing for a whole tick: I argued the
+world would come back correctly GREY rather than colourful, because the strip's non-poison phase is
+itself greyscale (r==g==b) and the guest is running a luminance filter. What I missed is that the
+filter is the PAUSE-SCREEN DIM, and its RESTORE half is what puts the colour back — the thing the
+missing readback had broken. The greyscale was never the resting state; it was half a round-trip we
+had truncated.
+
+STILL OPEN, and deliberately NOT closed with this: the city-skyline screen (present 4500) shows
+heavy blocky corruption. Different symptom, unexamined since, and it needs its own entry if it
+survives — do not assume this fix touched it.

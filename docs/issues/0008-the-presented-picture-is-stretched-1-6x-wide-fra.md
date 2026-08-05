@@ -1,7 +1,7 @@
 ---
 id: 8
 title: the presented picture is stretched 1.6x wide — framebuffer aspect is used as display aspect
-status: open
+status: resolved
 symptom: everything on screen is too wide and too short; a 512x240 game presents as a 2.133:1 letterboxed strip with big top/bottom bars instead of filling a 4:3 window
 tags: render,present,aspect,letterbox,framework,all-ports
 created: 2026-08-05
@@ -230,3 +230,29 @@ uncommitted areas from this session — present-image-sink, gpu-diagnostics-0007
 and this. A plain git diff of that tree is all four together;
 coord/patches/COMBINED-psxport-alltrees.diff is that combined diff (9 files, +683/-101) and is NOT
 four applyable patches. The operator should split it or land it as one reviewed unit.
+
+### Resolution (2026-08-06)
+CLOSED 2026-08-06 — fixed, gated, and provably inert for the port that was already correct.
+
+FIX: PresentInputs gains native_w (the game's own 4:3 width, from the display register), and the
+letterbox becomes pane_letterbox(4*disp_w, 3*native_w, ...) — 4:3 scaled by how much wider than its
+OWN native width the framebuffer is. native_w<=0 degrades to 4:3, which is both the right default
+for every PSX mode and divide-by-zero-proof.
+
+GATE (INST-25, same instrument and mode both sides, and it produced the failing answer before):
+  BEFORE  y 135..584 (450 tall), 2.133:1, STRETCHED 1.600x WIDE, bars 135+135 px
+  AFTER   y 0..719  (720 tall), 1.333:1, OK, bars none (fills the sink)
+Framework suite 17/17. test_present_plan 12/12 / 1703 checks, legacy control still red 10/11.
+
+TOMBA2 CANNOT MOVE, and that is asserted rather than argued: old rule disp_w:240; new rule
+4*disp_w:3*native_w; at native_w==320 they are algebraically identical. The suite compares the new
+viewport against a literal transcription of the old rule across all 385 widths in 256..640 (x/y/w/h
+each, denominator asserted). That matters because Tomba2Engine is the consumer this repo cannot run.
+
+WHY IT SURVIVED SO LONG, worth keeping: every other instrument here is INVARIANT under it. Coverage
+%, colour counts, brightness, tile richness — a uniform rescale changes none of them, and none of
+them was wrong. It took a human asking "are these stretched wide?". INST-25 (tools/present_geometry.py)
+now exists so the shape question has an instrument at all.
+
+NOT VERIFIED: spyro. It is 512x240 and therefore was affected identically, but I did not run it —
+the fix is in the shared framework and its tree does not carry the patch yet.
