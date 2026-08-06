@@ -80,3 +80,37 @@ WHAT THAT IS AND IS NOT GOOD FOR, stated so nobody over-trusts it:
 STILL OPEN, unchanged: the original city-skyline corruption has STILL not been re-observed, and the
 pause-screen spider-emblem overlay / 16:9 band is still undiagnosed. Both now have a repeatable way
 to be looked at, which they did not before.
+
+### Note (2026-08-06)
+2026-08-06 (step G6). PARTIAL PROGRESS on this entry's second open item — the pause screen's
+"16:9 content band". Measured, not inferred, and it is NOT the widescreen mod.
+
+Captured 390 consecutive presents at the PRESENT stage across three scenes and measured the lit-row
+extent of every one (960x720 windowed sink):
+
+    pause screen, resting   150/150 presents lit rows 90..629  -> 960x540 content band (1.778)
+    rooftop, presents 1500+   41/120 presents lit rows 90..629  -> 960x540
+                              79/120 presents lit rows 0..719   -> 960x720 (1.333, full 4:3)
+    front-end/loading        87/120 presents lit rows 570..602 (a text strip), 33 fully black
+
+So the band is real and reproducible — but it is NOT constant, and in the rooftop capture it
+switches ONCE (T x41 then F x79) and never switches back. Looking at the two frames: the 960x540
+ones have NO HUD and a cinematic camera; the 960x720 ones carry the health bar, ammo count and
+"FOLLOW THE SPIDEY COMPASS" prompt. That is the GAME's own cinematic letterbox, drawn by the game,
+not a present-stage aspect error — which also explains why issue 0008's aspect gate (which measured
+the display rect) and this observation can both be right.
+
+WHAT IS STILL NOT ESTABLISHED, so nobody reads this as closed: whether the PAUSE screen's band is
+the same game-drawn cinematic letterbox (the pause was entered from a state this replay reaches, and
+I did not check whether that state is a cutscene) or something else. Deciding it needs the display
+register at that present, which I did not capture. The measurement above is a content-extent
+measurement and inherits the standing caveat that a content bbox is not a display rect — it is
+trustworthy here only because three very different scenes agreed on the same two exact extents.
+
+Also confirmed still present, undiagnosed: the large translucent spider-emblem polygon over the whole
+pause scene (scratch/shots-g6/B_rest/p003600.ppm). It is byte-identical across all 150 presents, so
+whatever it is, it is stable and not flickering.
+
+The pad replay that reaches this state is replays/bugs/pause-corruption.pad; the resting state after
+the replay ends (present ~2600 onward) is the pause screen and is completely static, which makes it a
+good anchor for anyone re-examining it: 150 consecutive presents were byte-identical.

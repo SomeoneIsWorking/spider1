@@ -122,16 +122,16 @@ Statuses: ✅ re-verified · 🟡 re-partial (honest gap) · 🔬 in-progress ·
 - deps: RE-03
 - evidence: 
 - where: 
-- gap: 
-- notes: 
+- gap: Phase 0 runs the guest's own main() on the substrate (spiderman_bootInit rec_dispatches 0x8002C354 and never returns), so the framework's native frame loop in game_main is never entered — measured 2026-08-06: the unconditional lucent::info 'entering native frame loop' (native_boot.cpp:295) printed 0 times over a 230s windowed run reaching present 13757, while the same line DOES print in Tomba2Engine runs (C025, issue 0011).
+- notes: CONSEQUENCE: every GameHooks member whose only call sites are inside native_step_frame is unreachable in this port — drawOTag (native_boot.cpp:173/:194), frameUpdate, and the PcScheduler hooks. They are correctly fail-fast stubs in game/core/game_hooks.cpp; do not implement one expecting it to run. RE-18 waits on this.
 
 ### RE-13 — Scheduler task layout
 - status: todo
 - deps: RE-03
 - evidence: 
 - where: 
-- gap: 
-- notes: 
+- gap: NOTHING is RE'd here — no stage pointer, no substate selector, no task-slot layout. Measured consequence 2026-08-06 (issue 0011, C026): this is what BLOCKS a native-renderer scene classifier (RE-18). The only RE'd scene identity the port has is the guest module registry, and a full load+evict census over 13757 presents found 8 events / 3 module names, ALL before present 780; 94.3% of the run shares one constant resident set that spans the attract fly-through AND live 3D gameplay with the HUD up. Tomba!2 keys its classifyScene on 0x801FE000 / 0x801FE00C / 0x1F800138 / 0x801FE048 / 0x80109450 — this port has no counterpart for any of them.
+- notes: docs/codemap.md records 'the SDK task model may not apply to this engine', so do not assume Tomba!2's task-slot shape; find this game's own scene/stage state first. RE-18 is the consumer waiting on it.
 
 ### RE-06 — Pad driver
 - status: re-verified
@@ -212,6 +212,14 @@ Statuses: ✅ re-verified · 🟡 re-partial (honest gap) · 🔬 in-progress ·
 - where: game/core/game_config.cpp hle.setGeomOffset=0x8008BF24 / hle.setGeomScreen=0x8008BF14; the recording is framework (external/psxport/runtime/recomp/proj_params.cpp libgte_set_geom_offset/_screen, registered by sync_overrides.cpp:213-214). Probe: game/core/diag_overrides.cpp diag_geom_setup on 0x80075D0C (PSXPORT_DEBUG=geomwatch). Guest: FUN_80075D0C is the SOLE caller (jal at 0x80076180 SetGeomScreen, 0x80076190 SetGeomOffset); it computes vp[7]=H, vp[8]=OFX, vp[9]=OFY into a u16 viewport descriptor whose pointer it also stores at gp+0x1124 = 0x800B5918. FUN_8007C2AC zeroes CR24/25 for its inner loop (0x8007C0B4/B8) and restores them (0x8007C268/6C) from *(*0x800B5918+0x10), i.e. the same vp[8]/vp[9] - so no second recording path is needed.
 - gap: H is only observed for the boot/front-end viewport reached in a 70 s headless run (OFX=256 OFY=120 H=276, constant over all sampled calls). Gameplay/cutscene viewports are NOT observed, and since the game DERIVES H per view (vp[7] = ((((vp[0]-vp[2])>>1)<<12)/vp[6]<<12)/*(int*)(gp+0x1140)) the value WILL differ elsewhere. That is why nothing is baked into GameConfig; the recording is per-call and stays correct, but no one has yet watched a gameplay viewport switch. Not compared against real PSX hardware.
 - notes: Tomba!2's pattern TRANSFERS as a mechanism but NOT as data: Tomba!2 passes literal constants (OFX 160 / OFY 120 / H 350) and its config comment records them; Spider-Man passes computed viewport fields and has no constants to record. OFX=256 is 512/2, the centre of this game's 512-wide framebuffer - a further datum against this workspace's hardcoded-320 assumptions. Also repaired a latent defect found while editing: the hle POSITIONAL initialiser had the entry commented /* vsyncTrap */ sitting in the setGeomOffset SLOT, so setting vsyncTrap would have installed the VSync abort at the GTE setter. Harmless only because all three fields were 0.
+
+### RE-18 — Native renderer (pc_render): scene classifier + fail-fast drawOTag skeleton — Tomba!2's pattern
+- status: todo
+- deps: RE-12, RE-13
+- evidence: 
+- where: 
+- gap: BLOCKED ON BOTH DEPS, MEASURED 2026-08-06 (issue 0011, C025, C026). (a) The hook is unreachable: hooks->drawOTag has exactly 2 call sites in all of psxport (native_boot.cpp:173/:194), both inside native_step_frame, which only runs from game_main's frame loop — and spiderman_bootInit rec_dispatches the guest's own main() 0x8002C354, which never returns. The unconditional lucent::info 'entering native frame loop' (native_boot.cpp:295) printed 0 times across a 230s windowed run reaching present 13757, while the same line DOES print in Tomba2Engine runs. So a skeleton implemented on that hook today is dead code. That is RE-12. (b) There is nothing to classify on: Tomba!2's classifyScene keys on 5 RE'd fields (task0 state 0x801FE000, stage ptr 0x801FE00C, task-sm 0x1F800138, substate 0x801FE048, overlay sig 0x80109450); this port's only RE'd identity is the guest module registry, and a full load+evict census (ovload channel) over 13757 presents found 8 events / 3 names, ALL before present 780, leaving 94.3% of the run on one constant set {THUG,BLACKCAT} that spans the attract fly-through (p800/p3000) AND live gameplay with the HUD up (p9500, 99.82% non-black / 1986 colours). That is RE-13.
+- notes: The mechanism transfers, the identity data does not — the same shape RE-17 found for the projection constants. Do RE-13 first: without a stage/substate lens the fail-fast's crash list is a backlog of length one, which is the opposite of the point. If a reachable abort is wanted before RE-12, the only game-side seam is a native override on this game's libgpu DrawOTag (the engine_set_override_main shape module_loader.cpp already uses) — but that address has NOT been RE'd and is in neither GameConfig nor any doc here.
 
 
 ## module-loader

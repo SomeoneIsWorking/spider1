@@ -23,8 +23,14 @@
 #include "game.h"
 #include "cfg.h"
 #include "game_iface.h"
+#include "gpu_vk.h"
 #include "recomp_iface.h"
 #include <lucent/log.h>
+#include <cstdlib>
+#include <cstring>
+#include <filesystem>
+#include <string>
+#include <system_error>
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
 // VSync — SLUS_008.75 0x80084BE0. libetc's VSync(int mode).
@@ -204,6 +210,84 @@ static constexpr uint32_t kMaxPresentCatchup = 4;
 // real-time-derived work that must not be silently throttled to the present rate.
 static constexpr uint32_t kMaxAudioCatchup = 16;
 
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+// `PSXPORT_DEBUG=presentclock` — PER-PRESENT WALL-CLOCK SPACING, the axis nothing else measures.
+//
+// WHY IT EXISTS. Every render instrument in this project samples the PICTURE: non-black coverage,
+// colour counts, per-pixel diffs. All of them are blind to a defect in WHEN a frame reaches the
+// screen. A user reporting "flicker" can be describing an irregular present cadence — a frame held
+// for 50 ms next to one held for 8 ms reads as flicker even when every individual frame is correct —
+// and no instrument in this repo could distinguish that from a pictorial defect. lucent emits no
+// timestamps, so the delta has to be carried by the call site.
+//
+// WHAT A NEGATIVE LOOKS LIKE, by construction. `g_present_n` is incremented UNCONDITIONALLY on the
+// same line as the present, so the count is honest whether or not anyone is watching, and the
+// summary below prints it. "presentclock lines absent" therefore means the channel is off, never
+// "presents happened and were not recorded". A perfectly regular cadence prints as a run of equal
+// `dt` values — the same instrument, same format, that an irregular one prints unequal values in, so
+// it can show either answer.
+//
+// WHAT IT CANNOT SEE, bounded by grep rather than assumed. This is the ONLY present call site
+// reachable from this port's own frame loop (`grep -rn gpu_present game/` -> this line, sole hit).
+// The framework has two other presenters, neither on this path: `GpuState::gpu_clear_display`
+// (FMV/splash teardown, called from native_fmv/native_stub/native_boot) and `gpu_vk_present_image`
+// (native_fmv's direct frame present). So INTRO-FMV presents are NOT counted or timed here. A run
+// measured with this instrument is measuring the guest-driven gameplay/front-end cadence.
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+static unsigned long long g_present_n       = 0;   // presents through THIS path, always counted
+static long long          g_present_prev_ns = -1;  // -1 until the first present
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+// `PSXPORT_PRESENT_BURST=<first>:<count>:<dir>` — capture N CONSECUTIVE presented pictures.
+//
+// The framework's PSXPORT_PRESENT_SHOT_AT takes at most 32 indices and hardcodes its output into
+// `scratch/screenshots/`, which every run in this repo writes into — a shared accumulator. Analysing
+// it by glob is how a STALE file from an earlier build was mistaken for "the correct frame" and
+// produced the (since refuted) widescreen explanation of this game's flicker. This writes to a
+// caller-named directory, so a run's output set is defined by the run rather than by a wildcard, and
+// a consecutive window can be longer than 32.
+//
+// It calls the framework's public `gpu_vk_present_shot` (gpu_vk.h) — the only capture in this
+// framework that samples the PRESENT stage, i.e. what the player sees, rather than guest VRAM.
+// Guest VRAM captures are structurally incapable of showing this port's picture (issue 0006).
+//
+// NEGATIVE BY CONSTRUCTION: it logs `armed` once at configure time and `complete` once the window
+// closes. `armed` with no `complete` means the run never reached present `first` — a different
+// statement from "the window produced nothing", and the two must not look alike.
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+static void present_burst(Core* c, unsigned long long idx) {
+  static int          init  = 0;
+  static unsigned long long first = 0, count = 0;
+  static std::string  dir;
+  static unsigned long long wrote = 0;
+  static int          done  = 0;
+  if (!init) {
+    init = 1;
+    if (const char* e = cfg_str("PSXPORT_PRESENT_BURST")) {
+      char buf[512]; snprintf(buf, sizeof buf, "%s", e);
+      char* a = strtok(buf, ":"); char* b = strtok(nullptr, ":"); char* d = strtok(nullptr, ":");
+      if (a && b && d) {
+        first = strtoull(a, nullptr, 0); count = strtoull(b, nullptr, 0); dir = d;
+        std::error_code ec; std::filesystem::create_directories(dir, ec);
+        if (ec) { lucent::error("burst", "cannot create {} ({}) — NOTHING will be captured", dir, ec.message()); count = 0; }
+        else lucent::info("burst", "armed: presents [{}, {}) -> {}/p<idx>.ppm", first, first + count, dir);
+      } else {
+        lucent::error("burst", "PSXPORT_PRESENT_BURST='{}' is not <first>:<count>:<dir> — NOTHING will be captured", e);
+      }
+    }
+  }
+  if (!count || done || idx < first || idx >= first + count) {
+    if (count && !done && idx >= first + count) {
+      done = 1;
+      lucent::info("burst", "complete: wrote {} of {} requested presents into {}", wrote, count, dir);
+    }
+    return;
+  }
+  char pth[600]; snprintf(pth, sizeof pth, "%s/p%06llu.ppm", dir.c_str(), idx);
+  gpu_vk_present_shot(c, pth);   // logs its own path, sink size, leg and non-black coverage
+  ++wrote;
+}
+
 static void vblank_advance(Core* c) {
   using clock = std::chrono::steady_clock;
   static const clock::time_point t0 = clock::now();
@@ -231,7 +315,26 @@ static void vblank_advance(Core* c) {
   if (watch) cfg_logf("presentwatch", "arm: presenting %u frame(s), window [%08X..%08X) sp=%08X",
                       present, win_lo, win_lo + kWords * 4, c->r[29]);
   for (uint32_t i = 0; i < present; ++i) {
+    // BRACKET the present, do not just stamp after it. A single post-present timestamp cannot tell
+    // "the port submitted this frame late" from "the port submitted on time and present BLOCKED",
+    // and those are different bugs with different fixes. The first version of this instrument
+    // stamped only AFTER gpu_present and showed a 3 ms / 30 ms gap alternation — which is consistent
+    // with EITHER story, and the post-only form cannot choose between them. Bracketing settled it:
+    // present cost is flat (median 0.52 ms, p99 1.54 ms), so the alternation is entirely in WHEN the
+    // port submits. That is issue 0012. Keep both numbers on the line; do not re-collapse them.
+    const long long pre_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(clock::now() - t0).count();
     gpu_present(c);
+    const long long post_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(clock::now() - t0).count();
+    const long long dt_ns   = g_present_prev_ns < 0 ? -1 : pre_ns - g_present_prev_ns;
+    g_present_prev_ns = pre_ns;
+    // `owed` is what real time asked for and `present` is what the catch-up cap allowed: when they
+    // differ the port DROPPED frames, which is exactly the condition an irregular cadence comes from,
+    // so both are on the line rather than inferred from the gap.
+    lucent::debug("presentclock", "n={} t_us={} dt_us={} cost_us={} slot={}/{} owed={} vbl={}",
+                  g_present_n, pre_ns / 1000, dt_ns / 1000, (post_ns - pre_ns) / 1000,
+                  i + 1, present, fields - cur, fields);
+    present_burst(c, g_present_n);
+    ++g_present_n;
     if (!watch) continue;
     for (uint32_t w = 0; w < kWords; ++w) {
       const uint32_t now = c->mem_r32(win_lo + w * 4);
