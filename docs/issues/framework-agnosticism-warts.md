@@ -361,3 +361,46 @@ silent aliasing corruption. **Find out why the heap is being driven past 2 MB be
 mirroring**; a candidate is the fictional 7.5 MB heap crt0 computes from the devkit stack-top constant
 (`*0x800B3E70 = 0x00800000`), which means the allocator never refuses a request the way hardware
 effectively would.
+
+---
+
+## `gpu_native.cpp:547` assumes a 320-wide framebuffer when classifying VRAM as texture atlas
+
+**Found 2026-08-06, while landing the frame-envelope producer. NOT FIXED — no framework claim was
+open this run, and this repo does not edit `external/psxport` without one.**
+
+```cpp
+// runtime/recomp/gpu_native.cpp, in GpuState::gpu_native_load_image
+// "Register texture-region uploads (anything right of the two 320-wide framebuffers) ...
+//  Framebuffer uploads (x<320) are NOT atlas data."
+if (x >= 320) vram_register_atlas(x, y, w, h, (w <= 16) ? "clut" : "atlas");
+```
+
+Spider-Man's framebuffer is **512 wide**, not 320: `FUN_80061140` calls `SetDefDrawEnv(ctx, 0, 0,
+0x200, 0xF0)` and `SetDefDrawEnv(ctx, 0, 0x100, 0x200, 0xF0)`, so the two pages occupy VRAM
+`x 0..511`, `y 0..239` and `y 256..495` (RE-12; independently confirmed by the framework's own
+`[gpu] display depth -> 15-bit (GP1(08)=08000002, 512x240)`, and by this session's own measurement
+that every non-black halfword in a boot-time VRAM dump sits at `x >= 512`).
+
+So for this game the whole band `x 320..511` is **framebuffer that the guard classifies as texture
+atlas**. Consequences, both diagnostic rather than picture:
+
+* `vram_register_atlas` marks framebuffer columns as a protected resident page, so the
+  `debug vramguard` clobber detector will report ordinary framebuffer drawing as an atlas clobber —
+  false positives on exactly the instrument whose job is to be believed.
+* Conversely nothing here under-reports, so no atlas clobber is hidden by it.
+
+This is the **fifth** hardcoded-320 this workspace has found in the widescreen/present path (after
+issue 0008's two, and the two named in that issue's write-up). The proper fix is the same shape as
+issue 0008's: the boundary is `s_disp_w` (or, more precisely, the drawing-area extent the DRAWENV
+programs), not a literal — `gpu_native_load_image` already has `core` in scope and
+`core->game->gpu.s_disp_w` is what every other site in the file falls back to `320` from.
+
+## `ot_attr.h` hardcodes Tomba!2's packet-pool range
+
+`OtAttr`'s packet-pool store attribution (table 1) is scoped to a literal
+`[0x800BFE68, 0x800E7E68)`, documented in the header as "the shared packet pool". That is Tomba!2's
+pool. Spider-Man **heap-allocates** its two pools at runtime (`FUN_80061230`; measured
+`pool=0x800E5604` for one context), so on this port the attribution table silently covers the wrong
+range and `otattr` reports nothing for the packets that matter. Not fixed here for the same reason as
+above; recorded so the next agent does not spend a session wondering why `otattr` is empty.

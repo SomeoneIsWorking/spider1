@@ -5,21 +5,24 @@
 //   the picture exactly as it does today. Byte-unchanged: this leg adds reads and log lines and
 //   nothing else.
 //
-// LEG 2, `pc_render` — THE NATIVE RENDERER. Do NOT run the guest body: classify the scene from the
-//   game's own state and dispatch to its native producer. There are ZERO producers today, so every
-//   scene reaches abortUnimplemented() and the run dies naming the scene. THAT IS THE CORRECT RESULT
-//   for this step (docs/re-frontier.md RE-20/RE-18): no plausible-looking fallback, no OT
-//   transcription — the crash list IS the rebuild backlog.
+// LEG 2, `pc_render` — THE NATIVE RENDERER. Do NOT run the guest body: produce the frame ENVELOPE
+//   natively (game/render/frame_envelope.cpp — the page flip, the drawing area/offset/mode and the
+//   background clear), then classify the scene from the game's own state and dispatch to its native
+//   DISPLAY-LIST producer. There are ZERO display-list producers today, so every scene except the
+//   boot-init scene '....' — whose entire picture IS the envelope, measured — reaches
+//   abortUnimplemented() and the run dies naming the scene. THAT IS THE CORRECT RESULT for this step
+//   (docs/re-frontier.md RE-20/RE-18): no plausible-looking fallback, no OT transcription — the crash
+//   list IS the rebuild backlog.
 //
 // WHICH LEG IS THE DEFAULT, and why this port's default is the opposite of Tomba!2's.
-//   Tomba!2 defaults to pc_render because it HAS producers. This port has none, so defaulting to
-//   pc_render would abort every run on its first engine frame — including every other agent's boot
-//   gate. The default is therefore the REFERENCE leg, set here before native_boot_run() reads
-//   PSXPORT_RENDER_PSX, so an explicit `PSXPORT_RENDER_PSX=0` selects the native leg and an explicit
-//   `=1` re-states the default.
+//   Tomba!2 defaults to pc_render because it has producers for the scenes its boot passes through.
+//   This port has one producer and it covers exactly one scene, so defaulting to pc_render would
+//   abort every run at submitFrame call #2 — including every other agent's boot gate. The default is
+//   therefore the REFERENCE leg, set here before native_boot_run() reads PSXPORT_RENDER_PSX, so an
+//   explicit `PSXPORT_RENDER_PSX=0` selects the native leg and an explicit `=1` re-states the default.
 //   This is not a fallback and not a stopgap: it is the honest statement that this port's shipping
-//   picture still comes from the guest's OT walk. It stops being the default the moment the first
-//   native producer exists, and the default flips WITH that producer, not before it.
+//   picture still comes from the guest's OT walk. The condition for flipping it is not "a producer
+//   exists" but "every scene a boot passes through has one" — today that is '....' and not 'dem1'.
 //
 // THE PICTURE RULE (coord/PROTOCOL.md). The native leg runs no `gen_func_*` body — structurally, by
 // not super-calling. Everything this file reads (the level name, the double-buffer context) is read
@@ -28,6 +31,8 @@
 // `c->rsub.projParams`, RE-17), never from the OT, GP0 packets or `gte_read_ctrl()`.
 #include "render_seam.h"
 #include "scene_id.h"
+#include "frame_census.h"
+#include "frame_envelope.h"
 #include "core.h"
 #include "game.h"
 #include "game_iface.h"
@@ -40,8 +45,47 @@
 // Framework internal, declared at file scope exactly as fntrace.cpp does: inside an anonymous
 // namespace it would take internal linkage and fail to resolve.
 int gpu_frame_no(Core* c);
+void gpu_vram_save(Core*, uint16_t*);   // gpu_native.cpp — a copy of the whole 1024x512 CPU VRAM
 
 namespace {
+
+// WHAT THE NATIVE LEG HAD DRAWN WHEN IT GAVE UP. The abort below is the designed outcome for a scene
+// with no producer, but "it aborted" says nothing about whether the producers that DID run put the
+// right pixels anywhere — and this leg dies by abort(), so no later capture can answer it.
+//
+// So dump the WHOLE of VRAM, not the display region: the display region depends on the page flip,
+// which is itself one of the things a producer here programs, and a capture whose extent moves with
+// the thing under test cannot be compared between two builds. 1024x512 is fixed by the hardware.
+//
+// CAVEAT, stated because it bounds every conclusion drawn from this file: under the VK backend the
+// RASTERISED picture lives in the GPU image and is not written back to CPU VRAM (framework issue
+// 0006). What this dump therefore shows is everything that reaches CPU VRAM — GP0(02) fills, VRAM
+// uploads and copies, FMV output — and NOT projected geometry. That is exactly the right instrument
+// for the frame envelope, whose whole visible effect is a fill, and the wrong one for a future
+// geometry producer, which will need a present-stage capture instead.
+void dumpVramAtAbort(Core* c) {
+  static const char* kPath = "scratch/raw/native_abort_vram.ppm";
+  static uint16_t vram[1024 * 512];
+  gpu_vram_save(c, vram);
+  FILE* f = fopen(kPath, "wb");
+  if (!f) { lucent::error("rseam", "could not open {} — NO abort-time VRAM capture was written, so "
+                                   "any comparison against one is comparing a stale file", kPath);
+            return; }
+  fprintf(f, "P6\n1024 512\n255\n");
+  for (int i = 0; i < 1024 * 512; ++i) {
+    const uint16_t p = vram[i];
+    const unsigned char rgb[3] = { (unsigned char)((p & 31) << 3),
+                                   (unsigned char)(((p >> 5) & 31) << 3),
+                                   (unsigned char)(((p >> 10) & 31) << 3) };
+    fwrite(rgb, 1, 3, f);
+  }
+  fclose(f);
+  long nonzero = 0;
+  for (int i = 0; i < 1024 * 512; ++i) if (vram[i]) ++nonzero;
+  lucent::error("rseam", "abort-time VRAM written to {} — {}/{} halfwords non-zero ({:.2f}%). CPU VRAM "
+                         "only: rasterised geometry lives in the VK image and is NOT in this capture.",
+                kPath, nonzero, 1024 * 512, 100.0 * (double)nonzero / (1024.0 * 512.0));
+}
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
 // The guest addresses this file names, each with the instruction it was read from.
@@ -131,6 +175,11 @@ class RenderSeam {
   // A run killed at any moment still leaves the count in the log.
   static constexpr unsigned long long kReportEvery = 512;
 
+  // THE FIRST NATIVE PRODUCER. The frame envelope belongs to the FRAME, not to a scene — every scene's
+  // picture sits inside the page it flips to and the clip/clear it programs — so it runs before the
+  // per-scene dispatch, for every scene. See frame_envelope.h.
+  FrameEnvelope     mEnvelope;
+
   // The scene census (docs/re-frontier.md RE-23's open gap): report every CHANGE of the game's own
   // level-name lens, capped so a pathological wobble cannot flood the log — but the cap is announced
   // and the running total rides on every periodic line, so the denominator never goes missing.
@@ -190,7 +239,17 @@ void RenderSeam::submitFrame(Core* c) {
     seamPass(c, psxLeg);
   }
 
-  if (psxLeg) superCall(c);
+  if (psxLeg) {
+    superCall(c);
+    // THE EQUIVALENCE CHECK RUNS AFTER THE SUPER-CALL, and the ordering is the whole point: the guest
+    // builds this frame's DR_ENV inside PutDrawEnv, so before the super-call the packet in guest RAM
+    // is the one from two frames ago (the DB alternates) — or, on the very first call, uninitialised.
+    // Checking there compared the port's CURRENT words against the guest's STALE ones and reported
+    // mismatches that were an artefact of the ordering, not of the arithmetic.
+    // Diagnostic only (PSXPORT_DEBUG=envcheck); reads guest RAM, writes nothing.
+    const DrawBuffer post(c, c->mem_r32(kCurrentDb));
+    mEnvelope.verifyAgainstGuest(c, post.drawEnv());
+  }
 }
 
 void RenderSeam::seamPass(Core* c, bool psxLeg) {
@@ -214,29 +273,70 @@ void RenderSeam::seamPass(Core* c, bool psxLeg) {
                 mCalls, gpu_frame_no(c), db.base(), db.otBase(), db.otHead(), db.poolBase(),
                 scene.text(), scene.code());
 
+  // The RE-21 display-list inventory (PSXPORT_DEBUG=fcensus). A DIAGNOSTIC — it answers "what is this
+  // frame made of", and no producer may resolve anything from it. See frame_census.h.
+  frame_census_report(c, db.drawEnv(), db.dispEnv(), db.otHead(), mCalls, scene.text());
+
   // ---- LEG 1: the reference renderer -----------------------------------------------------------
-  // Nothing to do here — submitFrame() super-calls the recompiled body once this read-only scope has
-  // closed, so the guest's own ResetGraph/PutDispEnv/PutDrawEnv/DrawOTag runs unchanged.
+  // Nothing to PRODUCE here — submitFrame() super-calls the recompiled body once this read-only scope
+  // has closed, so the guest's own ResetGraph/PutDispEnv/PutDrawEnv/DrawOTag runs unchanged. The one
+  // thing that does run is the envelope producer's EQUIVALENCE CHECK, which needs the guest's own
+  // DR_ENV packet to compare against and therefore only exists on this leg. It is a diagnostic
+  // (PSXPORT_DEBUG=envcheck), off by default, and emits nothing.
   if (psxLeg) return;
 
   // ---- LEG 2: the one native renderer ----------------------------------------------------------
   // No super-call, so no `gen_func_*` body runs in the picture path — that is the structural half of
   // the picture rule, checkable by reading this call path.
+  //
+  // THE FRAME ENVELOPE FIRST, for every scene: the page flip, the drawing area/offset/mode, and the
+  // background clear. It is the whole of scene '....' (measured — see frame_envelope.h) and it is
+  // layer 0 of every other scene, so it cannot live behind the per-scene dispatch.
+  mEnvelope.produce(c, db.drawEnv(), db.dispEnv());
+
   renderScene(c, scene);
 
-  // NOTE for the first producer that lands here: the framework drains the render queue at the end of
-  // its DMA2 linked-list walk (gpu_native.cpp), which this leg does not run — so a native producer
-  // must flush its own emission (`c->game->rq.flush(c)`) after building the frame. Nothing calls it
-  // today because nothing emits today; adding the call before there is anything to flush would be
-  // guessing at a design that has not been made.
+  // The framework drains the render queue at the end of its DMA2 linked-list walk (gpu_native.cpp),
+  // which this leg does not run. The envelope emits through gpu_gp0/gpu_gp1, which act immediately
+  // and queue nothing, so there is nothing to flush YET — the first producer that uses
+  // RenderQueue::emitOrQueue must add `c->game->rq.flush(c)` here, and this comment is the note that
+  // it is missing rather than forgotten.
 }
 
 void RenderSeam::renderScene(Core* c, const SceneName& scene) {
-  // THE ONE NATIVE-RENDERER DISPATCH. When a producer exists it is selected here, from the scene
-  // identity — never from the OT, the GP0 stream or the GTE. Today there are none, so every scene
-  // falls through to the abort, and the abort names the scene so the crash sequence IS the backlog
-  // (docs/re-frontier.md RE-21 is that backlog: not one display-object type is decoded yet).
-  abortUnimplemented(c, scene, "no native producer exists for ANY scene yet (RE-21 is unstarted)");
+  // THE ONE NATIVE-RENDERER DISPATCH. A producer is selected here from the scene IDENTITY — never
+  // from the OT, the GP0 stream or the GTE. Every scene without one falls through to the abort, and
+  // the abort names it, so the crash sequence IS the backlog (docs/re-frontier.md RE-21).
+  //
+  // SCENE '....' — the engine's boot-init submit, and the FIRST scene the abort named. Its picture is
+  // the frame envelope and NOTHING ELSE: mEnvelope.produce() has already drawn it by the time we get
+  // here, so the frame is complete and this returns.
+  //
+  // THE CLAIM IS CHECKED, NOT ASSUMED. "This frame carries no geometry" came from a measurement
+  // (frame_envelope.h quotes it), and a measurement is about the run it was taken on. So re-walk the
+  // ordering table and abort if it ever carries a primitive that can change a pixel — then a build
+  // that silently dropped part of the boot picture would CRASH here instead of looking finished. The
+  // walk is a diagnostic use of the OT (it decides whether to abort); nothing about the picture is
+  // resolved from it.
+  if (scene.unset()) {
+    const DrawBuffer db(c, c->mem_r32(kCurrentDb));
+    FrameCensus f;
+    f.walk(c, db.otHead());
+    if (f.pixelWriters() == 0) return;             // envelope-only, as measured — frame complete
+    lucent::error("rseam", "the boot-init frame carries {} pixel-writing primitives (poly3={} poly4={} "
+                           "line={} rect={} sprite={} fill={} copy={} upload={}; self-copies {} are "
+                           "excluded because they write back what they read). The envelope-only "
+                           "producer does not cover that.",
+                  f.pixelWriters(), f.poly3, f.poly4, f.line, f.rect, f.sprite, f.fill, f.vramCopy,
+                  f.upload, f.vramCopySelf);
+    abortUnimplemented(c, scene, "scene '....' is no longer envelope-only — see the [rseam] line above");
+  }
+
+  abortUnimplemented(c, scene,
+                     "no native producer exists for this scene. The frame ENVELOPE (page flip, "
+                     "drawing area/offset/mode, background clear) is produced natively for every "
+                     "scene; what is missing here is the DISPLAY LIST — RE-21, not one display-object "
+                     "type is decoded yet");
 }
 
 void RenderSeam::abortUnimplemented(Core* c, const SceneName& scene, const char* why) {
@@ -258,6 +358,11 @@ void RenderSeam::abortUnimplemented(Core* c, const SceneName& scene, const char*
       gpu_frame_no(c), mCalls, mSceneChanges,
       db.base(), db.drawEnv(), db.dispEnv(), db.otBase(), db.otHead(), db.poolBase(),
       pp.geomValid() ? 1 : 0, pp.geomOfx(), pp.geomOfy(), pp.geomH());
+  lucent::error("rseam", "native producers reached this run: frame envelope produced={} clears={} "
+                         "(0 produced means the envelope never ran — a different failure from a "
+                         "producer that ran and drew nothing)",
+                mEnvelope.produced(), mEnvelope.clears());
+  dumpVramAtAbort(c);
   fflush(stderr);
   abort();
 }
@@ -293,8 +398,13 @@ void spiderman_install_render_seam(Game* g) {
   // Tomba!2's is the native one: this port has zero native producers, so a pc_render default would
   // abort every run — including every boot gate — on its first engine frame.
   g->core.rsub.mode.setPsxRender(true);
-  lucent::info("rseam", "default render leg = psx_render (reference). This port has NO native "
-                        "producers yet; PSXPORT_RENDER_PSX=0 selects the native leg, which aborts on "
-                        "its first engine frame naming the scene. That abort is the correct result.");
+  lucent::info("rseam", "default render leg = psx_render (reference). This port has ONE native "
+                        "producer — the frame envelope (page flip, drawing area/offset/mode, "
+                        "background clear), which is the whole of the boot-init scene '....' and "
+                        "layer 0 of every other scene. It has no DISPLAY-LIST producer for any scene, "
+                        "so PSXPORT_RENDER_PSX=0 renders scene '....' natively and then aborts at the "
+                        "next scene naming it. That abort is the correct result, and it is why the "
+                        "default has NOT flipped: a pc_render default would abort every boot gate at "
+                        "submitFrame call #2.");
   g_seam.install();
 }

@@ -44,6 +44,12 @@ uint32_t SceneName::code() const {
   return (level << 8) | (c3 - kAsciiZero);   // wrapping, exactly as `addiu $v0,$v0,-0x30` does
 }
 
+bool SceneName::unset() const {
+  for (int i = 0; i < kBytes; ++i)
+    if (mRaw[i] != 0) return false;
+  return true;
+}
+
 bool SceneName::sameAs(const SceneName& o) const {
   for (int i = 0; i < kBytes; ++i)
     if (mRaw[i] != o.mRaw[i]) return false;

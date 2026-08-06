@@ -61,6 +61,12 @@ class SceneName {
   // whatever is there — exactly as the guest's own encoder would.
   bool printable() const { return mPrintable; }
 
+  // All four bytes zero: the mode switch has not written a level name yet. This is the state the
+  // engine's boot-init submit runs in (`FUN_80061140` calls submitFrame once at the end of graphics
+  // init, before any level exists), and it is a DIFFERENT thing from "unprintable" — a garbage or
+  // half-written name is unprintable but not unset, and must not be mistaken for the init frame.
+  bool unset() const;
+
   // FUN_8005A734, ported. Returns (level << 8) | sub, the value FUN_80062CE0 switches on.
   //
   //   name[0] 'd' or 'D'                 -> level = 0x99   (a distinct scheme; see RE-23)
