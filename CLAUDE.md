@@ -46,6 +46,30 @@ stopgap in-code as `// STOPGAP: <proper fix> because <why>` and add it to the `�
 
 The `⛔ hack` list in `docs/re-frontier.md` is currently **empty**. Keep it that way, or shrink it.
 
+## The picture comes from GAME STATE, never from what the GTE produced
+
+Two checkable rules; the binding statement is `coord/PROTOCOL.md`. The word "tap" is retired — it
+needed case-by-case adjudication every time, which is the signature of an underspecified rule.
+
+1. **The shipping picture path runs no `gen_func_*` body.** Reads are not the problem: a producer
+   reads the node's own fields, and diagnostics are exempt because they ANSWER QUESTIONS rather than
+   produce the picture. The gate: a producer that runs a gen body cannot interpolate, since re-running
+   it under a lerped camera would write guest RAM.
+2. **Resolve from what SUBMITS to the GTE, never from what it produced.** Find the
+   `SetRotMatrix`/`SetTransMatrix`/RTPS site and take its INPUTS — the game's own pre-quantisation
+   values. Never invert `gte_read_ctrl()`/the OT/a composed GP0 packet to recover a transform: those
+   are s16-quantised and factoring the camera back out leaves a residue that is *a function of the
+   camera* (0.13 px still, 1.53 px panning, 12/12 sign alternations — a layer that "vibrated" with
+   nothing in the game moving it).
+
+Intercepting the guest's own store as it writes (the framework's `gte_store_xy` hook) is observation
+at the submission boundary, not inversion — that is RE-08 and it is allowed.
+
+**Dusklight lerps recorded matrices and we may not.** Theirs are FLOAT values from a decomp, before
+any hardware; ours would be s16 GTE output. Same technique, different source — resolve from the
+submitter and we are in their position. Separately, PSX has no Z-buffer (`OTZ` is a bucket index, not
+a distance); that argues for native per-vertex depth and says nothing about interpolation.
+
 ## Reverse-engineer first, and cite it
 
 Every guest address that enters this repo carries, at its definition: the instruction it was read

@@ -29,6 +29,7 @@ int  selftest_run(const char* path);           // runtime/recomp/selftest.cpp (f
 extern void spiderman_install_game_config();      // game/core/game_config.cpp
 extern void spiderman_install_recomp();           // game/core/recomp_register.cpp
 extern void spiderman_install_sync_natives(Game*);// game/core/sync_native.cpp
+extern void spiderman_install_render_seam(Game*); // game/render/render_seam.cpp
 
 // The retail US executable, as it is named on the disc. There is no separate PSX boot stub to run:
 // SYSTEM.CNF boots SLUS_008.75 directly (BOOT=cdrom:\SLUS_008.75;1), unlike Tomba!2's
@@ -82,6 +83,10 @@ int main(int argc, char** argv) {
   // Then this game's own faithfully reimplemented primitives, which have no generic form.
   spiderman_install_sync_natives(game);
   game->pad.overridesInit();  // native controller input
+  // The render seam on the engine's own submitFrame (guest FUN_80061308). MUST precede
+  // native_boot_run(), which is where PSXPORT_RENDER_PSX is read: the seam sets this port's default
+  // leg and an explicit env value has to be able to win over it.
+  spiderman_install_render_seam(game);
   c->r[4] = 1; c->r[5] = 0;   // a0/a1 as the BIOS leaves them
 
   c->hooks->registerOverrides(game);   // Phase 0: no clusters yet, but keep the wiring honest

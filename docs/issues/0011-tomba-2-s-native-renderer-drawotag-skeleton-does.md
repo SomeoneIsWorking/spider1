@@ -1,7 +1,7 @@
 ---
 id: 11
 title: Tomba!2's native-renderer drawOTag skeleton does not transfer to spider1: the hook is unreachable and there is no scene identity to classify on
-status: dead-end
+status: resolved
 symptom: GameHooks::drawOTag is never called in this port, so a fail-fast native-renderer skeleton implemented there is dead code; and classifyScene() has no RE'd scene-identity state to key on
 tags: render,native-renderer,drawOTag,classifyScene,pc_render,re-12,re-13,phase-0,dead-end,tomba2-pattern
 created: 2026-08-06
@@ -135,3 +135,16 @@ put in it until RE-13 lands.
   valid as a frame-rate figure. Nothing above depends on them as a rate: the module census, the
   scene identities and the reachability result are all contention-invariant.
 * Nothing in this port was changed, so there is no before/after to compare.
+
+### Note (2026-08-06)
+SUPERSEDED 2026-08-06 by RE-19/RE-20/RE-23. The VERDICT of this entry ('do RE-13 and RE-12 first') is WRONG and is corrected here rather than left standing; the two measurements it rests on are NOT withdrawn.
+
+WHAT STILL HOLDS. GameHooks::drawOTag really does have only two call sites, both inside native_step_frame, and this port never enters game_main's loop (C025). The module-registry census really did find 8 load/evict events / 3 names over 13757 presents with 94.3% of the run on one constant set (C026). Both numbers stand.
+
+WHAT WAS WRONG. (1) 'The hook is unreachable, therefore the native-renderer pattern has no call site here' — the second half does not follow. The MECHANISM does not need GameHooks::drawOTag: the game has its own OT-submit function, FUN_80061308, which is the ONLY game-side caller of libgpu DrawOTag in the whole image (xrefs 0x80081ED0 -> 2 callers, one library-internal), which runs once per engine-rendered frame, and which the recomp override table reaches today because it is a MAIN-module address. MEASURED headless, 100 s, no input, PSXPORT_FNTRACE (scratch/re12/logs/fntrace1.log): 1761 calls, first at frame 2, 0 ABI violations — and fntrace installs a REAL override at each site, so those hits ARE the proof an override there executes. Two of the eight traced sites reported NEVER CALLED in the same run, so the instrument could produce the other answer. (C029.)
+(2) 'There is nothing to classify on' — true of the module registry, false of the game. FUN_80062CE0 (called twice per frame from the render walk) switches on FUN_8005A734(), which encodes the current LEVEL NAME string at 0x800A568C into (level<<8)|sub — exactly the 0x201/0x302/0x704-shaped constants in its own switch. That is a scene identity this port had all along and nobody looked for. STATIC ONLY: no run has yet read 0x800A568C, so a runtime census is required before building on it. (C030.)
+
+CORRECTED ORDER: RE-20 (override 0x80061308; prove it BREAK-FIRST — suppress the submit and the presented picture must collapse, measured by distinct-colour count, not non-black %) -> RE-23 census -> RE-21 (the display-object producers, which is where the real work is) -> RE-18. RE-12's OT/packet-pool layout is now RE-verified (DB pair 0x8009A6E4/0x8009A75C, ot +0x70, pool +0x74, both heap-allocated) and RE-22 (owning the frame loop) is NOT a prerequisite for any of the above.
+
+### Note (2026-08-06)
+LANDED 2026-08-06 — the thing this entry said could not be built now EXISTS and its gate is met. game/render/render_seam.cpp installs a recomp override on the guest's own submitFrame FUN_80061308 (not GameHooks::drawOTag, which stays correctly unreachable per C025) with the two-branch shape: psx_render super-calls the recompiled body, pc_render runs no gen body and dispatches renderScene(). game/render/scene_id.cpp ports the engine's own scene-identity encoder FUN_8005A734 over the level name at 0x800A568C. MEASURED: override REACHED at call #1 / frame 2 / ra=80061218, matching RE-19's independent fntrace measurement digit-for-digit; PSXPORT_RENDER_PSX=0 aborts on the first engine frame printing the scene name+code, the DB lens and the projection state. BREAK-FIRST negative control taken with a throwaway build (C031): suppressing the submit FREEZES the presented picture — 1 distinct picture over 20 presents, 0 of 13,132,800 pixel comparisons changed — while the same instrument on the reference leg changes up to 32.75 percent of a frame. RUNTIME CENSUS taken (C032): the level-name lens gives unset -> 'dem1' (0x9901) -> 'l1a1' (0x0101) over one run, against the module registry's effectively one value. WHAT THIS ENTRY GOT RIGHT AND WHAT IT GOT WRONG is already written up in the previous note and is unchanged: both its measurements stand, its VERDICT ('do RE-13 and RE-12 first') was wrong. What remains is RE-21 — no display-object type is decoded, so the abort names the SCENE but not the unhandled TYPE, and the crash list is still a backlog of length one.

@@ -27,7 +27,9 @@ set(GAME_SRC
   game/core/sync_native.cpp       # RE'd PSX hardware-sync primitives (libetc VSync)
   game/core/cd_stream.cpp         # continuous-read (XA/STR) pump, driven from StGetNext
   game/core/diag_overrides.cpp    # observe-only overrides (log + super-call), channel-gated
-  game/core/module_loader.cpp)    # pins runtime-loaded CD.WAD modules to one canonical slot (RE-09)
+  game/core/module_loader.cpp     # pins runtime-loaded CD.WAD modules to one canonical slot (RE-09)
+  game/render/scene_id.cpp        # the game's own level-name -> scene-id lens (RE-23)
+  game/render/render_seam.cpp)    # the render seam on the engine's submitFrame (RE-20)
 
 # ---- the recompiled substrate -----------------------------------------------------------------
 # emit.py writes the exact TU list to generated/rec_sources.cmake (GEN_REC_SRCS, basenames).
@@ -58,7 +60,7 @@ set_target_properties(spiderman_port PROPERTIES
 
 # Framework include dirs (runtime, generated, vendored backends, SDL/freetype) come PUBLICly from the
 # psxport link; only the game's own subfolders are added here.
-target_include_directories(spiderman_port PRIVATE game game/core)
+target_include_directories(spiderman_port PRIVATE game game/core game/render)
 
 target_compile_options(spiderman_port PRIVATE -w -O2 -g
   ${SDL3_CFLAGS_OTHER} ${FREETYPE_CFLAGS_OTHER})
