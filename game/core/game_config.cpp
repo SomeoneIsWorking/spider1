@@ -298,11 +298,79 @@ static const GameConfig g_spiderman_cfg = {
         /* gpuTimeoutDeadlineVar */ 0, /* gpuTimeoutFlagVar */ 0,
         /* changeThread    */ 0,                          // kernel yield  (re-frontier: RE-05)
 
+        // --- libgte SetGeomOffset / SetGeomScreen: the camera projection ---------------------------
+        // The two leaves through which the game STATES its projection. Owning them natively makes the
+        // port RECORD (OFX, OFY, H) where the game sets them, instead of reading CR24/25/26 back out of
+        // the GTE at draw time — that read-back is the banned tap. Only the ADDRESSES are per-game; the
+        // recording lives in psxport (proj_params.cpp libgte_set_geom_offset/_screen), which also
+        // performs the ctc2 writes the real bodies would have done, so the GTE is unchanged.
+        //
+        // RE PROVENANCE. Located by the only thing that marks them — the instruction they execute —
+        // not by a name, a string or a caller:
+        //     python3 tools/ghidra_query.py scan ctc2
+        // walks every disassembled instruction and prints its denominator. Over 130,588 instructions in
+        // 1,564 defined functions it found 1,404 `ctc2` sites, of which exactly 10 target cop2 control
+        // registers 24/25/26 (Ghidra renders the operand pre-shifted: CR24=0xc000, CR25=0xc800,
+        // CR26=0xd000). Reproduce either leaf with
+        //     python3 external/psxport/tools/disasm.py scratch/bin/spiderman/ram.bin 0x8008BF14 0x8008BF3C
+        // (capstone stops AT the ctc2 — it does not decode cop2 control moves — so the ctc2 words are
+        // cited by encoding below; that limitation is why Ghidra, not disasm.py, is the authority here.)
+        //
+        //   0x8008BF14  SetGeomScreen(h)                     word 48C4D000 = ctc2 $a0,$26   ; H = a0
+        //               0x8008BF18  jr $ra / 0x8008BF1C nop   -- a 3-instruction leaf, nothing else
+        //   0x8008BF24  SetGeomOffset(ofx, ofy)
+        //               0x8008BF24  00240400 = sll  $a0,$a0,0x10   ; ofx << 16 (CR24/25 are 16.16)
+        //               0x8008BF28  002c0500 = sll  $a1,$a1,0x10   ; ofy << 16
+        //               0x8008BF2C  word 48C4C000 = ctc2 $a0,$24   ; OFX
+        //               0x8008BF30  word 48C5C800 = ctc2 $a1,$25   ; OFY
+        //               0x8008BF34  jr $ra / 0x8008BF38 nop
+        // Both sit inside the [0x80083000, 0x80096000) SCEI library window declared above, so
+        // register_() accepts them. 0x8008BE5C is libgte InitGeom (it seeds ZSF3=0x155, ZSF4=0x100,
+        // H=0x3E8, DQA=-0x1062, DQB=0x1400000 and zeroes OFX/OFY, then returns) — NOT registered,
+        // because its recompiled body already does exactly that and the game overwrites all three
+        // values before it draws.
+        //
+        // NO VALUES ARE BAKED IN HERE, AND THAT IS NOT LAZINESS — SPIDER-MAN HAS NONE TO BAKE.
+        // Tomba!2 states literal constants (OFX 160 / OFY 120 / H 350). Spider-Man does not: the sole
+        // call site of each leaf is inside FUN_80075D0C (jal at 0x80076180 and 0x80076190, one caller
+        // each — `tools/ghidra_query.py xrefs 0x8008BF14` / `0x8008BF24`), and it passes fields it has
+        // just COMPUTED from a viewport descriptor `param_2` (u16 array; the caller loads them back as
+        //     8007617C  lhu $a0,0xE($s4)          -> H     = vp[7]
+        //     80076188  lhu $a0,0x10($s4)         -> OFX   = vp[8]
+        //     8007618C  lhu $a1,0x12($s4)         -> OFY   = vp[9] ):
+        //     vp[8] = (vp[2] + vp[0]) >> 1                              ; viewport centre X
+        //     vp[9] = (vp[3] + vp[1]) >> 1                              ; viewport centre Y
+        //     vp[7] = ((((vp[0] - vp[2]) >> 1) << 12) / vp[6] << 12) / *(int*)(gp + 0x1140)
+        // i.e. the projection is a FUNCTION OF THE ACTIVE VIEWPORT AND FOV, re-derived per view. A
+        // constant copied from one frame would be wrong in the next. Capturing at the setter is
+        // therefore not merely the tidy option here, it is the only correct one.
+        //
+        // ONE OTHER PATH WRITES CR24/25 AND IT IS ACCOUNTED FOR. FUN_8007C2AC (a hand-written GTE
+        // routine) zeroes OFX/OFY for its inner loop (0x8007C0B4/0x8007C0B8, ctc2 $zero) and RESTORES
+        // them at 0x8007C268/0x8007C26C from `*(u32*)(*(void**)0x800B5918 + 0x10)`, split into two
+        // 16.16 halves. 0x800B5918 is gp+0x1124 (gp = 0x800B47F4, line 44 above), which FUN_80075D0C
+        // writes with that same `param_2`; +0x10 is vp[8]/vp[9]. So the restore replays exactly the
+        // pair SetGeomOffset was given — the recorded ProjParams cannot drift from the GTE, and no
+        // handler is needed there. H is never written outside SetGeomScreen.
+        //
+        // COVERAGE / NEGATIVE CONTROL. Ghidra had disassembled only 24.9% of the 2 MB image, so the
+        // scan's own blind-spot line was checked by a raw word scan of ALL 524,288 words of
+        // scratch/bin/spiderman/ram.bin for every `ctc2 rX,CR24/25/26` encoding and for
+        // `jal 0x8008BF14` / `jal 0x8008BF24` / `jal 0x8008BE5C`. It returned the SAME 10 ctc2 sites
+        // and the same one caller each — 0 additional sites hidden by the undisassembled 75%.
+        /* setGeomOffset */ 0x8008BF24u,
+        /* setGeomScreen */ 0x8008BF14u,
+
         // vsyncTrap stays ZERO, and that is a deliberate statement rather than a gap. The trap means
         // "nothing may reach VSync because the native frame loop owns all timing" — untrue here. This
         // port runs the guest's own loop on the substrate, so it REIMPLEMENTS VSync faithfully and
         // registers that handler itself (game/core/sync_native.cpp). Setting both would let
         // initBuiltins clobber the real implementation with an abort.
+        //
+        // (Adding the two fields above also repairs a latent mislabel: this initialiser is POSITIONAL,
+        // and before today the entry commented `/* vsyncTrap */` sat in the setGeomOffset SLOT, with
+        // setGeomScreen and vsyncTrap left implicitly zero. Harmless only because all three were 0 —
+        // the day anyone set vsyncTrap it would have installed the VSync abort at the GTE setter.)
         /* vsyncTrap */ 0,
     },
 
@@ -340,9 +408,44 @@ static const GameConfig g_spiderman_cfg = {
     // Vblanks one gpu_pace_frame call represents. 0 used to fall through to a scratchpad read of
     // 0x1F800235 — Tomba!2's engine field, ordinary working memory here — so this port slept on
     // garbage and ran ~2.3x slower windowed than headless. That fallback is deleted (psxport
-    // gpu_native.cpp). 2 = this game's 30fps base cadence; NOT yet measured against the real
-    // vblank rate, so if windowed still diverges from headless, derive it before trusting it.
-    /* paceQuota       */ 2u,
+    // gpu_native.cpp).
+    //
+    // DERIVATION — why 1, and why the 2 that stood here was wrong. paceQuota is NOT the game's frame
+    // rate. game_iface.h states its semantics explicitly: "by CALLING CADENCE, not the game's display
+    // rate", and it is the number of vblanks that ONE gpu_pace_frame call represents. The framework
+    // then sleeps exactly `quota/60 s` per call (gpu_native.cpp gpu_pace_subframe).
+    //
+    // So the value is fixed by THIS PORT'S CALL SITES, and it has exactly two, both the same shape
+    // (sync_native.cpp, the blocking VSync loop and FUN_8005E748's field-wait loop):
+    //
+    //     while (<guest vblank counter> < target) { gpu_pace_frame(c); vblank_advance(c); }
+    //
+    // vblank_advance recomputes that counter from REAL elapsed time at the NTSC field rate, so the
+    // loop is a real-time wait and one gpu_pace_frame call is its WAIT QUANTUM — the granularity at
+    // which the wait can notice it is done. The counter it tests is denominated in VBLANKS. A quantum
+    // therefore has to be ONE vblank, or every wait is rounded up to a multiple of the quantum. That
+    // is precisely the case game_iface.h names: "A port that still runs the guest's own frame loop
+    // and paces once per vblank (each vblank is 1/60s) sets 1." This port runs the guest's own loop.
+    //
+    // The 2 was a guess at the game's display rate, and the guess also mis-modelled the game: the
+    // guest does NOT ask for two fields at a time. MEASURED windowed with `PSXPORT_DEBUG=pace`
+    // (the instrument in sync_native.cpp), 260 s, 7449 field-wait entries: 7327 of them (98.4%) are
+    // FUN_8005E748(n=1) — a request for ONE field — and the remaining 122 are one n=240 loading
+    // delay. With quota=2, 578 of 599 consecutive entries advanced the guest counter by 2 while it
+    // had asked for 1, at a median spacing of 33.30 ms (= 2/60 s). Every one-field wait was served
+    // with a two-field sleep, and the game issues ~2 of them per rendered frame, so the frame budget
+    // was 4 fields instead of 2 and the port ran at half speed.
+    //
+    // GATE, WINDOWED (headless is never paced — gpu_pace_subframe early-returns without a window, so
+    // it cannot measure this at all), one build apart, same instrument, same 215 s steady window,
+    // same PSXPORT_PAD_REPLAY (scratch/g1_pace/logs/{before_quota2_paced,after_quota1}.log):
+    //   quota=2  presents 59.94/s  rebuild_geom 15.57/s  presents/geom 3.85  pace entries 30.00/s
+    //   quota=1  presents 59.94/s  rebuild_geom 29.66/s  presents/geom 2.02  pace entries 60.00/s
+    // Pace entries per RENDERED frame is 1.93 before and 2.02 after — unchanged. The game's loop
+    // structure did not move; only the length of the quantum did, which is what makes this a
+    // derivation rather than a tuned number. The pace-entry rate is exactly 60/quota in both legs,
+    // i.e. the pacer was the throttle and nothing else changed.
+    /* paceQuota       */ 1u,
     /* windowTitle     */ "Spider-Man",
 };
 

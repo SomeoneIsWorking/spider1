@@ -183,7 +183,7 @@ failure class issue 0005 turned out to be. Not built yet.
 
 ---
 
-## INST-25 — `tools/present_geometry.py` — **the SHAPE check, built because every other instrument here is blind to shape**
+## INST-25 — `tools/present_geometry.py` — **the SHAPE check, built because every other instrument here is blind to shape. TRUSTED for the DIRECTION (stretched vs fills-the-sink); its STRETCH MAGNITUDE is DISTRUSTED as of 2026-08-06 — it measures a CONTENT BBOX, not the display rect**
 
 *Why it exists, and it is the most important sentence in this entry:* issue 0008 (the picture
 presented 1.6x too wide) survived a full session of numeric checking because **every instrument in
@@ -226,7 +226,176 @@ immediately — an arg parser that mistakes a flag's value for an input is other
 tool measures the wrong file and reports it with confidence. Unknown options now refuse (rc=2)
 instead of being silently ignored.
 
-*See:* issue 0008.
+### DISTRUSTED FOR THE STRETCH FACTOR, 2026-08-06 — the caveat was in the tool and NOT in this ledger
+
+The paragraph above ("it measures the NON-BLACK band, not the intended picture rectangle") was
+written as a soft limitation. It is not soft: **the number this tool leads with is wrong by an amount
+nobody bounded, and it was quoted as a measurement.**
+
+MEASURED: run against spyro's present, **this repo's copy** reports the horizontal stretch as
+**1.714x**. The real present stretch on spyro is **1.600x** — 512:240 presented where 4:3 belongs,
+which is exact arithmetic and not itself in doubt. The error is 7%, in the direction of "worse than it
+is", and the cause is the one already in the tool's own docstring: **black content rows shrink the
+measured band**, so a picture that does not reach the top and bottom of its own display rect measures
+shorter than it is and therefore wider in aspect. spider1's own defect frame happened to reach its
+edges, which is why the same tool hit 1.600x exactly here and looked precise.
+
+THE DISCREPANCY IS EXACT, NOT FUZZY, AND THAT NAMES THE CAUSE: `1.714 / 1.600 == 240 / 224`. Spyro's
+guest draws **224 of its 240 display lines**, so 16 rows of the display rect are black BECAUSE THE
+GAME DREW THEM BLACK — not because of a letterbox bar. The band-only measurement cannot tell those two
+kinds of black apart from pixels, so it charges guest-drawn black to the letterbox and inflates the
+aspect by exactly 240/224. (The 224 figure is INHERITED from spyro's own registry, not measured here;
+what is checked is that the ratio is exact.)
+
+WHY THIS BELONGS IN THE LEDGER AND NOT ONLY IN THE DOCSTRING: this ledger is what gets consulted
+before a number is cited. A caveat that lives only in the source is a caveat that gets read after the
+number is already in a report. The tool's `CAUTION` also fires only when the band covers under 5% of
+the sink — nowhere near a 7% aspect error — so on the spyro frame it printed a confident, wrong,
+unqualified `1.714x`.
+
+**HOW TO USE IT, unchanged in value and narrowed in scope:**
+
+* TRUSTED, and still the only instrument here that can see this class of bug at all: the VERDICT —
+  `STRETCHED` vs `OK / bars none (fills the sink)`. That is a direction, it survives a bbox that is a
+  few rows short, and it is what a before/after gate actually needs.
+* TRUSTED: the before/after TRANSITION on the same content (same present index, same scene, one code
+  change between them). The bbox error is common to both legs and cancels.
+* **DISTRUSTED: the stretch factor and the aspect ratio as absolute numbers.** Do not put `1.714x`
+  into an issue, a claim or a codemap row. Derive the expected stretch from the display mode
+  (`disp_w : 240` vs 4:3), which is exact, and use this tool to confirm the direction.
+
+### THE FIX ALREADY EXISTS, IN A DIFFERENT COPY OF THE FILE — `spider1/tools/present_geometry.py` IS THE STALE ONE
+
+Found while registering this, 2026-08-06, and it changes the remedy from "someone should write it"
+to "copy it": **`present_geometry.py` is DUPLICATED across the workspace and the copies have
+diverged.** `spyro/tools/present_geometry.py` and `Tomba2Engine/tools/present_geometry.py` carry a
+repaired version (registered as spyro **I042**, `--selftest` 16/16, mutation-tested against 3
+injected defects); **this repo's copy is the ORIGINAL and has not been updated.** The repaired version:
+
+* **REFUSES with rc=3 (AMBIGUOUS)** when black margins make band-vs-picture undecidable, instead of
+  printing a confident band aspect. On a spyro-shaped frame the old copy printed `STRETCHED 1.714x`;
+  the new one refuses.
+* accepts `--active 512x224 --display 512x240` (or `--guest-frame <fb dump>`) so the caller supplies
+  the guest's real drawn extent, and then resolves that same frame to `STRETCHED 1.600x`, rc=1.
+* was validated in BOTH directions on that frame: the FIXED present with the SAME flags gives
+  `OK`, rc=0.
+
+**REMEDY:** `cp spyro/tools/present_geometry.py spider1/tools/` — not done here, because this step was
+docs-only and a tool copy is a change the operator should see as its own act. Until it is done, THIS
+REPO'S COPY REMAINS AS DISTRUSTED ABOVE. **Before quoting a number from ANY copy, run
+`md5sum */tools/present_geometry.py` from `~/repo/psx`** and check which one you have; no hash is
+recorded here on purpose, because a hand-copied hash rots at the next edit. Measured 2026-08-06:
+spyro's and this repo's copies have DIFFERENT md5s.
+
+Note what the repaired tool does NOT solve, per I042's own entry: `--active` assumes the present is a
+UNIFORM SCALE of the guest display rect, so a presenter that crops, pans, or scales the axes
+differently makes the correction silently wrong and undetectable. And the tool's proper home is
+`external/psxport/tools/`, which needs a coord claim; three diverging copies is the current state.
+
+*See:* issue 0008 (this repo, RESOLVED), spyro issue 0047 (the same defect, still OPEN there, where
+the 1.714x reading was taken), spyro I042 (the repaired copy and its selftest).
+
+---
+
+## INST-26 — `PSXPORT_DEBUG=ndepth`, the `3D%=` coverage line (`external/psxport/runtime/recomp/gpu_native.cpp:1646`) — **DISTRUSTED 2026-08-06: it printed `3D%=0.0` for an entire run while measuring nothing at all**
+
+*The failure in one line:* it prints a ONE-FRAME sample formatted as a coverage measurement, and it
+prints the SAME `0.0` when it has no data whatsoever.
+
+**MECHANISM, read out of the code (this tree, `runtime/recomp/gpu_native.cpp`):**
+
+    :1646   the report is gated  `if (s_frame > 0 && (s_frame % 60) == 0)`
+    :1673   `core->rsub.stats.nd3d = core->rsub.stats.nd2d = 0;`   — runs on EVERY present, unconditionally
+    :1660   `core->rsub.projprim.statsReset()`                      — same, so the projprim records/hit/miss
+                                                                      line beside it has the identical shape
+
+The counters therefore cover **one frame**, not the 60 between reports, and the line never says so:
+`[ndepth f600] real-depth(3D) prims=… OT-band(2D) prims=… 3D%=…` carries no denominator and no
+statement of its window. 59 of every 60 frames are counted and discarded unread.
+
+**AND THE ZERO CASE IS INDISTINGUISHABLE FROM THE NO-DATA CASE.** The percentage is
+`(nd3d+nd2d) ? 100.0*nd3d/(nd3d+nd2d) : 0.0`, so a frame in which NOTHING was counted prints
+`3D%=0.0` — byte-for-byte identical to a frame that genuinely drew 0% 3D. Silence was given a number,
+which is this file's oldest and most expensive failure mode wearing new clothes.
+
+**MEASURED, and this is the case that caught it:** Spider-Man draws on ALTERNATE FIELDS. 60 is even.
+So every `s_frame % 60 == 0` sample landed on a NON-DRAWING field, and the channel printed `3D%=0.0`
+for an entire run. It read as "the native depth path covers nothing"; it was measuring nothing. The
+aliasing is a property of the SAMPLING PARITY against the drawing cadence, so it can hit any port
+whose cadence divides into 60.
+
+**WHAT ELSE RESTED ON THIS CHANNEL — re-check before citing.** In this repo, claim C003 ("the GTE
+vertex depth tap is wired in this port") cites `PSXPORT_DEBUG=ndepth` reporting
+`projprim(vtx) records=0 lookups hit=0 miss=0` on every sample across a 100 s run, 636 lines. Those
+lines come off the same 60-parity single-frame sample and the same reset-every-frame counters, so
+"636 lines" resolve to roughly ten single-frame snapshots (f60..f600+), all of them at the same
+parity. That does not make C003's conclusion wrong — it means its evidence has one systematic error
+running through every sample, exactly the shape INST-24 in this file is about, and its own stated
+falsifier ("a run that reaches 3D gameplay still reports records=0") cannot be evaluated with an
+instrument that reports records=0 for a field on which nothing was drawn.
+
+**THE ALIASING HALF IS SPIDER-MAN-SPECIFIC; THE STRUCTURAL HALF IS NOT.** Registered in the sibling
+port as spyro I041, where the picture is different and worth stating so nobody generalises: spyro's
+C145 evidence records the port ALTERNATING `hit=1547/miss=0` and `hit=0/miss=1540` across CONSECUTIVE
+ndepth samples, which is only possible if its samples span both phases — so spyro is demonstrably not
+phase-locked and has NOT shown this failure. The missing denominator and the zero/no-data collision
+apply to every port, because they are in the code.
+
+**TO TRUST IT AGAIN — both, neither optional:**
+
+1. **CARRY THE DENOMINATOR.** Accumulate over the whole interval (or say "1 frame" in the line), and
+   print the frame count and the raw totals, so `0 of 0` can never be rendered as a percentage. A
+   no-data sample must print something a reader cannot mistake for a measurement —
+   `3D%=n/a (0 prims counted over 1 frame)`.
+2. **SAMPLE BY DRAW EVENT, NOT BY FRAME PARITY.** Report on the Nth frame THAT DREW SOMETHING, not on
+   every 60th frame index, so an alternate-field or otherwise periodic cadence cannot alias the
+   sample onto a silent field.
+
+Its `OVERFLOWED — records were DROPPED` flag is still worth having: that one reports an EVENT, not a
+rate, so neither defect applies to it.
+
+*See:* spyro `docs/info/instruments/041-*` (I041, the same instrument registered in the port whose
+claims depend on it), C003.
+
+---
+
+## INST-27 — `scratch/screenshots/` AS A CORPUS — **a SHARED ACCUMULATOR; globbing it manufactured an entire false root cause. Method finding, 2026-08-06**
+
+This is not a tool, it is the DIRECTORY every tool writes into, and it is registered here because it
+produced a wrong answer that no instrument in this file could have caught.
+
+*The property:* `scratch/screenshots/` is written by **every run, by every tool, from every session,
+and nothing ever clears it.** Files from unrelated runs days apart sit side by side with no run
+identity on them. So `scratch/screenshots/*.ppm`, `sorted(glob(...))[-1]`, and "the newest one" all
+silently mix runs.
+
+**MEASURED CONSEQUENCE, 2026-08-05:** a glob over this directory swept a STALE leftover file into an
+analysis as "the correct reference frame". Comparing the run's real output against it produced **an
+entire false root cause for Spider-Man's flicker** — a widescreen explanation that was subsequently
+REFUTED. Nothing about the run looked wrong. The analysis was internally consistent and was simply
+about a different run's file.
+
+**WHY IT IS ALMOST UNCATCHABLE BY THE CHECKS WE ACTUALLY RUN:** a stale capture is a REAL, VALID
+picture of a REAL run. Every sanity check in this repo passes on it — plausible frame, right
+dimensions, non-black, sensible colour count, coherent histogram. `ppm_look.py` will describe it
+accurately. There is no signal of wrongness in the artifact at all; the wrongness is entirely in
+WHICH FILE IT IS, and nothing in the file records that.
+
+**THE RULE, and it is two halves — the first alone is not enough:**
+
+1. **Write to a PER-RUN DIRECTORY** named for the run (`scratch/screenshots/<run-id>/…`), created
+   fresh for that run. Never write into the shared root, and never read a series out of it.
+2. **VERIFY EVERY FILE AGAINST ITS OWN `present_shot` / capture LOG LINE BEFORE READING IT.** The
+   run's own log names the path and the present index it wrote. A file that no log line in THIS run's
+   log claims is not this run's file — whatever directory it is in, and whatever its mtime says.
+
+mtime is not proof and must not be used as one: a run that dies before capturing leaves the PREVIOUS
+file newest. That is not hypothetical either — it is the same shape as spyro's C138, where a
+capture-then-copy idiom mislabelled three of five captures and the byte-identical results read as a
+finding for a day.
+
+*See:* INST-20 (the present-stage capture that writes here), spyro I036 (the same hazard, and the
+mtime guard added to `shot.py` there, which fixes only the single-file half of it).
 
 ---
 

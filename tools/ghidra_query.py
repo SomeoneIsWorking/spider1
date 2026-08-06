@@ -18,6 +18,15 @@ Usage:
     tools/ghidra_query.py func  0x8008C3E0    containing function + decompiled C
     tools/ghidra_query.py calls 0x80087660    what that function calls
     tools/ghidra_query.py data  0x800B38EC 16 dump N words with symbol/xref annotation
+    tools/ghidra_query.py scan  ctc2            every instruction whose mnemonic matches, with
+                                                operands + owning function + the enclosing function's
+                                                full instruction list
+
+`scan` exists because some leaves are identified by the INSTRUCTION they execute rather than by a
+name, a string or a caller — libgte's SetGeomOffset/SetGeomScreen are `ctc2` into cop2 control
+registers 24/25/26 and nothing else in the image marks them. It reports the DENOMINATOR (instructions
+walked, functions defined) on every run, so "0 matches" is distinguishable from "I never looked", and
+it is blind to any site Ghidra did not disassemble as code — which it also counts and prints.
 
 Build the project first with tools/ghidra_import.sh. Nothing here ships game data: the project is
 derived from scratch/bin/spiderman/ram.bin, which tools/redump_ram.py produces from your own disc.
@@ -115,6 +124,51 @@ def main():
                     if fn is not None:
                         note = "  -> %s @%s" % (fn.getName(), fn.getEntryPoint())
                 print("  %s  %08X%s" % (a, v, note))
+        elif mode == "scan":
+            # `addr_s` is a mnemonic prefix here, not an address.
+            want = addr_s.lower()
+            listing = prog.getListing()
+            total = 0
+            hits = []
+            for ins in listing.getInstructions(True):
+                total += 1
+                if ins.getMnemonicString().lower().startswith(want):
+                    hits.append(ins)
+            # DENOMINATOR, always: a scan that matched nothing must still say what it walked and
+            # what it structurally cannot see, or "(none)" reads as an answer.
+            nfunc = fm.getFunctionCount()
+            defined = sum(1 for _ in listing.getInstructions(True))
+            mem_bytes = sum(int(b.getSize()) for b in prog.getMemory().getBlocks())
+            print("// scanned %d disassembled instruction(s) across %d defined function(s) in %d "
+                  "byte(s) of memory, looking for mnemonic prefix '%s'"
+                  % (total, nfunc, mem_bytes, want))
+            print("// BLIND SPOT: bytes Ghidra never disassembled as code are invisible to this "
+                  "scan — %d of %d bytes are covered by instructions (%.1f%%)"
+                  % (defined * 4, mem_bytes, 100.0 * defined * 4 / mem_bytes if mem_bytes else 0.0))
+            for ins in hits:
+                a = ins.getAddress()
+                print("  %s  %-8s %s   [%s]"
+                      % (a, ins.getMnemonicString(),
+                         ", ".join(str(ins.getDefaultOperandRepresentation(i))
+                                   for i in range(ins.getNumOperands())),
+                         owner_str(a)))
+            print("// %d match(es)" % len(hits))
+            # The enclosing function of each hit, disassembled in full — a leaf identified by one
+            # instruction is only understood with its whole body in view.
+            seen = set()
+            for ins in hits:
+                f = fm.getFunctionContaining(ins.getAddress())
+                if f is None or str(f.getEntryPoint()) in seen:
+                    continue
+                seen.add(str(f.getEntryPoint()))
+                print("\n// ---- %s  entry=%s  body=%s" % (f.getName(), f.getEntryPoint(), f.getBody()))
+                for bi in listing.getInstructions(f.getBody(), True):
+                    print("  %s  %-8s %s" % (bi.getAddress(), bi.getMnemonicString(),
+                                             ", ".join(str(bi.getDefaultOperandRepresentation(i))
+                                                       for i in range(bi.getNumOperands()))))
+            if not hits:
+                return 1
+
         else:
             print(__doc__)
             return 2

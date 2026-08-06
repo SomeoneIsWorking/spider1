@@ -24,6 +24,8 @@
 #include "game.h"
 #include "cfg.h"
 #include "override_registry.h"
+#include "proj_params.h"   // the geomwatch probe reads the recorded projection off c->rsub
+#include <lucent/log.h>
 
 // The recompiled bodies this file wraps. Declared with the signature the recompiler emits.
 extern void gen_func_8008CE8C(Core*);   // libcd command-send: a0 = command byte
@@ -297,7 +299,181 @@ static void diag_cb_13AC(Core* c) {
   if (n <= 4 || (n % 500) == 0) cfg_logf("cdcb", "0x800913AC (callback #3) call #%u -> v0=%08X", n, c->r[2]);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+// PALETTE PATH — `PSXPORT_DEBUG=palwatch`.  Issue 0007: every CLUT in the 3D scene reads 0x3333.
+//
+// The four probes below observe the whole guest palette path, entry to VRAM:
+//   0x80062BB4  the CLUT register+upload routine  (a0=id, a1=palette data, a2=type; type&1 -> 16
+//               entries, else 256) — it ends in LoadImage(rect, a1). THIS is what should put real
+//               palette data into the CLUT strip.
+//   0x80081CB0  StoreImage(rect*, dest) — VRAM -> RAM readback.
+//   0x80069D44  the palette DESATURATE routine: allocates two save buffers (0x8800 + 0x1800),
+//               StoreImage's the whole CLUT strip into them, then greyscales the strip row by row.
+//   0x8006A154  its inverse: LoadImage's those two save buffers back over the whole strip.
+//
+// NEGATIVE DESIGN.  Each probe prints an ARM line, so silence means "never ran" rather than "never
+// installed".  Every log line carries its DENOMINATOR: the palette/readback probes scan the whole
+// buffer and print `poison=<k>/<n>` (halfwords equal to 0x3333, the guest allocator's fill — see
+// FUN_800651C8, which memsets every block it hands out to 0x33333333).  So "the source was already
+// poison" and "the source held real colours" are distinguishable, and a probe that scanned nothing
+// says so.  The StoreImage probe samples the destination BEFORE and AFTER the super-call and prints
+// both — a readback that writes nothing is then visible as before==after, and it is capped by
+// NOVELTY (first 8 calls plus every call where the buffer actually changed), never by "first N".
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+extern void gen_func_80062BB4(Core*);
+extern void gen_func_80081CB0(Core*);
+extern void gen_func_80069D44(Core*);
+extern void gen_func_8006A154(Core*);
+
+// Count halfwords equal to 0x3333 in [addr, addr+2*n). Returns the count; *first holds hw[0].
+static unsigned pal_poison_count(Core* c, uint32_t addr, unsigned n, uint32_t* first) {
+  unsigned k = 0;
+  for (unsigned i = 0; i < n; i++) {
+    const uint32_t hw = (uint32_t)(c->mem_r16(addr + 2u * i) & 0xFFFFu);
+    if (i == 0 && first) *first = hw;
+    if (hw == 0x3333u) k++;
+  }
+  return k;
+}
+
+static void diag_pal_upload(Core* c) {
+  static unsigned n = 0;
+  const uint32_t id = c->r[4], src = c->r[5], type = c->r[6];
+  const unsigned entries = (type & 1u) ? 16u : 256u;
+  uint32_t first = 0;
+  const unsigned poison = pal_poison_count(c, src, entries, &first);
+  gen_func_80062BB4(c);                        // super-call: the original body, unmodified
+  ++n;
+  // Cap by NOVELTY, not by count: always log a call whose source held REAL data (that is the
+  // interesting case and the one a "first N" cap would hide), plus the first 24 of any kind.
+  if (n <= 24 || poison != entries)
+    cfg_logf("palwatch", "#%u CLUTload(0x80062BB4) id=%08X src=%08X type=%u entries=%u "
+                         "poison=%u/%u first=%04X -> clut_attr=%04X %s",
+             n, id, src, type, entries, poison, entries, first,
+             (unsigned)(c->mem_r16(c->r[2]) & 0xFFFFu),
+             poison == entries ? "ALL-POISON" : "has real data");
+}
+
+static void diag_pal_storeimage(Core* c) {
+  static unsigned n = 0, changed_n = 0;
+  const uint32_t rect = c->r[4], dst = c->r[5];
+  const uint32_t x = c->mem_r16(rect), y = c->mem_r16(rect + 2);
+  const uint32_t w = c->mem_r16(rect + 4), h = c->mem_r16(rect + 6);
+  const unsigned words = (w * h) / 2u;         // 2 pixels per 32-bit word
+  const unsigned probe = words < 8u ? words : 8u;
+  uint32_t before[8];
+  for (unsigned i = 0; i < probe; i++) before[i] = c->mem_r32(dst + 4u * i);
+  gen_func_80081CB0(c);                        // super-call
+  unsigned diff = 0;
+  for (unsigned i = 0; i < probe; i++) if (c->mem_r32(dst + 4u * i) != before[i]) diff++;
+  ++n;
+  if (diff) ++changed_n;
+  if (n <= 8 || diff)
+    cfg_logf("palwatch", "#%u StoreImage(0x80081CB0) rect=(%u,%u %ux%u) dst=%08X words=%u "
+                         "sampled=%u changed=%u  before[0]=%08X after[0]=%08X  %s "
+                         "(calls-that-changed-anything=%u/%u)",
+             n, x, y, w, h, dst, words, probe, diff,
+             probe ? before[0] : 0u, probe ? c->mem_r32(dst) : 0u,
+             diff ? "READBACK WROTE" : "READBACK WROTE NOTHING", changed_n, n);
+}
+
+static void diag_pal_desat(Core* c) {
+  static unsigned n = 0;
+  ++n;
+  cfg_logf("palwatch", "#%u ENTER desaturate-palettes 0x80069D44", n);
+  gen_func_80069D44(c);
+}
+
+static void diag_pal_restore(Core* c) {
+  static unsigned n = 0;
+  ++n;
+  // gp is r[28]; the routine reads its two save-buffer pointers from gp+0xEC4 (0x8800 = 256x68
+  // halfwords) and gp+0xEC0 (0x1800 = 256x12). Read them BEFORE the super-call frees them.
+  const uint32_t armed = c->mem_r32(c->r[28] + 0xEBCu);
+  const uint32_t big = c->mem_r32(c->r[28] + 0xEC4u), small = c->mem_r32(c->r[28] + 0xEC0u);
+  uint32_t fb = 0, fs = 0;
+  const unsigned pb = big ? pal_poison_count(c, big, 256u * 68u, &fb) : 0u;
+  const unsigned ps = small ? pal_poison_count(c, small, 256u * 12u, &fs) : 0u;
+  cfg_logf("palwatch", "#%u ENTER restore-palettes 0x8006A154 armed=%u big=%08X poison=%u/%u "
+                       "first=%04X | small=%08X poison=%u/%u first=%04X",
+           n, armed, big, pb, 256u * 68u, fb, small, ps, 256u * 12u, fs);
+  gen_func_8006A154(c);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+// CAMERA PROJECTION — `PSXPORT_DEBUG=geomwatch`.
+//
+// 0x80075D0C is the SOLE caller of libgte SetGeomScreen (jal 0x80076180) and SetGeomOffset (jal
+// 0x80076190) in this executable — `tools/ghidra_query.py xrefs 0x8008BF14` / `0x8008BF24` each
+// report exactly one CALL reference, and a raw word scan of all 524,288 words of ram.bin for those
+// two `jal` encodings agrees. So this probe sees EVERY projection this game ever states.
+//
+// It exists because ProjParams is otherwise silent: `geomValid()` false and `geomValid()` true look
+// identical from outside until a native producer calls requireGeom() and aborts. This turns that into
+// a line per projection change, which is what makes GameConfig::hle.setGeomOffset/.setGeomScreen
+// verifiable at all — with those two addresses ZERO the recompiled leaves still write the GTE, so the
+// picture is unchanged and only this probe can tell you nothing was RECORDED.
+//
+// NEGATIVE DESIGN. An unconditional ARM line, so silence means "0x80075D0C never ran" rather than
+// "the probe was never installed" — and the ARM line prints the state BEFORE any call, which for a
+// correctly-unset port is `valid=0`. Capped by NOVELTY, not by count: the first 8 calls plus EVERY
+// call that changes (OFX, OFY, H). Spider-Man recomputes the projection from the active viewport and
+// FOV rather than passing constants, so "it changed" is the interesting event and a first-N cap would
+// hide exactly the evidence that it is not a constant.
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+extern void gen_func_80075D0C(Core*);   // the viewport/projection setup: calls SetGeomScreen+Offset
+
+static void diag_geom_setup(Core* c) {
+  static unsigned n = 0;
+  static float last_ofx = 0.0f, last_ofy = 0.0f, last_h = 0.0f;
+  static bool last_valid = false;
+  gen_func_80075D0C(c);                        // super-call: the original body, unmodified
+  const ProjParams& pp = c->rsub.projParams;
+  const bool changed = pp.geomValid() != last_valid || pp.geomOfx() != last_ofx ||
+                       pp.geomOfy() != last_ofy || pp.geomH() != last_h;
+  ++n;
+  if (n <= 8 || changed)
+    lucent::debug("geomwatch",
+                  "#{} after 0x80075D0C: ProjParams valid={} OFX={} OFY={} H={} ({})",
+                  n, pp.geomValid() ? 1 : 0, pp.geomOfx(), pp.geomOfy(), pp.geomH(),
+                  changed ? "CHANGED" : "same");
+  // THE GATE, executed rather than reasoned about. Every native producer added from here on reads the
+  // projection through requireGeom(), which ABORTS with a backtrace when the game never stated one.
+  // This port has no native producer yet, so nothing else would call it — and "it would not have
+  // aborted" is not a measurement. Calling it here on the first call makes the gate a fact about a
+  // real run: with the two GameConfig addresses wired this returns the game's triple, and with them
+  // zeroed it aborts, which is the same instrument producing the other answer.
+  if (n == 1) {
+    float ofx = 0.0f, ofy = 0.0f, H = 0.0f;
+    pp.requireGeom("geomwatch (G7 gate: does requireGeom abort?)", ofx, ofy, H);
+    lucent::info("geomwatch", "GATE PASSED: requireGeom() returned OFX={} OFY={} H={} without "
+                              "aborting on call #1 of the game's projection setup.", ofx, ofy, H);
+  }
+  last_valid = pp.geomValid(); last_ofx = pp.geomOfx(); last_ofy = pp.geomOfy(); last_h = pp.geomH();
+}
+
 void spiderman_install_diag_overrides(Game* g) {
+  // Interned channel: the guard is around the INSTALL (real work), not around a log call.
+  static const lucent::Channel geomwatch{"geomwatch"};
+  if (geomwatch) {
+    engine_set_override_main(0x80075D0Cu, diag_geom_setup, gen_func_80075D0C);
+    lucent::info("geomwatch",
+                 "projection probe ARMED on 0x80075D0C (the only caller of SetGeomScreen 0x8008BF14 "
+                 "and SetGeomOffset 0x8008BF24). ProjParams at arm time: valid={} OFX={} OFY={} H={}."
+                 " NO LINES BELOW MEANS 0x80075D0C NEVER RAN — which is itself the finding, not a "
+                 "clean bill of health for the projection.",
+                 g->core.rsub.projParams.geomValid() ? 1 : 0, g->core.rsub.projParams.geomOfx(),
+                 g->core.rsub.projParams.geomOfy(), g->core.rsub.projParams.geomH());
+  }
+  if (cfg_dbg("palwatch")) {
+    engine_set_override_main(0x80062BB4u, diag_pal_upload, gen_func_80062BB4);
+    engine_set_override_main(0x80081CB0u, diag_pal_storeimage, gen_func_80081CB0);
+    engine_set_override_main(0x80069D44u, diag_pal_desat, gen_func_80069D44);
+    engine_set_override_main(0x8006A154u, diag_pal_restore, gen_func_8006A154);
+    cfg_logi("palwatch", "palette-path probes ARMED on 0x80062BB4 (CLUT upload), 0x80081CB0 "
+                         "(StoreImage), 0x80069D44 (desaturate), 0x8006A154 (restore). No lines "
+                         "for one of these means THAT routine never ran.");
+  }
   if (cfg_dbg("cdcb")) {
     engine_set_override_main(0x8009152Cu, diag_cb_152C, gen_func_8009152C);
     engine_set_override_main(0x800913ACu, diag_cb_13AC, gen_func_800913AC);

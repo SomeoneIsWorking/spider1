@@ -24,6 +24,7 @@
 #include "cfg.h"
 #include "game_iface.h"
 #include "recomp_iface.h"
+#include <lucent/log.h>
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
 // VSync — SLUS_008.75 0x80084BE0. libetc's VSync(int mode).
@@ -138,6 +139,31 @@ static constexpr uint32_t kGpuStatPtr   = 0x800B0FA0u;
 static constexpr uint32_t kHCounterPtr  = 0x800B0FA4u;
 static constexpr uint32_t kHBaseline    = 0x800B0FA8u;
 static constexpr uint32_t kLastSyncVbl  = 0x800B0FACu;
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+// `PSXPORT_DEBUG=pace` — the instrument that CHECKS `GameConfig::paceQuota` against a real run.
+//
+// paceQuota declares how many vblanks ONE `gpu_pace_frame` call represents, and the framework sleeps
+// `quota/60 s` per call on the strength of that declaration. It is therefore a claim about THIS
+// FILE's calling cadence — and a wrong claim does not fail, it silently multiplies the port's frame
+// time. So the cadence is measured rather than asserted: every pace entry is counted, split by the
+// two call sites (the only two in this port), next to the guest counter each loop is waiting on.
+//
+// The tallies are kept UNCONDITIONALLY, one increment, because `lucent::debug` does not evaluate its
+// arguments when the channel is off — a counter bumped inside the log call would only count while
+// someone was watching, which is the classic instrument that cannot report its own denominator.
+//
+// WHAT A NEGATIVE LOOKS LIKE HERE, by construction: a run that waits but never paces is impossible —
+// the increments sit on the same lines as the pace calls — so `pace` lines present with a flat
+// `entries` count would mean the loops are spinning without pacing, and `pace` lines ABSENT entirely
+// means either the channel is off or this build never reached a wait at all. Those are different
+// statements and the two counters plus the vblank value distinguish them. What this instrument
+// CANNOT see: pace calls made from anywhere else. That blind spot is bounded by a grep — the only
+// other callers in the framework are `native_boot.cpp` / `native_stub.cpp` (the native frame loop,
+// which this port does not run: it runs the guest's own loop) and `fps60.cpp` (unreachable here, its
+// eligibility needs `RenderQueue::drawWorldQuad`, which this repo never calls).
+static unsigned long g_pace_fieldwait = 0;   // entries from FUN_8005E748's loop  (kVblankWait)
+static unsigned long g_pace_vsync     = 0;   // entries from blocking VSync's loop (kVSync)
 
 // The guest reads the h-counter through a pointer. Before libetc's own init has run that pointer can
 // still be null; a null-pointer guest read is a real condition here, not an error to swallow, and
@@ -314,6 +340,9 @@ static void spiderman_vblank_wait(Core* c) {
   // worth reproducing a bug for.
   while ((int32_t)(c->mem_r32(kGameVblankCount) - target) < 0) {
     gpu_pace_frame(c);
+    ++g_pace_fieldwait;
+    lucent::debug("pace", "entries fieldwait={} vsync={} | site=fieldwait(0x{:08X}) n={} vbl={} target={}",
+                  g_pace_fieldwait, g_pace_vsync, kVblankWait, n, c->mem_r32(kGameVblankCount), target);
     vblank_advance(c);
   }
   c->r[2] = 0;
@@ -380,6 +409,9 @@ static void spiderman_vsync(Core* c) {
   const uint32_t want = (target > c->mem_r32(kVblankCount) + 1u) ? target : c->mem_r32(kVblankCount) + 1u;
   while (c->mem_r32(kVblankCount) < want) {
     gpu_pace_frame(c);
+    ++g_pace_vsync;
+    lucent::debug("pace", "entries fieldwait={} vsync={} | site=vsync(0x{:08X}) mode={} vbl={} want={}",
+                  g_pace_fieldwait, g_pace_vsync, kVSync, mode, c->mem_r32(kVblankCount), want);
     vblank_advance(c);
   }
 
