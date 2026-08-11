@@ -18,8 +18,10 @@
 //   Tomba!2 defaults to pc_render because it has producers for the scenes its boot passes through.
 //   This port has one producer and it covers exactly one scene, so defaulting to pc_render would
 //   abort every run at submitFrame call #2 — including every other agent's boot gate. The default is
-//   therefore the REFERENCE leg, set here before native_boot_run() reads PSXPORT_RENDER_PSX, so an
-//   explicit `PSXPORT_RENDER_PSX=0` selects the native leg and an explicit `=1` re-states the default.
+//   therefore the REFERENCE leg, stated as the DEFAULT LAYER of the framework's render-path CVar
+//   (`PSXPORT_RENDER_PATH`, psxport docs/plans/render-path-tristate.md), so `native` / `gte` / `psx`
+//   from the settings file, the environment or a REPL `renderpath` all outrank it by construction —
+//   not by this call happening to run before the flag is read.
 //   This is not a fallback and not a stopgap: it is the honest statement that this port's shipping
 //   picture still comes from the guest's OT walk. The condition for flipping it is not "a producer
 //   exists" but "every scene a boot passes through has one" — today that is '....' and not 'dem1'.
@@ -38,6 +40,7 @@
 #include "game_iface.h"
 #include "recomp_iface.h"
 #include "render_substrate.h"
+#include "config_vars.h"      // psx::config::cv_render_path — this port's DEFAULT render path
 #include <lucent/log.h>
 #include <cstdio>
 #include <cstdlib>
@@ -393,11 +396,18 @@ void RenderSeam::install() {
 }  // namespace
 
 void spiderman_install_render_seam(Game* g) {
-  // THE DEFAULT LEG. Set before native_boot_run() reads PSXPORT_RENDER_PSX, so an explicit env value
-  // still wins. See the header comment for why this port's default is the reference leg while
-  // Tomba!2's is the native one: this port has zero native producers, so a pc_render default would
-  // abort every run — including every boot gate — on its first engine frame.
-  g->core.rsub.mode.setPsxRender(true);
+  // THE DEFAULT LEG, expressed as the render path's DEFAULT LAYER rather than by poking the live mode.
+  //
+  // It used to write `mode.setPsxRender(true)` here and rely on running BEFORE native_boot_run read
+  // PSXPORT_RENDER_PSX, so that an explicit env value could still win. That ordering dependency is gone:
+  // the framework resolves the path through the CVar ladder (Default < Value < Override < Runtime), so
+  // this states the port's DEFAULT and every layer above it — the settings file, PSXPORT_RENDER_PATH, a
+  // REPL `renderpath` — still outranks it by construction instead of by call order.
+  //
+  // WHY THIS PORT DEFAULTS TO THE REFERENCE LEG while Tomba!2 defaults to native: it has no DISPLAY-LIST
+  // producer for any scene, so a native default would abort every run — including every boot gate — on
+  // its first engine frame.
+  psx::config::cv_render_path.set(psx::config::Layer::Default, "gte");
   lucent::info("rseam", "default render leg = psx_render (reference). This port has ONE native "
                         "producer — the frame envelope (page flip, drawing area/offset/mode, "
                         "background clear), which is the whole of the boot-init scene '....' and "
