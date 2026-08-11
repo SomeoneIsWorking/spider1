@@ -109,7 +109,7 @@ framework constant that assumes 60 Hz for every game; the field rate is a per-ga
 (`kFieldRateMilliHz = 59940` already exists in this port and is already handed to
 `rec_host_turn_register`). The fix is to feed the pacer that same rate rather than a literal 60.0 —
 framework-side, `external/psxport/runtime/recomp/gpu_native.cpp`, and it needs a claim under
-coord/PROTOCOL.md. Deliberately not done here: G6 was scoped game-side/measurement-only, and the two
+external/psxport/docs/workspace/PROTOCOL.md. Deliberately not done here: G6 was scoped game-side/measurement-only, and the two
 framework claims open this session own other files.
 
 Do NOT "fix" this by changing `vblank_advance` to 60.000 Hz. That would make the beat disappear by

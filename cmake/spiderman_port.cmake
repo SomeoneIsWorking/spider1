@@ -10,7 +10,7 @@ option(PSXPORT_BUILD_PORT "Build the Spider-Man native port binary (spiderman_po
 
 # The framework static library + its psxport_smoke agnosticism proof. Always included so `psxport`
 # and `psxport_smoke` stay buildable even when the game target is off.
-include(${CMAKE_SOURCE_DIR}/external/psxport/cmake/psxport.cmake)
+include(${PSXPORT_DIR}/cmake/psxport.cmake)
 
 if(NOT PSXPORT_BUILD_PORT)
   return()

@@ -48,7 +48,7 @@ The `⛔ hack` list in `docs/re-frontier.md` is currently **empty**. Keep it tha
 
 ## The picture comes from GAME STATE, never from what the GTE produced
 
-Two checkable rules; the binding statement is `coord/PROTOCOL.md`. The word "tap" is retired — it
+Two checkable rules; the binding statement is `external/psxport/docs/workspace/PROTOCOL.md`. The word "tap" is retired — it
 needed case-by-case adjudication every time, which is the signature of an underspecified rule.
 
 1. **The shipping picture path runs no `gen_func_*` body.** Reads are not the problem: a producer
@@ -88,6 +88,26 @@ from a diagnostic string the binary itself emits, not from pattern-matching cont
 `generated/` is regenerated output. Never hand-edit it, never commit it. A mistranslation is fixed in
 the recompiler (`external/psxport/tools/recomp/`), not in its output. Provisioning goes through
 `tools/ensure_recomp.py` — one hash-gated step, so every machine builds an identical substrate.
+
+## Where the framework source comes from — NEVER edit `external/psxport`
+
+`external/psxport` is a **read-only pinned consumer**. Framework edits happen in the workspace's
+framework DEV CLONE (`$PSX/psxport`, i.e. `../psxport` from here) and nowhere else — `run.sh` re-syncs
+this submodule to the RECORDED gitlink on every run, so an edit made here is liable to be silently
+reverted mid-gate, and the build or measurement that follows describes a different framework than you
+think.
+
+Build this game against in-progress framework work WITHOUT touching the submodule:
+
+```sh
+PSXPORT_DIR=$PSX/psxport ./run.sh          # or: cmake -S . -B build -DPSXPORT_DIR=$PSX/psxport
+```
+
+`PSXPORT_DIR` defaults to the submodule, so a bare clone of this repo still builds standalone — keep it
+that way. `run.sh` announces which framework checkout a run was built from and whether it was dirty;
+read that line before trusting any measurement. The full protocol (area claims, how a framework change
+lands, the standing USER rules) is `external/psxport/docs/workspace/PROTOCOL.md`; the workspace map is
+`external/psxport/docs/workspace/WORKSPACE.md`.
 
 ## Keep the framework game-agnostic
 

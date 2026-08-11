@@ -41,7 +41,7 @@ the display mode directly, so both legs log the same '[gpu] display depth -> 15-
 
 The seam aborts at the first scene with no display-list producer, which is 'dem1' at submitFrame
 call #2. That abort is the designed behaviour and must NOT be softened — a leg that renders past a
-scene it cannot draw is exactly the plausible-looking fallback coord/PROTOCOL.md forbids. So the
+scene it cannot draw is exactly the plausible-looking fallback external/psxport/docs/workspace/PROTOCOL.md forbids. So the
 producer's window is genuinely two frames, both black, until a 'dem1' producer exists.
 
 ## What was used instead, and its limits
