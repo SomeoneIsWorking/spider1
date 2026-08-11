@@ -450,7 +450,16 @@ def cmd_next(entries, order, args):
             ready.append(e)
     print("== RE-ready steps (all deps satisfied) ==")
     if not ready:
-        print("  (none — every unblocked step is done, or blocked on upstream RE)")
+        # Distinguish "nothing is ready" from "nothing was PARSED". The old message claimed every
+        # unblocked step was done, which over an empty parse tells the reader the project is finished
+        # when in fact the roadmap was never read (INST-14's failure mode wearing a cheerier hat).
+        if not entries:
+            print(f"  ‼ ZERO entries parsed from {DOC.path} "
+                  f"({len(DOC.lines) if DOC.exists else 0} lines) — this is NOT 'nothing is ready', it "
+                  f"is 'the roadmap was never read'. Run `check` for the diagnosis.")
+        else:
+            print(f"  (none of the {len(entries)} parsed step(s) is ready — each is either done or "
+                  f"blocked on upstream RE)")
     for e in ready:
         print(f"  {emoji(e.status)} {e.id:<34} {e.title}")
         if e.gap:
@@ -578,6 +587,19 @@ def cmd_check(entries, order, args):
     if not DOC.exists:
         print(f"‼ {DOC.path} does not exist — checked NOTHING. Set $RE_FRONTIER_ROADMAP "
               f"or run `scaffold`.", file=sys.stderr)
+        return 1
+    # ZERO ENTRIES IS A FAILURE, NOT A PASS (INST-14, and this half of it was still alive on
+    # 2026-08-11: the MISSING-FILE case refused correctly, the missing-CONTENT case did not).
+    # "no unknown deps, no cycles, every re-verified step cites evidence" is VACUOUSLY TRUE over an
+    # empty set, so printing it after parsing nothing is the green-over-nothing this tool exists to
+    # prevent — a file that exists but yields no entries means the parser and the document disagree
+    # about the format, which is a broken instrument, not a clean roadmap.
+    if not order:
+        print(f"‼ {DOC.path} exists ({len(DOC.lines)} lines) but ZERO entries parsed — verified "
+              f"NOTHING. Every check below is vacuously true over an empty set, so this is a FAILURE, "
+              f"not a pass. Either the file has no steps yet (run `scaffold`) or the parser and the "
+              f"document disagree about the format — fix that before trusting any re-frontier verdict.",
+              file=sys.stderr)
         return 1
     print(f"re-frontier OK: {len(order)} entr(ies) parsed from {DOC.path} "
           f"({len(DOC.lines)} lines) — no unknown deps, no cycles, every re-verified step "

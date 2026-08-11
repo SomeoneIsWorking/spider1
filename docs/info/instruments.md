@@ -951,6 +951,34 @@ exits 1 with "does not exist — checked NOTHING", `add` refuses to create a roa
 path, and every OK line carries its denominator (`23 entr(ies) parsed from docs/re-frontier.md
 (218 lines)`). **Lesson: a fix recorded against a tool is not a fix of every copy of that tool.**
 
+*A FOURTH defect, 2026-08-11 — the same entry's own failure mode, still live in the OTHER HALF of the
+case split, plus proof the "lesson" above had to be learned twice.* The MISSING-FILE case refused
+correctly. A roadmap that **existed and parsed ZERO entries** printed `re-frontier OK: … no unknown
+deps, no cycles, every re-verified step cites evidence` and exited **0** — every one of those claims is
+**vacuously true over an empty set**. Measured on all three drifted copies (they are 890 / 443 / skill
+lines — they have diverged enormously):
+
+| copy | before | after |
+|---|---|---|
+| `spider1/tools/re_frontier.py` | exit 0, but did print `0 entr(ies)` | exit 1 |
+| `spyro/tools/re_frontier.py` | exit 0, **no count printed at all** | exit 1 |
+| `~/.claude/skills/re-frontier/re_frontier.py` | exit 0, **no count printed at all** | exit 1 |
+
+`next` was worse than useless on an empty parse: it printed *"(none — every unblocked step is done, or
+blocked on upstream RE)"*, i.e. it told the reader the project was FINISHED when the roadmap had never
+been read. It now distinguishes the two cases explicitly. All three copies verified in BOTH directions
+after the fix — empty roadmap exits 1, each repo's real roadmap still passes (spyro 28 entries, spider1
+30).
+
+**Two lessons, and the second is the expensive one.** (1) A file that exists but yields nothing is a
+BROKEN PARSER, not a clean document — "exists" is the wrong existence check. (2) Fixing "the missing
+input case" does not fix "the empty input case", and a case split is exactly where a
+green-over-nothing hides after the obvious half is patched. Also note this entry itself said the third
+defect was fixed, and the tool was still lying in a neighbouring branch — **a registry entry claiming a
+fix is not evidence the class is dead; re-run the discriminator against both classes.** This is the
+concrete argument for hoisting these tool ENGINES into one place (psxport) with per-game DATA, since
+this bug has now been fixed four times in three copies.
+
 ---
 
 ## INST-06 — `PSXPORT_WWATCH` (guest store watch) — **TRUST RESTORED 2026-07-28 — my distrust was wrong**

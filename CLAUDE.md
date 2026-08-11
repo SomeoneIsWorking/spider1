@@ -14,13 +14,21 @@ progress to `docs/re-frontier.md`, proven results to `docs/info/`.
 
 1. `docs/re-frontier.md` — work the step that is `next`, not a downstream one. Query it with
 
-       RE_FRONTIER_ROADMAP=docs/re-frontier.md python3 tools/re_frontier.py next
+       python3 tools/re_frontier.py next
 
-   **The env var is required.** Without it the tool resolves its roadmap relative to its own
-   directory — see `docs/info/instruments.md` INST-14, where a bare invocation reported OK over an
-   empty parse for a whole session. Use the in-repo `tools/re_frontier.py`, not a
-   `$CLAUDE_SKILLS`-relative path: that variable is unset in a plain shell, so such a command
-   collapses to `/re-frontier/re_frontier.py` and fails.
+   **The env var is NO LONGER required — verified 2026-08-11 by running it, not by reading the code.**
+   A bare invocation resolves `<repo>/docs/re-frontier.md` correctly and parses 30 entries. `ROADMAP`
+   defaults to a path derived from the script's own location's PARENT, so the in-repo copy finds the
+   in-repo roadmap. `RE_FRONTIER_ROADMAP=` still works and is the right override when running a copy
+   from outside the repo. Use the in-repo `tools/re_frontier.py`, not a `$CLAUDE_SKILLS`-relative path:
+   that variable is unset in a plain shell, so such a command collapses to `/re-frontier/re_frontier.py`
+   and fails.
+
+   `docs/info/instruments.md` INST-14 is the history, and **half of it was still live until
+   2026-08-11**: the MISSING-FILE case refused correctly, but a roadmap that existed and yielded ZERO
+   entries printed "re-frontier OK" and exited 0 — vacuously true over an empty set. `check` now fails
+   on a zero-entry parse and `next` distinguishes "nothing is ready" from "the roadmap was never read"
+   (it used to claim every unblocked step was done). Fixed in all three drifted copies.
 2. `docs/codemap.md` — where the subsystem lives and its honest status.
 3. `docs/issues/` — has this symptom been hit before? Has this cause been ruled out?
 4. `docs/info/claims.md` + `instruments.md` — is the thing you are about to rely on actually proven,
