@@ -40,7 +40,14 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # The recompiler lives in the psxport framework submodule. A change to any of these modules changes
 # the emitted C, so they are hash inputs alongside the game executable.
-RECOMP_DIR = "external/psxport/tools/recomp"
+# WHICH framework checkout the recompiler comes from is the same decision CMake already makes: PSXPORT_DIR
+# selects it and defaults to the vendored submodule, so a bare clone still provisions standalone. Hardcoding
+# the submodule meant the substrate could ONLY be regenerated from the recorded pin, so in-progress
+# framework work on the recompiler was unverifiable end-to-end — and worse, this tool would hash a DIFFERENT
+# emit.py than the one being edited and report "up to date". That cost two false "up to date" results in
+# Tomba2Engine (fixed there 2026-08-12); this is the same latent defect in this repo.
+PSXPORT_DIR = os.environ.get("PSXPORT_DIR", "external/psxport")
+RECOMP_DIR = f"{PSXPORT_DIR}/tools/recomp"
 RECOMP_SRCS = [f"{RECOMP_DIR}/emit.py", f"{RECOMP_DIR}/decode.py", f"{RECOMP_DIR}/psexe.py"]
 # The module extractor decides the CONTENT of every overlay the recompiler is fed (which bytes, and
 # what base they are relocated to), so it is as much a recomp input as emit.py itself.
