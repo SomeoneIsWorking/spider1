@@ -70,6 +70,50 @@ INST-20 states exactly where its blindness starts.
 
 ---
 
+## INST-28 — `tools/gate.py` (THE RUN GATE) — **trusted for BOOT REACH, after being seen to fail 15 ways; blind to pixels and to the pc_render leg. Added 2026-08-12**
+
+*What it shows:* whether the already-built `scratch/bin/spiderman_port` still boots and keeps
+advancing. `gate.py boot` launches it headless under `gpuguard run --timeout N` (never `./run.sh`) and
+asserts on the port's own log lines: boot exe loaded, guest main dispatched, render seam installed AND
+fired, first-to-last ADVANCE of the periodic `[rseam] submitFrame calls=… frame=…` counters, frame and
+submit floors at 35% of the recorded baseline RATE, ≥2 scene changes into printable scene names, and no
+failure pattern. `check-log <path>` runs the same analyser over any captured log.
+
+*Why it is not a REPL gate like the sibling port's:* this port never enters the framework frame loop
+that services the REPL (`game/core/game_hooks.cpp` rec_dispatches the guest main, which never returns),
+and the port's own cfg audit reports `PSXPORT_REPL` as a knob that "did NOTHING in this run". So the
+gate cannot step the game; it can only read what a capped launch printed. See issue 0014.
+
+*Validated in BOTH directions, which is the whole point:* `--selftest` runs 16 cases through the SAME
+`analyse()` the real gate uses — 1 known-good capture PASSES and 15 mutations are caught (11 FAIL,
+3 REFUSE, 1 GPU-device-loss STOP), each keyed on exactly one changed line. It also fires on REAL logs,
+not just synthetic ones: `check-log scratch/re20/logs/pcleg_final.log` → exit 1 on the pc_render leg's
+genuine `[FATAL:error] unimplemented native rendering` abort, and `check-log
+scratch/logs/gate_newpin.log` → exit 3 on a real `context is lost` line from an earlier run.
+
+*Calibration trap, recorded because copying the sibling would have hit it:* a plain `/\babort\b/`
+failure pattern MATCHES this port's healthy startup banner ("… then aborts at the next scene naming
+it. That abort is the correct result"), so it would have failed every green run. Patterns are anchored
+to how a failure PRINTS instead — lucent renders an error as `[<channel>:error]`, hence
+`[FATAL:error]` — and `[watchdog] STUCK` is case-sensitive because the ordinary timeout-kill line
+contains the word "stuck" in prose.
+
+*Known limits, stated so a pass is not overread:*
+- **Blind to pixels.** It counts frames and submits; it never looks at an image. Use INST-20/INST-25
+  for that. It is blind to the pc_render leg entirely — the default leg is psx_render.
+- **The rate floors are LOAD-SENSITIVE.** Several agents share this machine, so wall-clock throughput
+  is not a pure function of the code. A failure on the frame/submit floor ALONE, with every other
+  assertion green, is the one verdict to re-run before believing.
+- **A short run REFUSES rather than passing.** The port prints a progress line every 512 submitFrame
+  calls, so under two lines there is nothing to compare and exit 2 says so. But an abort outranks that
+  refusal — an early version got this ordering wrong and reported "nothing proven" over a FATAL it had
+  already read (selftest case 14 pins it).
+- **Says nothing past the ~2 minutes it runs**, and nothing about audio or input.
+
+*Structured entry:* `I030` (trusted). *See:* issue 0014, `docs/codemap.md` (THE RUN GATE row).
+
+---
+
 ## INST-20 — `PSXPORT_PRESENT_SHOT_AT` / `GpuVkState::present_shot()` — **trusted for the PRESENTED PICTURE, in either leg, after passing a discriminator in both directions**
 
 *What it shows:* a readback of `s_present_img`, the sink-resolution composite built by

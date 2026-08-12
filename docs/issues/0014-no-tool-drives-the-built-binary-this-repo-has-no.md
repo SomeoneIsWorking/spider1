@@ -1,7 +1,7 @@
 ---
 id: 14
 title: No tool drives the built binary — this repo has no run gate, and Tomba2's gate SHAPE cannot be copied
-status: open
+status: resolved
 symptom: every dynamic claim in this repo was measured by hand-launching spiderman_port with env vars; nothing mechanical would notice if boot regressed
 tags: verification,gate,tooling
 created: 2026-08-12
@@ -13,3 +13,39 @@ MEASURED 2026-08-12. 28 tools in tools/; ZERO match /^gate/; 'grep -ln spiderman
 THE PREMISE'S IMPLIED FIX IS ONLY HALF RIGHT, and this is the part to remember: Tomba2Engine/tools/gate.py drives the game over the REPL, and THIS PORT NEVER ENTERS THE FRAMEWORK FRAME LOOP THAT SERVICES THE REPL (game/core/game_hooks.cpp:39-42 rec_dispatches the guest main, which never returns; frameUpdate/drawOTag are deliberate abort() fail-fasts). So a REPL-driven gate cannot work here as-is. A gate for this port has to key on its own log lines from a plain capped launch, or the port needs the framework loop first.
 
 BOOT STATUS AT psxport 240d8f9a, so a future regression has a baseline: it boots and boots DEEP — 240s headless run reached rseam frame 14007 with 5632 submitFrame calls and 9 scene changes, clean. Those three counters are the obvious assertions for a gate (frames advanced, submitFrame calls > 0, scene changes > 0) plus 0 recomp-MISS and 0 fail-fast aborts.
+
+RESOLVED 2026-08-12 — `tools/gate.py`. `python3 tools/gate.py boot` launches the already-built
+`scratch/bin/spiderman_port` headless under `gpuguard run --timeout N` (never `./run.sh`) and keys on
+the port's own log lines, as this issue said it would have to. Seven assertions: `[boot] loaded …:
+entry 0x…`, `[boot] Phase 0: dispatching guest main()`, `[rseam] render seam installed at 0x…`,
+`[rseam] submitFrame override REACHED` (the line the port's own install message names as its
+proof-of-fire), ADVANCE between the first and last periodic `[rseam] submitFrame calls=… frame=…`
+line, frame/submit floors at 35% of the baseline RATE (never an absolute end frame — the scene order
+is not even stable run to run: the baseline reached `l1a1` first, the 2026-08-12 gate runs reached
+`dem1` first), and ≥2 scene changes into printable scene names. Refusals exit 2; GPU device loss
+exits 3 as a session-wide STOP.
+
+MEASURED on the gate itself: two 120s runs PASSED (frame 6813 / 2048 submits / 4 scene changes and
+frame 6797 / 2048 / 4 — 56 frames/s against the baseline's 58), and `check-log` re-confirms the
+recorded baseline log mechanically (frame 14007, 5632 submits, 9 scene changes). `--selftest` judges
+16 cases through the SAME analyser: 1 known-good capture PASSES, 15 broken variants are caught
+(11 FAIL, 3 REFUSE, 1 device-loss STOP).
+
+TWO CALIBRATION FINDINGS worth keeping, both caught by running the gate against REAL logs rather
+than reasoning about it:
+1. The sibling gate's `/\babort\b/` failure pattern MATCHES this port's healthy startup banner
+   ("… then aborts at the next scene naming it. That abort is the correct result"), so copying that
+   list would have failed every green run. Patterns here are anchored to how a failure PRINTS —
+   lucent renders an error as `[<channel>:error]`, hence `[FATAL:error]`; `[watchdog] STUCK` is
+   case-sensitive and tag-anchored because the ordinary timeout-kill line says "where it was stuck".
+2. ORDERING: the first version REFUSED (exit 2, "nothing proven") over
+   `scratch/re20/logs/pcleg_final.log` — a REAL pc_render-leg abort at submitFrame call #2 — because
+   the "too few progress lines to speak about ADVANCE" refusal returned ahead of the failure-pattern
+   check. An abort is a FAILURE however early it happened; only an otherwise-clean short run is a
+   refusal. Selftest case 14 now pins that shape.
+
+NOT covered by this gate, stated so a pass is not overread: pixels, the pc_render leg (the default
+leg is psx_render, the reference; pc_render has no display-list producer and aborts by design),
+audio, input, and anything past the ~2 minutes it runs. The frame/submit floors are LOAD-SENSITIVE —
+several agents share this machine — so a failure on those alone, with everything else green, is the
+one verdict to re-run before believing.

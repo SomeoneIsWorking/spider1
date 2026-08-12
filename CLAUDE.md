@@ -169,6 +169,15 @@ must differ, and record it in `docs/info/instruments.md`.
 
 ## Verify before declaring done
 
+**The run gate is `python3 tools/gate.py boot`, and an agent NEVER runs `./run.sh`** — that is the
+user's windowed play launcher and it re-syncs the framework submodule out from under an in-progress
+measurement. Build explicitly (`cmake --build build --target spiderman_port -j$(nproc)`), then gate.
+The gate drives the already-built binary headless under `gpuguard run`, capped, and keys on the port's
+own log lines — it cannot use the framework REPL, because this port never enters the frame loop that
+services it. `--selftest` proves it still fails when it should; `check-log <path>` re-judges a captured
+log. Refusals exit 2, GPU device loss exits 3. What it does NOT cover: pixels, the pc_render leg,
+audio, input (INST-28 states the blind spots).
+
 No "works" / "matches" / "fixed" without a real check on real data, cited. A green result means what
 it exercised and nothing more — and the port currently exercises very little, so be especially
 careful about generalising from a boot-only measurement to gameplay.

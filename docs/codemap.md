@@ -46,7 +46,8 @@ Cite the exact form. `CLAIM-Cnnn` in this file means the per-file `Cnnn`.
 |---|---|---|
 | Disc provisioning + static recompilation | `tools/ensure_recomp.py`, `game/recomp_seeds.json` | **done** — hash-gated; MAIN + **30 runtime-loaded modules**, seeded only from the binary |
 | Runtime module extraction + relocation | `tools/extract_modules.py` | **done** — offline half of the guest's own loader; relocating `shell.bin` reproduces guest RAM byte-for-byte (CLAIM-08). Also writes each module's `<stem>.reloc.json` sidecar (HI16 offsets) that the recompiler needs to emit it base-relative |
-| Relocation-model gate | `tools/check_reloc_model.py` | **done** — checks the shape assumptions base-relative emission rests on across all 30 modules (8883 sites); self-tested (`--selftest`), refuses rather than returning empty on a missing corpus (I005) |
+| Relocation-model **static** check | `tools/check_reloc_model.py` | **done** — checks the shape assumptions base-relative emission rests on across all 30 modules (8883 sites); self-tested (`--selftest`), refuses rather than returning empty on a missing corpus (I005). **NOT a run gate** — it never launches the binary. This row used to call it "the relocation-model gate", which invited exactly that misreading (issue 0014) |
+| **THE RUN GATE** — does the built binary still boot? | `tools/gate.py` | **done 2026-08-12** (issue 0014, which recorded that NOTHING in this repo drove the built binary). `python3 tools/gate.py boot` launches `scratch/bin/spiderman_port` headless under `gpuguard run`, capped, and asserts on the port's OWN log lines: boot exe loaded, guest main dispatched, render seam installed AND fired (`[rseam] submitFrame override REACHED`), counters ADVANCED at ≥35% of the recorded baseline rate (14007 frames / 5632 submits in 240s), ≥2 scene changes into NAMED scenes, and no failure pattern. It cannot use the REPL — this port never enters the framework frame loop that services it — so it keys on log lines from a plain capped launch. `--selftest` judges a known-good capture plus 15 broken variants (11 FAIL, 3 REFUSE, 1 GPU-device-loss STOP); `check-log <path>` runs the same analyser over any captured log. Refusals exit 2, device loss exits 3 |
 | Build (framework + game + substrate) | `CMakeLists.txt`, `cmake/spiderman_port.cmake` | **done** |
 | `GameConfig` boot/crt0 group | `game/core/game_config.cpp` | **done** — RE-verified against the crt0 at `0x8008739C` |
 | Generated-substrate seam | `game/core/recomp_register.cpp` | **done** |
@@ -114,6 +115,9 @@ Cite the exact form. `CLAIM-Cnnn` in this file means the per-file `Cnnn`.
   what a player sees.
 - **Driving the game without a controller** → `PSXPORT_FORCE_BUTTONS=<hex active-low mask>`
   (`0040` DOWN, `4000` CROSS, `0008` START).
+- **Did my change break boot?** → `python3 tools/gate.py boot` (build first: `cmake --build build
+  --target spiderman_port -j$(nproc)`). Never `./run.sh` — that is the user's windowed launcher and it
+  re-syncs the framework submodule out from under an in-progress measurement.
 
 ## Current state in one line
 
