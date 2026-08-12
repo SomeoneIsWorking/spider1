@@ -447,6 +447,11 @@ static const GameConfig g_spiderman_cfg = {
     // i.e. the pacer was the throttle and nothing else changed.
     /* paceQuota       */ 1u,
     /* windowTitle     */ "Spider-Man",
+    // crt0 stack-top bias, MEASURED by psxport tools/crt0_extract over SLUS_008.75 (entry
+    // 0x8008739C). POSITIONAL, so it must stay LAST and match stackBias's position at the end of
+    // GameConfig. declared = 1 is mandatory: crt0_plan REFUSES a boot when it is 0, because 0 is a
+    // REAL measured answer for some crt0s (X4, Toy Story 2) and cannot double as "unset".
+    /* stackBias       */ {1, -8},
 };
 
 extern void spiderman_install_game_hooks();   // game/core/game_hooks.cpp
