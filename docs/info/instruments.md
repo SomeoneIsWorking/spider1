@@ -70,7 +70,7 @@ INST-20 states exactly where its blindness starts.
 
 ---
 
-## INST-28 — `tools/gate.py` (THE RUN GATE) — **trusted for BOOT REACH, after being seen to fail 15 ways; blind to pixels and to the pc_render leg. Added 2026-08-12**
+## INST-28 — `tools/gate.py` (THE RUN GATE) — **trusted for BOOT REACH, after being seen to fail 16 ways; blind to pixels and to the pc_render leg. Added 2026-08-12, launcher audited the same day**
 
 *What it shows:* whether the already-built `scratch/bin/spiderman_port` still boots and keeps
 advancing. `gate.py boot` launches it headless under `gpuguard run --timeout N` (never `./run.sh`) and
@@ -84,10 +84,10 @@ that services the REPL (`game/core/game_hooks.cpp` rec_dispatches the guest main
 and the port's own cfg audit reports `PSXPORT_REPL` as a knob that "did NOTHING in this run". So the
 gate cannot step the game; it can only read what a capped launch printed. See issue 0014.
 
-*Validated in BOTH directions, which is the whole point:* `--selftest` runs 16 cases through the SAME
-`analyse()` the real gate uses — 1 known-good capture PASSES and 15 mutations are caught (11 FAIL,
-3 REFUSE, 1 GPU-device-loss STOP), each keyed on exactly one changed line. It also fires on REAL logs,
-not just synthetic ones: `check-log scratch/re20/logs/pcleg_final.log` → exit 1 on the pc_render leg's
+*Validated in BOTH directions, which is the whole point:* `--selftest` runs 17 cases — 15 through the
+SAME `analyse()` the real gate uses plus 2 through the REAL launcher — and 1 known-good capture PASSES
+while 16 broken variants are caught (11 FAIL, 4 REFUSE, 1 GPU-device-loss STOP), each keyed on exactly
+one changed line. It also fires on REAL logs, not just synthetic ones: `check-log scratch/re20/logs/pcleg_final.log` → exit 1 on the pc_render leg's
 genuine `[FATAL:error] unimplemented native rendering` abort, and `check-log
 scratch/logs/gate_newpin.log` → exit 3 on a real `context is lost` line from an earlier run.
 
@@ -109,6 +109,25 @@ contains the word "stuck" in prose.
   refusal — an early version got this ordering wrong and reported "nothing proven" over a FATAL it had
   already read (selftest case 14 pins it).
 - **Says nothing past the ~2 minutes it runs**, and nothing about audio or input.
+
+*AUDITED 2026-08-12 (second pass, by re-running it rather than re-reading it) — two real defects found
+in the LAUNCHER, both in the HANG branch, which had ZERO selftest coverage. Both are fixed and selftest
+case 17 now drives that branch through the real `cmd_boot`:*
+- **The hang refusal saved an EMPTY log.** The handler wrote only `e.stdout`, and the port writes 100%
+  of its output to STDERR — measured: 92 stderr lines, 0 stdout lines from a 12s `gpuguard run`. So the
+  one failure that most needs a log got `Log: <path>` pointing at 0 bytes. Now writes stdout+stderr and
+  reports the captured line count in the refusal itself.
+- **It orphaned the game.** `subprocess.run(timeout=)` kills only the DIRECT child, so killing the
+  `gpuguard` wrapper left `spiderman_port` alive and reparented — measured with a stand-in: 2 survivors
+  per hang. A GPU-holding orphan is what the NEXT gate run then contends with, while this run reported a
+  tidy refusal. Now `start_new_session=True` plus `killpg`, and the refusal states how many processes
+  were signalled and how many were still alive after.
+- *The audit's own instrument lied twice before it worked*, which is why the fix is trusted: the
+  survivor check first scanned `ps` for the script's NAME (the grandchild's argv is `sleep 600`), then
+  for a marker in `sh -c 'sleep 600 # MARK'` — which dash EXEC-OPTIMISES away. Both printed
+  "surviving=0" against a launcher that measurably leaked. It now detects survival by an advancing
+  HEARTBEAT mtime and reports `grandchild spawned=…` as its denominator, so "nothing survived" cannot
+  be confused with "nothing ever ran".
 
 *Structured entry:* `I030` (trusted). *See:* issue 0014, `docs/codemap.md` (THE RUN GATE row).
 

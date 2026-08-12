@@ -49,3 +49,24 @@ leg is psx_render, the reference; pc_render has no display-list producer and abo
 audio, input, and anything past the ~2 minutes it runs. The frame/submit floors are LOAD-SENSITIVE —
 several agents share this machine — so a failure on those alone, with everything else green, is the
 one verdict to re-run before believing.
+
+AUDITED 2026-08-12, SECOND PASS — the gate was re-verified by running it, and TWO REAL DEFECTS were
+found in the part nothing covered: the LAUNCHER's hang branch. `--selftest` had 16 cases and all 16
+judged captured TEXT through `analyse()`; the launcher itself had exactly one case (missing binary).
+1. The hang refusal wrote only `e.stdout` to its log — and the port writes **100% of its output to
+   stderr** (measured: 92 stderr lines / 0 stdout lines from a 12s `gpuguard run`). The refusal for the
+   single failure that most needs evidence pointed at an EMPTY file.
+2. `subprocess.run(timeout=)` kills only the DIRECT child, so the hang path killed the `gpuguard`
+   wrapper and left `spiderman_port` running, reparented — measured with a stand-in: **2 orphans per
+   hang**. A GPU-holding orphan is what the next gate run contends with while this one reports a tidy
+   refusal.
+Both fixed: the launch takes its own session (`start_new_session=True`), a hang `killpg`s the group and
+the refusal states processes-signalled / still-alive / lines-captured. Selftest case 17 drives the real
+`cmd_boot` into that branch and was run against BOTH the pre-fix and post-fix launcher — it FAILS on the
+old one (log 0 lines, marker absent, heartbeat still advancing) and PASSES on the new one.
+THE AUDIT'S OWN CHECK LIED TWICE FIRST, which is the more transferable finding: the survivor test
+scanned `ps` for the stand-in's NAME (the grandchild's argv is `sleep 600`), then for a marker inside
+`sh -c 'sleep 600 # MARK'` — which dash EXEC-OPTIMISES into bare `sleep 600`, erasing it. Both versions
+printed "surviving=0" against a launcher that provably leaked. Survival is now detected by an advancing
+HEARTBEAT mtime, with `grandchild spawned=…` printed as the denominator so "nothing survived" cannot be
+read off a grandchild that never started.
