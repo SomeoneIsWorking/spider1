@@ -8,6 +8,16 @@ is marked done to look better — an honest "missing" is what makes this file wo
 
 ---
 
+## Title coverage
+
+| title | status |
+|---|---|
+| Spider-Man | 🟡 current implementation; blocked at disc initialization |
+| Spider-Man 2: Enter Electro | ⬜ title slot only; executable identity and seam not yet derived |
+
+The repository-level `game/` currently implements Spider-Man 1. Shared lineage code must be based on
+measured common behavior when Enter Electro work begins.
+
 ## What this project is
 
 A native PC port of the PSX Spider-Man (`SLUS_008.75`, USA) built on

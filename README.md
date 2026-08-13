@@ -1,7 +1,11 @@
-# spider1 — a native PC port of Spider-Man (PSX)
+# Spider-Man PSX — both Neversoft games
 
-A work-in-progress native PC port of the PlayStation *Spider-Man* (`SLUS_008.75`, USA), built on the
+A work-in-progress multi-title native PC port for PlayStation *Spider-Man* and *Spider-Man 2: Enter
+Electro*, built on the
 [**psxport**](https://github.com/SomeoneIsWorking/psxport) framework.
+
+The current implementation is Spider-Man (`SLUS_008.75`, USA). Enter Electro has an explicit title
+slot under `titles/` but is not implemented yet; the status below describes Spider-Man 1 only.
 
 psxport **statically recompiles** the game's MIPS R3000A machine code into native C, then runs it
 under a native platform layer — so the result behaves like a PC program, not an emulator. On top of
@@ -64,6 +68,7 @@ Useful knobs: `PSXPORT_NOWINDOW=1` (headless), `PSXPORT_NOAUDIO=1`, `PSXPORT_WAT
 
 ```
 game/core/           the framework↔game seam — this repo's entire hand-written surface
+titles/              per-title identity and status (Spider-Man 1/2)
 external/psxport/    the framework (submodule): recompiler, runtime, PSX hardware, harness, renderer
 generated/           the recompiled substrate — regenerated, never committed, never hand-edited
 tools/               provisioning + reverse-engineering helpers
