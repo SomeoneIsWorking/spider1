@@ -16,7 +16,8 @@ namespace {
 constexpr uint32_t kPlayer = 0x8002AA0C, kBoot = 0x8006BF9C;
 constexpr uint32_t kPrePoll = 0x8002AEB0, kPostPoll = 0x8002AEB8, kGuard = 0x8002AEF8,
                    kTeardown = 0x8002AF90;
-constexpr uint32_t kStartHeld = 0x800A4ED4, kStartEdge = 0x800A4ED5, kCrossEdge = 0x800A4E25;
+constexpr uint32_t kStartHeld = 0x800A4ED4, kStartEdge = 0x800A4ED5, kCrossHeld = 0x800A4E24,
+                   kCrossEdge = 0x800A4E25;
 enum class Drive { Start, Cross, Held };
 enum class Owner : unsigned { Boot0, Boot1, Queued, Dispatcher, Other, Count };
 enum class Event { PostPoll, GuardArm, Teardown };
@@ -61,14 +62,16 @@ struct Call {
   uint8_t id = 0;
   Owner owner = Owner::Other;
   uint32_t ctx = 0, maxTick = 0;
-  bool drove = false, pre = false, post = false, guardArm = false, teardown = false;
+  bool drove = false, releasedBeforeDrive = false, pre = false, post = false, guardArm = false,
+       teardown = false;
 };
 
-void classifyEvent(Call &call, Event event, uint32_t tick, bool selectedEdge) {
+void classifyEvent(Call &call, Event event, uint32_t tick, bool selectedHeld, bool selectedEdge) {
   if (tick > call.maxTick) {
     call.maxTick = tick;
   }
   if (event == Event::PostPoll) {
+    call.releasedBeforeDrive |= !selectedHeld && tick < 30u;
     call.pre |= selectedEdge && tick < 30u;
     call.post |= selectedEdge && tick >= 30u;
   } else if (event == Event::GuardArm) {
@@ -79,7 +82,8 @@ void classifyEvent(Call &call, Event event, uint32_t tick, bool selectedEdge) {
 }
 struct Totals {
   unsigned calls = 0, owner[(unsigned)Owner::Count] = {}, drove = 0, pre = 0, post = 0,
-           guardArm = 0, teardown = 0, clean = 0, bootReturns = 0, heldId1Suppressed = 0;
+           releasedBeforeDrive = 0, guardArm = 0, teardown = 0, clean = 0, bootReturns = 0,
+           heldId1Suppressed = 0;
 } totals;
 Drive drive = Drive::Start;
 Call *current = nullptr;
@@ -98,12 +102,13 @@ void observe(Core *c, uint64_t, uint32_t pc, void *) {
     c->game->pad.driveTap((uint16_t)(0xFFFFu & ~bit), 6);
     current->drove = true;
   } else if (pc == kPostPoll) {
+    const bool held = c->mem_r8(drive == Drive::Cross ? kCrossHeld : kStartHeld) != 0;
     const bool edge = c->mem_r8(drive == Drive::Cross ? kCrossEdge : kStartEdge) != 0;
-    classifyEvent(*current, Event::PostPoll, tick, edge);
+    classifyEvent(*current, Event::PostPoll, tick, held, edge);
   } else if (pc == kGuard) {
-    classifyEvent(*current, Event::GuardArm, tick, false);
+    classifyEvent(*current, Event::GuardArm, tick, false, false);
   } else if (pc == kTeardown) {
-    classifyEvent(*current, Event::Teardown, tick, false);
+    classifyEvent(*current, Event::Teardown, tick, false, false);
   }
 }
 
@@ -114,7 +119,7 @@ bool hasQueuedCorpus(const Totals &value) {
 void report(const char *where) {
   lucent::info("strskip",
                "{} calls={} boot0={} boot1={} queued={} dispatcher={} other={} "
-               "drove={} pre30={} post30={} guard_arm={} teardown={} clean={} "
+               "drove={} release_seen={} pre30={} post30={} guard_arm={} teardown={} clean={} "
                "boot_returns={} held_id1_suppressed={}",
                where,
                totals.calls,
@@ -124,6 +129,7 @@ void report(const char *where) {
                totals.owner[3],
                totals.owner[4],
                totals.drove,
+               totals.releasedBeforeDrive,
                totals.pre,
                totals.post,
                totals.guardArm,
@@ -184,16 +190,21 @@ void player(Core *c) {
   // Held must survive ID0 return so FUN_8006BF9C can exercise its own ID1
   // suppression test.
   if (drive != Drive::Held || call.owner != Owner::Boot0) {
-    c->game->pad.driveRelease();
+    // driveRelease relinquishes replacement ownership but deliberately leaves
+    // the last sampled buttons intact. In headless mode there is no SDL poll
+    // to replace that state, so explicitly service an idle replacement frame
+    // before a later movie is allowed to receive a fresh edge.
+    c->game->pad.driveHold(0xFFFFu);
   }
   totals.drove += call.drove;
+  totals.releasedBeforeDrive += call.releasedBeforeDrive;
   totals.pre += call.pre;
   totals.post += call.post;
   totals.guardArm += call.guardArm;
   totals.teardown += call.teardown;
   totals.clean += c->mem_r32(call.ctx + 1680u) == 0;
   lucent::info("strskip",
-               "call={} id={} owner={} max_tick={} drove={} edge_pre30={} "
+               "call={} id={} owner={} max_tick={} drove={} release_seen={} edge_pre30={} "
                "edge_post30={} guard_arm={} common_teardown={} "
                "active_after={} held_after={}",
                totals.calls,
@@ -201,6 +212,7 @@ void player(Core *c) {
                ownerName(call.owner),
                call.maxTick,
                call.drove,
+               call.releasedBeforeDrive,
                call.pre,
                call.post,
                call.guardArm,
@@ -241,15 +253,15 @@ int spiderman_str_skip_selftest(const char *which, const char *) {
     return 2;
   }
   Call early;
-  classifyEvent(early, Event::PostPoll, 29, true);
-  classifyEvent(early, Event::GuardArm, 29, false);
+  classifyEvent(early, Event::PostPoll, 29, false, true);
+  classifyEvent(early, Event::GuardArm, 29, false, false);
   Call late;
-  classifyEvent(late, Event::PostPoll, 29, false);
-  classifyEvent(late, Event::PostPoll, 30, true);
-  classifyEvent(late, Event::Teardown, 30, false);
+  classifyEvent(late, Event::PostPoll, 29, false, false);
+  classifyEvent(late, Event::PostPoll, 30, true, true);
+  classifyEvent(late, Event::Teardown, 30, false, false);
   Call held;
-  classifyEvent(held, Event::PostPoll, 0, true);
-  classifyEvent(held, Event::PostPoll, 30, false);
+  classifyEvent(held, Event::PostPoll, 0, true, true);
+  classifyEvent(held, Event::PostPoll, 30, true, false);
   Drive parsed = Drive::Held;
   Totals absent;
   absent.owner[(unsigned)Owner::Boot0] = 1;
@@ -262,9 +274,10 @@ int spiderman_str_skip_selftest(const char *which, const char *) {
       ownerOf(0x8006BF84, 7) == Owner::Queued && ownerOf(0x800101BC, 7) == Owner::Dispatcher;
   const bool context = validContext(0x800B47F4u) && !validContext(0) && !validContext(0x800B47F0u);
   const bool corpus = !hasQueuedCorpus(absent);
-  const bool ok = early.pre && early.guardArm && !early.post && !early.teardown && late.post &&
-                  late.teardown && held.pre && !held.post && !held.teardown && modes && owners &&
-                  context && corpus;
+  const bool ok = early.releasedBeforeDrive && early.pre && early.guardArm && !early.post &&
+                  !early.teardown && late.releasedBeforeDrive && late.post && late.teardown &&
+                  !held.releasedBeforeDrive && held.pre && !held.post && !held.teardown && modes &&
+                  owners && context && corpus;
   lucent::info("strskip",
                "selftest early_suppressed={} late_exits={} "
                "held_not_retriggered={} result={}",
