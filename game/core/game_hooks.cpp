@@ -25,6 +25,7 @@
 #include "cfg.h"
 #include "memcard.h"   // card_overrides_init
 #include "fntrace.h"   // fntrace_init — PSXPORT_FNTRACE guest-function reach tracing
+#include "str_skip_oracle.h"
 #include <stdlib.h>
 
 // ── boot ────────────────────────────────────────────────────────────────────────────────────────
@@ -123,6 +124,7 @@ static const GameHooks g_spiderman_hooks = {
     .devAreaName              = spiderman_devAreaName,
     .devWarpAllowed           = spiderman_devWarpAllowed,
     .schedStageBody           = spiderman_schedStageBody,
+    .selftestGame             = spiderman_str_skip_selftest,
 };
 
 const GameHooks* spiderman_game_hooks() { return &g_spiderman_hooks; }

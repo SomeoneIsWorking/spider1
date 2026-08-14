@@ -27,6 +27,7 @@ set(GAME_SRC
   game/core/sync_native.cpp       # RE'd PSX hardware-sync primitives (libetc VSync)
   game/core/cd_stream.cpp         # continuous-read (XA/STR) pump, driven from StGetNext
   game/core/diag_overrides.cpp    # observe-only overrides (log + super-call), channel-gated
+  game/core/str_skip_oracle.cpp   # opt-in retail STR skip discriminator + selftest
   game/core/module_loader.cpp     # pins runtime-loaded CD.WAD modules to one canonical slot (RE-09)
   game/render/scene_id.cpp        # the game's own level-name -> scene-id lens (RE-23)
   game/render/frame_census.cpp    # RE-21 display-list inventory instrument (diagnostic only)

@@ -42,6 +42,14 @@
 {
   "main": [],
   "main_reentry": [],
+
+  // Selected ordinary-instruction boundaries inside the sole retail STR player.
+  "diagnostic_pcs": [
+    {"owner": "0x8002AA0C", "pc": "0x8002AEB0"},
+    {"owner": "0x8002AA0C", "pc": "0x8002AEB8"},
+    {"owner": "0x8002AA0C", "pc": "0x8002AEF8"},
+    {"owner": "0x8002AA0C", "pc": "0x8002AF90"}
+  ],
   // Every runtime-loaded module is recompiled at this LINK base (see the note above); it is not
   // where any of them runs.
   "overlay_base_patterns": [ [ ".*", "0x800C65EC" ] ],
