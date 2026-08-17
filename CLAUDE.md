@@ -1,9 +1,10 @@
 # spider1 — working rules
 
 A native PC port of the PSX Spider-Man (`SLUS_008.75`, USA) on the psxport framework
-(`external/psxport`, a submodule). psxport statically recompiles the game's MIPS code into C — the
-"substrate" — and provides the PSX platform layer, hardware backends, differential harness, and
-renderer. This repo adds only the game seam plus the recompiled substrate.
+(`external/psxport` — a symlink to the shared framework clone, pinned via `psxport.pin`). psxport
+statically recompiles the game's MIPS code into C — the "substrate" — and provides the PSX platform
+layer, hardware backends, differential harness, and renderer. This repo adds only the game seam plus
+the recompiled substrate.
 
 This file holds durable **directives**. Findings go to `docs/issues/`, status to `docs/codemap.md`,
 progress to `docs/re-frontier.md`, proven results to `docs/info/`.
@@ -97,25 +98,27 @@ from a diagnostic string the binary itself emits, not from pattern-matching cont
 the recompiler (`external/psxport/tools/recomp/`), not in its output. Provisioning goes through
 `tools/ensure_recomp.py` — one hash-gated step, so every machine builds an identical substrate.
 
-## Where the framework source comes from — NEVER edit `external/psxport`
+## Where the framework source comes from — `external/psxport` is the shared tree
 
-`external/psxport` is a **read-only pinned consumer**. Framework edits happen in the workspace's
-framework DEV CLONE (`$PSX/psxport`, i.e. `../psxport` from here) and nowhere else — `run.sh` re-syncs
-this submodule to the RECORDED gitlink on every run, so an edit made here is liable to be silently
-reverted mid-gate, and the build or measurement that follows describes a different framework than you
-think.
+`external/psxport` is **not a submodule** (2026-08-16): it is a SYMLINK to the workspace's shared
+framework clone (`$PSX/psxport`) when one exists, or a private clone at this repo's `psxport.pin` on a
+fresh machine. `tools/psxport_sync.py --auto` (called by `run.sh`) establishes whichever applies. So a
+framework edit made through either path is the SAME directory, live in every port at once — commit and
+push framework work in `psxport/`, never here. `psxport.pin` records the framework commit this game
+was built and VERIFIED against; `tools/psxport_sync.py --bump` updates it, and the gate's `--check`
+fails when the framework you built against is not the recorded one.
 
-Build this game against in-progress framework work WITHOUT touching the submodule:
+Build this game against in-progress framework work:
 
 ```sh
-PSXPORT_DIR=$PSX/psxport ./run.sh          # or: cmake -S . -B build -DPSXPORT_DIR=$PSX/psxport
+cmake -S . -B build -DPSXPORT_DIR=$PSX/psxport   # or just ./run.sh — it resolves external/psxport itself
 ```
 
-`PSXPORT_DIR` defaults to the submodule, so a bare clone of this repo still builds standalone — keep it
-that way. `run.sh` announces which framework checkout a run was built from and whether it was dirty;
-read that line before trusting any measurement. The full protocol (area claims, how a framework change
-lands, the standing USER rules) is `external/psxport/docs/workspace/PROTOCOL.md`; the workspace map is
-`external/psxport/docs/workspace/WORKSPACE.md`.
+`PSXPORT_DIR` defaults to `external/psxport`, so a bare clone of this repo still builds standalone —
+keep it that way. `run.sh` announces which framework checkout a run was built from and whether it was
+dirty; read that line before trusting any measurement. The full protocol (area claims, how a framework
+change lands, the standing USER rules) is `external/psxport/docs/workspace/PROTOCOL.md`; the workspace
+map is `external/psxport/docs/workspace/WORKSPACE.md`.
 
 ## Keep the framework game-agnostic
 
@@ -172,7 +175,7 @@ must differ, and record it in `docs/info/instruments.md`.
 **The run gate is `python3 tools/gate.py boot`, and an agent NEVER runs `./run.sh`** — that is the
 user's windowed play launcher and it re-syncs the framework submodule out from under an in-progress
 measurement. Build explicitly (`cmake --build build --target spiderman_port -j$(nproc)`), then gate.
-The gate drives the already-built binary headless under `gpuguard run`, capped, and keys on the port's
+The gate drives the already-built binary headless, capped, and keys on the port's
 own log lines — it cannot use the framework REPL, because this port never enters the frame loop that
 services it. `--selftest` proves it still fails when it should; `check-log <path>` re-judges a captured
 log. Refusals exit 2, GPU device loss exits 3. What it does NOT cover: pixels, the pc_render leg,
