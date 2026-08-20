@@ -31,6 +31,7 @@ set(GAME_SRC
   game/core/module_loader.cpp     # pins runtime-loaded CD.WAD modules to one canonical slot (RE-09)
   game/render/scene_id.cpp        # the game's own level-name -> scene-id lens (RE-23)
   game/render/frame_census.cpp    # RE-21 display-list inventory instrument (diagnostic only)
+  game/render/mesh_probe.cpp      # RE-21 mesh/object submission-boundary instrument
   game/render/gpu_env.cpp         # DRAWENV/DISPENV lenses + the ported libgpu word builders
   game/render/frame_envelope.cpp  # THE FIRST NATIVE PRODUCER: page flip + draw area + clear
   game/render/render_seam.cpp)    # the render seam on the engine's submitFrame (RE-20)

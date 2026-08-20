@@ -23,6 +23,7 @@
 #include "core.h"
 #include "game.h"
 #include "cfg.h"
+#include "mesh_probe.h"
 #include "override_registry.h"
 #include "proj_params.h"   // the geomwatch probe reads the recorded projection off c->rsub
 #include "str_skip_oracle.h"
@@ -455,6 +456,7 @@ static void diag_geom_setup(Core* c) {
 
 void spiderman_install_diag_overrides(Game* g) {
   spiderman_install_str_skip_oracle(g);
+  spiderman_install_mesh_probe(g);
   // Interned channel: the guard is around the INSTALL (real work), not around a log call.
   static const lucent::Channel geomwatch{"geomwatch"};
   if (geomwatch) {
