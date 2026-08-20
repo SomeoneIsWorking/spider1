@@ -146,6 +146,61 @@ void submitMesh(Core *c) {
   g_active.relativeZ = previousZ;
 }
 
+void logFaceSample(Core *c,
+                   uint32_t faces,
+                   uint32_t secondary,
+                   uint32_t faceCount,
+                   uint32_t vertices,
+                   uint32_t expectedSecondary,
+                   uint32_t expectedFaces,
+                   uint16_t vertexCount,
+                   uint16_t secondaryCount,
+                   uint16_t headerFaceCount,
+                   bool layoutMatches) {
+  lucent::debug(
+      "meshprobe",
+      "faceCall={} frame={} object={:08X} objectFlags={:04X} field38={:08X} mesh={:08X} "
+      "relTrans={:08X} rel=({},{},{}) "
+      "headerCounts(v={}, secondary={}, faces={}) derived(vertices={:08X}, secondary={:08X}, "
+      "faces={:08X}) args(secondary={:08X}, faces={:08X}, count={}) layout={} firstFace=[{:08X} "
+      "{:08X}]",
+      g_faceCalls,
+      gpu_frame_no(c),
+      g_active.object,
+      g_active.object ? c->mem_r16(g_active.object) : 0u,
+      g_active.objectField38,
+      g_active.mesh,
+      g_active.relativeTranslation,
+      g_active.relativeX,
+      g_active.relativeY,
+      g_active.relativeZ,
+      vertexCount,
+      secondaryCount,
+      headerFaceCount,
+      vertices,
+      expectedSecondary,
+      expectedFaces,
+      secondary,
+      faces,
+      faceCount,
+      layoutMatches ? "MATCH" : (g_active.mesh ? "MISMATCH" : "NO-CONTEXT"),
+      faceCount ? c->mem_r32(faces) : 0u,
+      faceCount ? c->mem_r32(faces + 4u) : 0u);
+}
+
+void logProgress() {
+  lucent::info("meshprobe",
+               "PROGRESS faceCalls={} contextual={} orphan={} layoutMismatches={} "
+               "objectCalls={} meshCalls={} uniqueContexts={}",
+               g_faceCalls,
+               g_contextualFaceCalls,
+               g_orphanFaceCalls,
+               g_layoutMismatches,
+               g_objectCalls,
+               g_meshCalls,
+               g_seenCount);
+}
+
 void buildFaces(Core *c) {
   ++g_faceCalls;
   const uint32_t faces = c->r[4];
@@ -186,47 +241,20 @@ void buildFaces(Core *c) {
   // every mismatch. The periodic summary below carries the full denominator, so a quiet tail never
   // masquerades as a probe that stopped running.
   if (newContext || sampleOrphan || (g_active.mesh != 0u && !layoutMatches)) {
-    lucent::debug(
-        "meshprobe",
-        "faceCall={} frame={} object={:08X} objectFlags={:04X} field38={:08X} mesh={:08X} "
-        "relTrans={:08X} rel=({},{},{}) "
-        "headerCounts(v={}, secondary={}, faces={}) derived(vertices={:08X}, secondary={:08X}, "
-        "faces={:08X}) args(secondary={:08X}, faces={:08X}, count={}) layout={} firstFace=[{:08X} "
-        "{:08X}]",
-        g_faceCalls,
-        gpu_frame_no(c),
-        g_active.object,
-        g_active.object ? c->mem_r16(g_active.object) : 0u,
-        g_active.objectField38,
-        g_active.mesh,
-        g_active.relativeTranslation,
-        g_active.relativeX,
-        g_active.relativeY,
-        g_active.relativeZ,
-        vertexCount,
-        secondaryCount,
-        headerFaceCount,
-        vertices,
-        expectedSecondary,
-        expectedFaces,
-        secondary,
-        faces,
-        faceCount,
-        layoutMatches ? "MATCH" : (g_active.mesh ? "MISMATCH" : "NO-CONTEXT"),
-        faceCount ? c->mem_r32(faces) : 0u,
-        faceCount ? c->mem_r32(faces + 4u) : 0u);
+    logFaceSample(c,
+                  faces,
+                  secondary,
+                  faceCount,
+                  vertices,
+                  expectedSecondary,
+                  expectedFaces,
+                  vertexCount,
+                  secondaryCount,
+                  headerFaceCount,
+                  layoutMatches);
   }
   if (g_faceCalls == 1u || (g_faceCalls % 4096u) == 0u) {
-    lucent::info("meshprobe",
-                 "PROGRESS faceCalls={} contextual={} orphan={} layoutMismatches={} "
-                 "objectCalls={} meshCalls={} uniqueContexts={}",
-                 g_faceCalls,
-                 g_contextualFaceCalls,
-                 g_orphanFaceCalls,
-                 g_layoutMismatches,
-                 g_objectCalls,
-                 g_meshCalls,
-                 g_seenCount);
+    logProgress();
   }
 
   gen_func_8007C4D8(c);
