@@ -9,10 +9,10 @@
 # .env file, or drop a *.chd next to this script.
 #
 # Requirements (install once):
-#   Linux:  cmake pkg-config SDL3-devel libzstd-devel zlib-devel python3 gcc-c++
+#   Linux:  cmake pkg-config SDL3-devel libzstd-devel zlib-devel python3 clang
 #   macOS:  brew install cmake pkg-config sdl3 zstd zlib python3
 #
-# Env knobs: PSXPORT_NOAUDIO=1 (mute), PSXPORT_NOWINDOW=1 (headless), CC=clang/gcc,
+# Env knobs: PSXPORT_NOAUDIO=1 (mute), PSXPORT_NOWINDOW=1 (headless), CC/CXX=Clang paths,
 #            PSXPORT_DEBUG=chan,chan (channel-gated diagnostics — `vsync` is a useful one),
 #            PSXPORT_WATCHDOG=<sec> (abort + backtrace if no frame is presented in time).
 #            PSXPORT_NOPACE=1 (run as fast as the host can). HEADLESS IS NOT UNPACED: headless
@@ -34,6 +34,11 @@ command -v cmake      >/dev/null || die "cmake not found"
 command -v python3    >/dev/null || die "python3 not found"
 command -v pkg-config >/dev/null || die "pkg-config not found"
 pkg-config --exists sdl3 || die "SDL3 not found (Linux: SDL3-devel / libsdl3-dev; macOS: brew install sdl3)"
+CC="${CC:-clang}"
+CXX="${CXX:-clang++}"
+is_clang() { case "$("$1" --version 2>/dev/null)" in *clang*) return 0;; *) return 1;; esac; }
+is_clang "$CC" || die "CC=$CC is not Clang"
+is_clang "$CXX" || die "CXX=$CXX is not Clang"
 JOBS="$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)"
 
 # ---- 0a2. WHICH FRAMEWORK CHECKOUT IS THIS RUN BUILT FROM? --------------------------------------
@@ -94,7 +99,8 @@ say "disc: $DISC"
 # is built from a different input set than everyone else's. discdump is a FRAMEWORK tool, so it
 # builds from the submodule, not this repo.
 say "building libchdr + discdump…"
-cmake -S "$PSXPORT_DIR" -B "$PSXPORT_DIR/build" -DCMAKE_BUILD_TYPE=Release >/dev/null \
+cmake -S "$PSXPORT_DIR" -B "$PSXPORT_DIR/build" -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_C_COMPILER="$CC" -DCMAKE_CXX_COMPILER="$CXX" >/dev/null \
   || die "psxport cmake configure failed"
 cmake --build "$PSXPORT_DIR/build" -j "$JOBS" --target discdump >/dev/null \
   || die "discdump build failed"
@@ -115,7 +121,8 @@ PSXPORT_DISCDUMP="$DISCDUMP" python3 tools/ensure_recomp.py "$DISC" || die "reco
 # CMake owns the whole port build (cmake/spiderman_port.cmake): the game seam, the substrate shards,
 # the SDL_GPU shader generation, and the SDL3 link. Configure is idempotent; the build is incremental.
 say "building the native port (CMake -j$JOBS)…"
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DPSXPORT_DIR="$(cd "$PSXPORT_DIR" && pwd)" >/dev/null || die "cmake configure failed"
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DPSXPORT_DIR="$(cd "$PSXPORT_DIR" && pwd)" \
+  -DCMAKE_C_COMPILER="$CC" -DCMAKE_CXX_COMPILER="$CXX" >/dev/null || die "cmake configure failed"
 cmake --build build -j "$JOBS" --target spiderman_port || die "port build failed"
 
 # ---- 5. run -------------------------------------------------------------------------
