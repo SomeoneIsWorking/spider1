@@ -3,9 +3,9 @@
 
 WHY THIS EXISTS. Until now NOTHING in this repo drove the built binary (docs/issues/0014): every
 dynamic claim was measured by hand-launching `spiderman_port` with env vars, so nothing mechanical
-would have noticed if boot regressed. `./run.sh` is the USER's windowed play launcher — it re-syncs
-submodules (silently reverting in-progress framework work to the recorded pin), re-extracts, rebuilds
-and opens a window — so an agent must not use it. This tool does none of that: it drives an
+would have noticed if boot regressed. `./run.sh` is the USER's windowed play launcher — it resolves
+the framework checkout, syncs nested dependencies, re-extracts, rebuilds and opens a window — so an
+agent must not use it for a bounded measurement. This tool does none of that: it drives an
 ALREADY-BUILT binary.
 
     cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build --target spiderman_port -j$(nproc)
@@ -50,6 +50,9 @@ import signal
 import subprocess
 import sys
 import time
+from pathlib import Path
+
+from disc_path import resolve_disc as resolve_disc_path
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BIN = os.path.join(REPO, 'scratch', 'bin', 'spiderman_port')
@@ -168,21 +171,8 @@ def _kill_group(pid: int) -> tuple[int, int]:
 
 
 def resolve_disc() -> str | None:
-    """Same order run.sh uses: env, then .env, then a *.chd drop-in. The CD pump needs real media —
-    the port boots with NO MEDIA otherwise and that is a different run than the baseline."""
-    d = os.environ.get('PSXPORT_SPIDERMAN_DISC', '')
-    if not d:
-        envf = os.path.join(REPO, '.env')
-        if os.path.isfile(envf):
-            for line in open(envf):
-                m = re.match(r'\s*PSXPORT_(?:SPIDERMAN_)?DISC\s*=\s*(.+?)\s*$', line)
-                if m:
-                    d = m.group(1)
-                    break
-    if not d:
-        chds = [f for f in sorted(os.listdir(REPO)) if f.endswith('.chd')]
-        if chds:
-            d = os.path.join(REPO, chds[0])
+    """Return a valid disc selected by the shared launcher/provisioning policy."""
+    d = resolve_disc_path(Path(REPO), None, os.environ)
     return d if d and os.path.isfile(d) else None
 
 

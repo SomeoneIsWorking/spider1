@@ -73,6 +73,12 @@ struct MeshLayout {
   uint16_t faceCount = 0;
 };
 
+struct MeshCounts {
+  uint16_t vertices = 0;
+  uint16_t secondary = 0;
+  uint16_t faces = 0;
+};
+
 ActiveSubmission g_active;
 uint64_t g_objectCalls = 0;
 uint64_t g_meshCalls = 0;
@@ -84,13 +90,12 @@ SeenContext g_seen[64];
 uint32_t g_seenCount = 0;
 uint32_t g_orphanLines = 0;
 
-MeshLayout
-deriveLayout(uint32_t mesh, uint16_t vertexCount, uint16_t secondaryCount, uint16_t faceCount) {
+MeshLayout deriveLayout(uint32_t mesh, const MeshCounts &counts) {
   MeshLayout layout;
   layout.vertices = mesh + kMeshVertices;
-  layout.secondary = layout.vertices + static_cast<uint32_t>(vertexCount) * kRecordBytes;
-  layout.faces = layout.secondary + static_cast<uint32_t>(secondaryCount) * kRecordBytes;
-  layout.faceCount = faceCount;
+  layout.secondary = layout.vertices + static_cast<uint32_t>(counts.vertices) * kRecordBytes;
+  layout.faces = layout.secondary + static_cast<uint32_t>(counts.secondary) * kRecordBytes;
+  layout.faceCount = counts.faces;
   return layout;
 }
 
@@ -109,6 +114,10 @@ bool firstContext(uint32_t object, uint32_t mesh) {
   }
   g_seen[g_seenCount++] = {object, mesh};
   return true;
+}
+
+uint32_t faceWord(Core *c, uint32_t faces, uint32_t faceCount, uint32_t byteOffset) {
+  return faces != 0u && faceCount != 0u ? c->mem_r32(faces + byteOffset) : 0u;
 }
 
 void renderDisplayObject(Core *c) {
@@ -184,8 +193,8 @@ void logFaceSample(Core *c,
       faces,
       faceCount,
       layoutMatches ? "MATCH" : (g_active.mesh ? "MISMATCH" : "NO-CONTEXT"),
-      faceCount ? c->mem_r32(faces) : 0u,
-      faceCount ? c->mem_r32(faces + 4u) : 0u);
+      faceWord(c, faces, faceCount, 0u),
+      faceWord(c, faces, faceCount, 4u));
 }
 
 void logProgress() {
@@ -220,7 +229,7 @@ void buildFaces(Core *c) {
     secondaryCount = c->mem_r16(g_active.mesh + kMeshSecondaryCount);
     headerFaceCount = c->mem_r16(g_active.mesh + kMeshFaceCount);
     const MeshLayout layout =
-        deriveLayout(g_active.mesh, vertexCount, secondaryCount, headerFaceCount);
+        deriveLayout(g_active.mesh, {vertexCount, secondaryCount, headerFaceCount});
     vertices = layout.vertices;
     expectedSecondary = layout.secondary;
     expectedFaces = layout.faces;
@@ -267,19 +276,23 @@ void spiderman_install_mesh_probe(Game *) {
   if (!channel) {
     return;
   }
-  const MeshLayout control = deriveLayout(0x80100000u, 4u, 1u, 1u);
+  const MeshLayout control = deriveLayout(0x80100000u, {4u, 1u, 1u});
   const bool acceptsBaseline = argsMatch(control, 0x8010003Cu, 0x80100044u, 1u);
   const bool rejectsPerturbation = !argsMatch(control, 0x8010003Cu, 0x80100048u, 1u);
-  if (!acceptsBaseline || !rejectsPerturbation) {
+  const bool guardsEmptyFaces =
+      faceWord(nullptr, 0u, 1u, 0u) == 0u && faceWord(nullptr, 0x80100044u, 0u, 0u) == 0u;
+  if (!acceptsBaseline || !rejectsPerturbation || !guardsEmptyFaces) {
     lucent::error("meshprobe",
-                  "SELFTEST FAILED (baseline={}, perturbed={}) — wrappers NOT installed",
+                  "SELFTEST FAILED (baseline={}, perturbed={}, emptyFaceGuard={}) — wrappers NOT "
+                  "installed",
                   acceptsBaseline ? "accepted" : "rejected",
-                  rejectsPerturbation ? "rejected" : "accepted");
+                  rejectsPerturbation ? "rejected" : "accepted",
+                  guardsEmptyFaces ? "guarded" : "read");
     return;
   }
   lucent::info("meshprobe",
                "SELFTEST PASS: accepted the header-derived pointers and rejected a +4-byte "
-               "face-stream perturbation");
+               "face-stream perturbation; null and empty face streams were not read");
   engine_set_override_main(kRenderDisplayObject, renderDisplayObject, gen_func_80076480);
   engine_set_override_main(kSubmitMesh, submitMesh, gen_func_80077D64);
   engine_set_override_main(kBuildFaces, buildFaces, gen_func_8007C4D8);

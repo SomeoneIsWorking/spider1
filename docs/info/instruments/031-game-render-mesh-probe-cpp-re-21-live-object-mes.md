@@ -11,11 +11,12 @@ game/render/mesh_probe.cpp — RE-21 live object/mesh submission-boundary valida
 
 ## Validated by
 
-Its install self-test accepts the header-derived pointer/count tuple and rejects a +4-byte
-face-stream perturbation. Live log `scratch/logs/gate-boot-20260820-223032.log` then produced both
+Its install self-test accepts the header-derived pointer/count tuple, rejects a +4-byte face-stream
+perturbation, and calls the first-face sampler with null/empty inputs to prove it does not read them.
+Live log `scratch/logs/gate-boot-20260821-010831.log` on the final Clang/tidy-clean build produced
 `layout=MATCH` inside `FUN_80077D64` context and `NO-CONTEXT` for other `FUN_8007C4D8` callers. The
-final null-safe build repeated `SELFTEST PASS` in `scratch/logs/gate-boot-20260820-223543.log`; that
-four-second replay ended before the first contextual face call.
+long denominator remains `scratch/logs/gate-boot-20260820-221812.log`: 27,579 contextual calls and
+zero mismatches.
 
 ## Known failure modes
 
@@ -25,3 +26,4 @@ extent of the wrapped `FUN_80077D64` is deliberately reported as `NO-CONTEXT`; t
 attribute those callers. Context is tracked with process-global nesting state and therefore assumes
 these guest render calls are serialized on one execution thread. A null relative-translation pointer
 is reported as `(0,0,0)` rather than dereferenced.
+An empty or null face stream reports zero sample words rather than being dereferenced.

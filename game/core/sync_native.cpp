@@ -3,32 +3,32 @@
 // WHY THIS FILE EXISTS
 // -------------------
 // A PSX game's libetc/libcd sync leaves busy-spin on counters that a hardware IRQ advances. A
-// PC-native runtime has no vblank IRQ, so those loops never terminate — the guest hangs forever. The
-// framework's answer is PlatformHle: a per-Game table mapping a BIOS-library address to a native
-// handler that reproduces the primitive's OBSERVABLE RESULT without the spin.
+// PC-native runtime has no vblank IRQ, so those loops never terminate — the guest hangs forever.
+// The framework's answer is PlatformHle: a per-Game table mapping a BIOS-library address to a
+// native handler that reproduces the primitive's OBSERVABLE RESULT without the spin.
 //
 // This file holds the primitives that have no generic form — ones this game implements ITSELF, as
 // opposed to the framework's generic handlers, which initBuiltins() installs at whatever addresses
 // GameConfig::hle declares.
 //
 // (Historical note worth keeping: until psxport 7c212eb5 the framework's initBuiltins() carried
-// Tomba!2's addresses as baked-in literals, which for this game would have missed every primitive it
-// actually uses AND hooked unrelated Spider-Man functions sharing those addresses. This port briefly
-// worked around that by skipping initBuiltins entirely; the framework now ships no game addresses at
-// all, so the workaround is gone and main.cpp calls it normally.)
+// Tomba!2's addresses as baked-in literals, which for this game would have missed every primitive
+// it actually uses AND hooked unrelated Spider-Man functions sharing those addresses. This port
+// briefly worked around that by skipping initBuiltins entirely; the framework now ships no game
+// addresses at all, so the workaround is gone and main.cpp calls it normally.)
 //
 // register_() is a public framework seam, gated on the game's declared BIOS-library window — see
 // GameConfig::hle.windowLo/windowHi in game_config.cpp for how that range was established.
+#include "cfg.h"
 #include "core.h"
 #include "game.h"
-#include "cfg.h"
 #include "game_iface.h"
 #include "gpu_vk.h"
 #include "recomp_iface.h"
-#include <lucent/log.h>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <lucent/log.h>
 #include <string>
 #include <system_error>
 
@@ -61,11 +61,11 @@
 //
 // NATIVE MODEL: on this runtime a vblank IS a presented frame. Waiting for N vblanks means
 // presenting N frames and pacing them in real time, then advancing the counter the ISR would have
-// advanced. The guest's own arithmetic (the tail stores, the return value) is reproduced exactly, so
-// callers observe what they would on hardware.
+// advanced. The guest's own arithmetic (the tail stores, the return value) is reproduced exactly,
+// so callers observe what they would on hardware.
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
-static constexpr uint32_t kVSync        = 0x80084BE0u;
-static constexpr uint32_t kVblankCount  = 0x800B397Cu;
+static constexpr uint32_t kVSync = 0x80084BE0u;
+static constexpr uint32_t kVblankCount = 0x800B397Cu;
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
 // VSyncCallback — the registrar, and why the port must invoke what it registers.
@@ -90,10 +90,10 @@ static constexpr uint32_t kVblankCount  = 0x800B397Cu;
 // — exactly the counter the boot's title-wait loop in 0x8006BF9C tests against +300. It is very
 // tempting to conclude the host "already knows" that value and to bump it natively. That would be a
 // bandaid: the same routine also calls 0x800646AC, conditionally patches GPU packets, maintains a
-// 5-slot rotation on an 8-vblank period, and conditionally calls 0x8005E234. Fabricating the counter
-// would skip all of it and leave the game running on a lie. The correct unit of work is to dispatch
-// the callback the guest registered — the port owns WHEN a field happens, the guest still owns what
-// happens on one.
+// 5-slot rotation on an 8-vblank period, and conditionally calls 0x8005E234. Fabricating the
+// counter would skip all of it and leave the game running on a lie. The correct unit of work is to
+// dispatch the callback the guest registered — the port owns WHEN a field happens, the guest still
+// owns what happens on one.
 //
 //   python3 external/psxport/tools/disasm.py scratch/bin/spiderman/ram.bin 0x8005E510 0x8005E5A0
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
@@ -123,58 +123,62 @@ static uint32_t s_vsync_cb = 0;
 // (Ghidra renders this as `while (c < c + n)` — an apparent infinite loop — because it re-reads the
 // counter on both sides. The disassembly shows the target is a snapshot. Read the instructions.)
 //
-// WHY IT MUST BE NATIVE. The spin at 0x8005E760..0x8005E76C calls NOTHING. The framework's host turn
-// is taken at recompiled-FUNCTION ENTRY, so a loop that never enters a function starves it: the
-// guest waits on a counter that only a host turn can advance, and no host turn can happen. Measured:
-// the counter still advanced 412 times over 20 s (progress between waits) instead of the ~1200 the
-// field rate implies, and the run wedged the moment it entered a wait that had not yet expired.
+// WHY IT MUST BE NATIVE. The spin at 0x8005E760..0x8005E76C calls NOTHING. The framework's host
+// turn is taken at recompiled-FUNCTION ENTRY, so a loop that never enters a function starves it:
+// the guest waits on a counter that only a host turn can advance, and no host turn can happen.
+// Measured: the counter still advanced 412 times over 20 s (progress between waits) instead of the
+// ~1200 the field rate implies, and the run wedged the moment it entered a wait that had not yet
+// expired.
 //
-// So this is HLE'd at the same level libetc's VSync is, and for the same reason: it is a WAIT on the
-// field clock, and the port owns the field clock. The loop below is the identical shape to the
+// So this is HLE'd at the same level libetc's VSync is, and for the same reason: it is a WAIT on
+// the field clock, and the port owns the field clock. The loop below is the identical shape to the
 // blocking-VSync path further down — pace, advance, re-check — so both waits share one clock.
 //
 // KNOWN GENERAL LIMITATION, recorded rather than papered over: any OTHER tight guest spin loop with
 // no calls in it would starve the host the same way. The general fix is to emit the gate on loop
 // back-edges too, not just function entry. That is a real change to the recompiler with a real cost
-// on every loop, and it is not justified by one wait primitive — but if a second such loop turns up,
-// take it rather than adding a second special case. See docs/re-frontier.md RE-10.
+// on every loop, and it is not justified by one wait primitive — but if a second such loop turns
+// up, take it rather than adding a second special case. See docs/re-frontier.md RE-10.
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
-static constexpr uint32_t kVblankWait      = 0x8005E748u;
-static constexpr uint32_t kGameVblankCount = 0x800B5468u;   // gp+0xC74, bumped by the callback
-static constexpr uint32_t kGpuStatPtr   = 0x800B0FA0u;
-static constexpr uint32_t kHCounterPtr  = 0x800B0FA4u;
-static constexpr uint32_t kHBaseline    = 0x800B0FA8u;
-static constexpr uint32_t kLastSyncVbl  = 0x800B0FACu;
+static constexpr uint32_t kVblankWait = 0x8005E748u;
+static constexpr uint32_t kGameVblankCount = 0x800B5468u; // gp+0xC74, bumped by the callback
+static constexpr uint32_t kGpuStatPtr = 0x800B0FA0u;
+static constexpr uint32_t kHCounterPtr = 0x800B0FA4u;
+static constexpr uint32_t kHBaseline = 0x800B0FA8u;
+static constexpr uint32_t kLastSyncVbl = 0x800B0FACu;
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
 // `PSXPORT_DEBUG=pace` — the instrument that CHECKS `GameConfig::paceQuota` against a real run.
 //
-// paceQuota declares how many vblanks ONE `gpu_pace_frame` call represents, and the framework sleeps
-// `quota/60 s` per call on the strength of that declaration. It is therefore a claim about THIS
-// FILE's calling cadence — and a wrong claim does not fail, it silently multiplies the port's frame
-// time. So the cadence is measured rather than asserted: every pace entry is counted, split by the
-// two call sites (the only two in this port), next to the guest counter each loop is waiting on.
+// paceQuota declares how many vblanks ONE `gpu_pace_frame` call represents, and the framework
+// sleeps `quota/60 s` per call on the strength of that declaration. It is therefore a claim about
+// THIS FILE's calling cadence — and a wrong claim does not fail, it silently multiplies the port's
+// frame time. So the cadence is measured rather than asserted: every pace entry is counted, split
+// by the two call sites (the only two in this port), next to the guest counter each loop is waiting
+// on.
 //
-// The tallies are kept UNCONDITIONALLY, one increment, because `lucent::debug` does not evaluate its
-// arguments when the channel is off — a counter bumped inside the log call would only count while
-// someone was watching, which is the classic instrument that cannot report its own denominator.
+// The tallies are kept UNCONDITIONALLY, one increment, because `lucent::debug` does not evaluate
+// its arguments when the channel is off — a counter bumped inside the log call would only count
+// while someone was watching, which is the classic instrument that cannot report its own
+// denominator.
 //
-// WHAT A NEGATIVE LOOKS LIKE HERE, by construction: a run that waits but never paces is impossible —
-// the increments sit on the same lines as the pace calls — so `pace` lines present with a flat
-// `entries` count would mean the loops are spinning without pacing, and `pace` lines ABSENT entirely
-// means either the channel is off or this build never reached a wait at all. Those are different
-// statements and the two counters plus the vblank value distinguish them. What this instrument
-// CANNOT see: pace calls made from anywhere else. That blind spot is bounded by a grep — the only
-// other callers in the framework are `native_boot.cpp` / `native_stub.cpp` (the native frame loop,
-// which this port does not run: it runs the guest's own loop) and `fps60.cpp` (unreachable here, its
-// eligibility needs `RenderQueue::drawWorldQuad`, which this repo never calls).
-static unsigned long g_pace_fieldwait = 0;   // entries from FUN_8005E748's loop  (kVblankWait)
-static unsigned long g_pace_vsync     = 0;   // entries from blocking VSync's loop (kVSync)
+// WHAT A NEGATIVE LOOKS LIKE HERE, by construction: a run that waits but never paces is impossible
+// — the increments sit on the same lines as the pace calls — so `pace` lines present with a flat
+// `entries` count would mean the loops are spinning without pacing, and `pace` lines ABSENT
+// entirely means either the channel is off or this build never reached a wait at all. Those are
+// different statements and the two counters plus the vblank value distinguish them. What this
+// instrument CANNOT see: pace calls made from anywhere else. That blind spot is bounded by a grep —
+// the only other callers in the framework are `native_boot.cpp` / `native_stub.cpp` (the native
+// frame loop, which this port does not run: it runs the guest's own loop) and `fps60.cpp`
+// (unreachable here, its eligibility needs `RenderQueue::drawWorldQuad`, which this repo never
+// calls).
+static unsigned long g_pace_fieldwait = 0; // entries from FUN_8005E748's loop  (kVblankWait)
+static unsigned long g_pace_vsync = 0;     // entries from blocking VSync's loop (kVSync)
 
-// The guest reads the h-counter through a pointer. Before libetc's own init has run that pointer can
-// still be null; a null-pointer guest read is a real condition here, not an error to swallow, and
-// reading 0 is what the hardware path would effectively see with no counter mapped.
-static uint32_t h_counter(Core* c) {
+// The guest reads the h-counter through a pointer. Before libetc's own init has run that pointer
+// can still be null; a null-pointer guest read is a real condition here, not an error to swallow,
+// and reading 0 is what the hardware path would effectively see with no counter mapped.
+static uint32_t h_counter(Core *c) {
   const uint32_t p = c->mem_r32(kHCounterPtr);
   return p ? c->mem_r32(p) : 0u;
 }
@@ -184,15 +188,15 @@ static uint32_t h_counter(Core* c) {
 //
 // Instrumenting every VSync call over a 60 s boot (PSXPORT_DEBUG=vsync) gives 427,643 calls of
 // VSync(-1) — the QUERY form, "return the vblank counter" — against exactly ONE blocking VSync(0),
-// from graphics init at ra=0x8008479C. So Spider-Man never asks libetc to wait N fields. It polls the
-// counter in a tight loop and does its own timing against it, which is why the game declares no fixed
-// frame rate anywhere in the executable.
+// from graphics init at ra=0x8008479C. So Spider-Man never asks libetc to wait N fields. It polls
+// the counter in a tight loop and does its own timing against it, which is why the game declares no
+// fixed frame rate anywhere in the executable.
 //
-// The consequence for this handler is structural: a counter advanced only inside BLOCKING VSync calls
-// never moves for a caller that only ever polls, so the poll loop spins forever. On hardware the
-// vblank ISR advances the counter on the field clock no matter what the game is doing. So the native
-// model must be the same — derive the counter from elapsed real time at the NTSC field rate — and a
-// vblank crossing is where a frame gets presented.
+// The consequence for this handler is structural: a counter advanced only inside BLOCKING VSync
+// calls never moves for a caller that only ever polls, so the poll loop spins forever. On hardware
+// the vblank ISR advances the counter on the field clock no matter what the game is doing. So the
+// native model must be the same — derive the counter from elapsed real time at the NTSC field rate
+// — and a vblank crossing is where a frame gets presented.
 //
 // NTSC field rate, exactly: 60000/1001 Hz ≈ 59.94. This is a US release (SLUS_008.75).
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
@@ -205,9 +209,10 @@ static uint32_t h_counter(Core* c) {
 static constexpr uint32_t kMaxPresentCatchup = 4;
 
 // Audio catch-up bound. Higher than the present cap because a dropped FRAME is invisible and a
-// dropped audio field is an audible gap, and because advancing the mixer is cheap next to a present.
-// Same value and same rationale as the vsync-callback catch-up below (kMaxCallbackCatchup): both are
-// real-time-derived work that must not be silently throttled to the present rate.
+// dropped audio field is an audible gap, and because advancing the mixer is cheap next to a
+// present. Same value and same rationale as the vsync-callback catch-up below
+// (kMaxCallbackCatchup): both are real-time-derived work that must not be silently throttled to the
+// present rate.
 static constexpr uint32_t kMaxAudioCatchup = 16;
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
@@ -216,16 +221,16 @@ static constexpr uint32_t kMaxAudioCatchup = 16;
 // WHY IT EXISTS. Every render instrument in this project samples the PICTURE: non-black coverage,
 // colour counts, per-pixel diffs. All of them are blind to a defect in WHEN a frame reaches the
 // screen. A user reporting "flicker" can be describing an irregular present cadence — a frame held
-// for 50 ms next to one held for 8 ms reads as flicker even when every individual frame is correct —
-// and no instrument in this repo could distinguish that from a pictorial defect. lucent emits no
+// for 50 ms next to one held for 8 ms reads as flicker even when every individual frame is correct
+// — and no instrument in this repo could distinguish that from a pictorial defect. lucent emits no
 // timestamps, so the delta has to be carried by the call site.
 //
 // WHAT A NEGATIVE LOOKS LIKE, by construction. `g_present_n` is incremented UNCONDITIONALLY on the
 // same line as the present, so the count is honest whether or not anyone is watching, and the
 // summary below prints it. "presentclock lines absent" therefore means the channel is off, never
 // "presents happened and were not recorded". A perfectly regular cadence prints as a run of equal
-// `dt` values — the same instrument, same format, that an irregular one prints unequal values in, so
-// it can show either answer.
+// `dt` values — the same instrument, same format, that an irregular one prints unequal values in,
+// so it can show either answer.
 //
 // WHAT IT CANNOT SEE, bounded by grep rather than assumed. This is the ONLY present call site
 // reachable from this port's own frame loop (`grep -rn gpu_present game/` -> this line, sole hit).
@@ -234,18 +239,18 @@ static constexpr uint32_t kMaxAudioCatchup = 16;
 // (native_fmv's direct frame present). So INTRO-FMV presents are NOT counted or timed here. A run
 // measured with this instrument is measuring the guest-driven gameplay/front-end cadence.
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
-static unsigned long long g_present_n       = 0;   // presents through THIS path, always counted
-static long long          g_present_prev_ns = -1;  // -1 until the first present
+static unsigned long long g_present_n = 0; // presents through THIS path, always counted
+static long long g_present_prev_ns = -1;   // -1 until the first present
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
 // `PSXPORT_PRESENT_BURST=<first>:<count>:<dir>` — capture N CONSECUTIVE presented pictures.
 //
 // The framework's PSXPORT_PRESENT_SHOT_AT takes at most 32 indices and hardcodes its output into
-// `scratch/screenshots/`, which every run in this repo writes into — a shared accumulator. Analysing
-// it by glob is how a STALE file from an earlier build was mistaken for "the correct frame" and
-// produced the (since refuted) widescreen explanation of this game's flicker. This writes to a
-// caller-named directory, so a run's output set is defined by the run rather than by a wildcard, and
-// a consecutive window can be longer than 32.
+// `scratch/screenshots/`, which every run in this repo writes into — a shared accumulator.
+// Analysing it by glob is how a STALE file from an earlier build was mistaken for "the correct
+// frame" and produced the (since refuted) widescreen explanation of this game's flicker. This
+// writes to a caller-named directory, so a run's output set is defined by the run rather than by a
+// wildcard, and a consecutive window can be longer than 32.
 //
 // It calls the framework's public `gpu_vk_present_shot` (gpu_vk.h) — the only capture in this
 // framework that samples the PRESENT stage, i.e. what the player sees, rather than guest VRAM.
@@ -255,40 +260,57 @@ static long long          g_present_prev_ns = -1;  // -1 until the first present
 // closes. `armed` with no `complete` means the run never reached present `first` — a different
 // statement from "the window produced nothing", and the two must not look alike.
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
-static void present_burst(Core* c, unsigned long long idx) {
-  static int          init  = 0;
+static void present_burst(Core *c, unsigned long long idx) {
+  static int init = 0;
   static unsigned long long first = 0, count = 0;
-  static std::string  dir;
+  static std::string dir;
   static unsigned long long wrote = 0;
-  static int          done  = 0;
+  static int done = 0;
   if (!init) {
     init = 1;
-    if (const char* e = cfg_str("PSXPORT_PRESENT_BURST")) {
-      char buf[512]; snprintf(buf, sizeof buf, "%s", e);
-      char* a = strtok(buf, ":"); char* b = strtok(nullptr, ":"); char* d = strtok(nullptr, ":");
+    if (const char *e = cfg_str("PSXPORT_PRESENT_BURST")) {
+      char buf[512];
+      snprintf(buf, sizeof buf, "%s", e);
+      char *a = strtok(buf, ":");
+      char *b = strtok(nullptr, ":");
+      char *d = strtok(nullptr, ":");
       if (a && b && d) {
-        first = strtoull(a, nullptr, 0); count = strtoull(b, nullptr, 0); dir = d;
-        std::error_code ec; std::filesystem::create_directories(dir, ec);
-        if (ec) { lucent::error("burst", "cannot create {} ({}) — NOTHING will be captured", dir, ec.message()); count = 0; }
-        else lucent::info("burst", "armed: presents [{}, {}) -> {}/p<idx>.ppm", first, first + count, dir);
+        first = strtoull(a, nullptr, 0);
+        count = strtoull(b, nullptr, 0);
+        dir = d;
+        std::error_code ec;
+        std::filesystem::create_directories(dir, ec);
+        if (ec) {
+          lucent::error(
+              "burst", "cannot create {} ({}) — NOTHING will be captured", dir, ec.message());
+          count = 0;
+        } else {
+          lucent::info(
+              "burst", "armed: presents [{}, {}) -> {}/p<idx>.ppm", first, first + count, dir);
+        }
       } else {
-        lucent::error("burst", "PSXPORT_PRESENT_BURST='{}' is not <first>:<count>:<dir> — NOTHING will be captured", e);
+        lucent::error(
+            "burst",
+            "PSXPORT_PRESENT_BURST='{}' is not <first>:<count>:<dir> — NOTHING will be captured",
+            e);
       }
     }
   }
   if (!count || done || idx < first || idx >= first + count) {
     if (count && !done && idx >= first + count) {
       done = 1;
-      lucent::info("burst", "complete: wrote {} of {} requested presents into {}", wrote, count, dir);
+      lucent::info(
+          "burst", "complete: wrote {} of {} requested presents into {}", wrote, count, dir);
     }
     return;
   }
-  char pth[600]; snprintf(pth, sizeof pth, "%s/p%06llu.ppm", dir.c_str(), idx);
-  gpu_vk_present_shot(c, pth);   // logs its own path, sink size, leg and non-black coverage
+  char pth[600];
+  snprintf(pth, sizeof pth, "%s/p%06llu.ppm", dir.c_str(), idx);
+  gpu_vk_present_shot(c, pth); // logs its own path, sink size, leg and non-black coverage
   ++wrote;
 }
 
-static void vblank_advance(Core* c) {
+static void vblank_advance(Core *c) {
   using clock = std::chrono::steady_clock;
   static const clock::time_point t0 = clock::now();
   const auto ns = std::chrono::duration_cast<std::chrono::nanoseconds>(clock::now() - t0).count();
@@ -296,10 +318,13 @@ static void vblank_advance(Core* c) {
   const uint32_t fields = (uint32_t)((unsigned long long)ns * 60000ull / 1001ull / 1000000000ull);
 
   const uint32_t cur = c->mem_r32(kVblankCount);
-  if (fields <= cur) return;
+  if (fields <= cur) {
+    return;
+  }
   uint32_t present = fields - cur;
-  if (present > kMaxPresentCatchup) present = kMaxPresentCatchup;
-
+  if (present > kMaxPresentCatchup) {
+    present = kMaxPresentCatchup;
+  }
 
   // `PSXPORT_DEBUG=presentwatch` — does presenting write GUEST RAM? It must not: psxport's porting
   // guide makes the render overlay read-only with respect to guest memory, because a guest write
@@ -307,40 +332,64 @@ static void vblank_advance(Core* c) {
   // guest stack). This snapshots a window around the CURRENT guest stack pointer across each
   // present and names every word that changed, so the answer is addresses rather than suspicion.
   const bool watch = cfg_dbg("presentwatch");
-  const uint32_t win_lo = (c->r[29] & ~3u) - 0x100u;   // a little below sp (callee frames)
-  const uint32_t kWords = 0x180 / 4;                   // and well above it (live caller frames)
+  const uint32_t win_lo = (c->r[29] & ~3u) - 0x100u; // a little below sp (callee frames)
+  const uint32_t kWords = 0x180 / 4;                 // and well above it (live caller frames)
   uint32_t snap[kWords];
-  for (uint32_t i = 0; watch && i < kWords; ++i) snap[i] = c->mem_r32(win_lo + i * 4);
+  for (uint32_t i = 0; watch && i < kWords; ++i) {
+    snap[i] = c->mem_r32(win_lo + i * 4);
+  }
 
-  if (watch) cfg_logf("presentwatch", "arm: presenting %u frame(s), window [%08X..%08X) sp=%08X",
-                      present, win_lo, win_lo + kWords * 4, c->r[29]);
+  if (watch) {
+    cfg_logf("presentwatch",
+             "arm: presenting %u frame(s), window [%08X..%08X) sp=%08X",
+             present,
+             win_lo,
+             win_lo + kWords * 4,
+             c->r[29]);
+  }
   for (uint32_t i = 0; i < present; ++i) {
     // BRACKET the present, do not just stamp after it. A single post-present timestamp cannot tell
     // "the port submitted this frame late" from "the port submitted on time and present BLOCKED",
     // and those are different bugs with different fixes. The first version of this instrument
-    // stamped only AFTER gpu_present and showed a 3 ms / 30 ms gap alternation — which is consistent
-    // with EITHER story, and the post-only form cannot choose between them. Bracketing settled it:
-    // present cost is flat (median 0.52 ms, p99 1.54 ms), so the alternation is entirely in WHEN the
-    // port submits. That is issue 0012. Keep both numbers on the line; do not re-collapse them.
-    const long long pre_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(clock::now() - t0).count();
+    // stamped only AFTER gpu_present and showed a 3 ms / 30 ms gap alternation — which is
+    // consistent with EITHER story, and the post-only form cannot choose between them. Bracketing
+    // settled it: present cost is flat (median 0.52 ms, p99 1.54 ms), so the alternation is
+    // entirely in WHEN the port submits. That is issue 0012. Keep both numbers on the line; do not
+    // re-collapse them.
+    const long long pre_ns =
+        std::chrono::duration_cast<std::chrono::nanoseconds>(clock::now() - t0).count();
     gpu_present(c);
-    const long long post_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(clock::now() - t0).count();
-    const long long dt_ns   = g_present_prev_ns < 0 ? -1 : pre_ns - g_present_prev_ns;
+    const long long post_ns =
+        std::chrono::duration_cast<std::chrono::nanoseconds>(clock::now() - t0).count();
+    const long long dt_ns = g_present_prev_ns < 0 ? -1 : pre_ns - g_present_prev_ns;
     g_present_prev_ns = pre_ns;
     // `owed` is what real time asked for and `present` is what the catch-up cap allowed: when they
-    // differ the port DROPPED frames, which is exactly the condition an irregular cadence comes from,
-    // so both are on the line rather than inferred from the gap.
-    lucent::debug("presentclock", "n={} t_us={} dt_us={} cost_us={} slot={}/{} owed={} vbl={}",
-                  g_present_n, pre_ns / 1000, dt_ns / 1000, (post_ns - pre_ns) / 1000,
-                  i + 1, present, fields - cur, fields);
+    // differ the port DROPPED frames, which is exactly the condition an irregular cadence comes
+    // from, so both are on the line rather than inferred from the gap.
+    lucent::debug("presentclock",
+                  "n={} t_us={} dt_us={} cost_us={} slot={}/{} owed={} vbl={}",
+                  g_present_n,
+                  pre_ns / 1000,
+                  dt_ns / 1000,
+                  (post_ns - pre_ns) / 1000,
+                  i + 1,
+                  present,
+                  fields - cur,
+                  fields);
     present_burst(c, g_present_n);
     ++g_present_n;
-    if (!watch) continue;
+    if (!watch) {
+      continue;
+    }
     for (uint32_t w = 0; w < kWords; ++w) {
       const uint32_t now = c->mem_r32(win_lo + w * 4);
       if (now != snap[w]) {
-        cfg_logf("presentwatch", "present WROTE guest RAM [%08X] %08X -> %08X (sp=%08X)",
-                 win_lo + w * 4, snap[w], now, c->r[29]);
+        cfg_logf("presentwatch",
+                 "present WROTE guest RAM [%08X] %08X -> %08X (sp=%08X)",
+                 win_lo + w * 4,
+                 snap[w],
+                 now,
+                 c->r[29]);
         snap[w] = now;
       }
     }
@@ -354,21 +403,25 @@ static void vblank_advance(Core* c) {
   // decodes XA-ADPCM sectors off the disc into the SPU's CD input.
   //
   // This port initialised the sink (main.cpp `spu_audio.init()`) and then never drove it, so the
-  // mixer never advanced a single clock: no SPU voices, and the intro's XA audio stream armed at the
-  // movie's LBA and stopped there without decoding one sector (`PSXPORT_DEBUG=xa` reported
+  // mixer never advanced a single clock: no SPU voices, and the intro's XA audio stream armed at
+  // the movie's LBA and stopped there without decoding one sector (`PSXPORT_DEBUG=xa` reported
   // "STOP @ LBA 128304 — 0 pull(s) from the SPU, 0 audio sector(s) decoded"). The framework's own
   // native frame loop does this as "tick + per-vblank audio + present + pace" (native_boot.cpp);
   // this game runs the guest's loop instead, so its field clock is the equivalent seam and this is
   // where the per-vblank half belongs.
   //
   // Once per OWED field, not once per PRESENT: audio is a real-time stream, and `present` is capped
-  // for catch-up. Advancing audio by the capped count would run the mixer slower than wall clock and
-  // drift the sound behind the picture under load. Uses the same cap and the same reasoning as the
-  // callback dispatch below.
+  // for catch-up. Advancing audio by the capped count would run the mixer slower than wall clock
+  // and drift the sound behind the picture under load. Uses the same cap and the same reasoning as
+  // the callback dispatch below.
   {
     uint32_t audio_fields = fields - cur;
-    if (audio_fields > kMaxAudioCatchup) audio_fields = kMaxAudioCatchup;
-    for (uint32_t i = 0; i < audio_fields; ++i) c->game->spu_audio.frame();
+    if (audio_fields > kMaxAudioCatchup) {
+      audio_fields = kMaxAudioCatchup;
+    }
+    for (uint32_t i = 0; i < audio_fields; ++i) {
+      c->game->spu_audio.frame();
+    }
   }
 
   // Announce each elapsed field to the guest by invoking the callback it registered. This is the
@@ -378,61 +431,73 @@ static void vblank_advance(Core* c) {
   //
   // Once per OWED field, not once per turn. Hardware would coalesce — the VBlank I_STAT bit is a
   // latch, so a guest with interrupts masked across N fields gets one ISR pass — but this game
-  // derives its timing FROM the callback's own counter, so coalescing would make that counter report
-  // less time than really elapsed and every animation paced by it would run slow under load. The
-  // callback is cheap; dispatching each field keeps the guest's clock honest. Recorded as a
+  // derives its timing FROM the callback's own counter, so coalescing would make that counter
+  // report less time than really elapsed and every animation paced by it would run slow under load.
+  // The callback is cheap; dispatching each field keeps the guest's clock honest. Recorded as a
   // deliberate policy choice, not an oversight, in case a heavyweight callback later argues for the
   // hardware behaviour instead.
-  if (!s_vsync_cb) return;
+  if (!s_vsync_cb) {
+    return;
+  }
 
-  // Re-entrancy: the callback runs guest code, and guest code can call VSync, which lands back here.
+  // Re-entrancy: the callback runs guest code, and guest code can call VSync, which lands back
+  // here.
   static bool in_cb = false;
-  if (in_cb) return;
+  if (in_cb) {
+    return;
+  }
 
   uint32_t owed = fields - cur;
-  // A very large backlog means the process was descheduled or a native step blocked for a long time.
-  // Dispatching thousands of callbacks would stall far worse than the gap itself. Cap it, and SAY
-  // so — a silent cap here would look exactly like the game's timing quietly drifting.
+  // A very large backlog means the process was descheduled or a native step blocked for a long
+  // time. Dispatching thousands of callbacks would stall far worse than the gap itself. Cap it, and
+  // SAY so — a silent cap here would look exactly like the game's timing quietly drifting.
   static constexpr uint32_t kMaxCallbackCatchup = 16;
   if (owed > kMaxCallbackCatchup) {
-    cfg_logw("vsyncsb", "%u field(s) owed at once — dispatching %u and dropping the rest. The "
-                        "guest's per-vblank counter will lag real time by the difference.",
-             owed, kMaxCallbackCatchup);
+    cfg_logw("vsyncsb",
+             "%u field(s) owed at once — dispatching %u and dropping the rest. The "
+             "guest's per-vblank counter will lag real time by the difference.",
+             owed,
+             kMaxCallbackCatchup);
     owed = kMaxCallbackCatchup;
   }
 
   in_cb = true;
   for (uint32_t i = 0; i < owed; ++i) {
-    const R3000 saved = *static_cast<R3000*>(c);
+    const R3000 saved = *static_cast<R3000 *>(c);
     rec_dispatch(c, s_vsync_cb);
-    *static_cast<R3000*>(c) = saved;
+    *static_cast<R3000 *>(c) = saved;
   }
   in_cb = false;
 }
 
 // 0x8008B8CC VSyncCallback(fn) — capture the pointer; the port invokes it on the field clock.
-static void spiderman_vsync_callback(Core* c) {
+static void spiderman_vsync_callback(Core *c) {
   const uint32_t fn = c->r[4];
-  if (fn != s_vsync_cb)
+  if (fn != s_vsync_cb) {
     cfg_logi("sync", "VSyncCallback: guest registered 0x%08X (was 0x%08X)", fn, s_vsync_cb);
+  }
   s_vsync_cb = fn;
-  c->r[2] = 0;   // the guest wrapper's caller discards the return; 0 is the benign value
+  c->r[2] = 0; // the guest wrapper's caller discards the return; 0 is the benign value
 }
 
 // FUN_8005E748(n) — wait n fields, natively. Same shape as the blocking-VSync path: pace, advance
 // the field clock (which dispatches the guest's per-vblank callback, which is what actually bumps
 // the counter being waited on), re-check.
-static void spiderman_vblank_wait(Core* c) {
+static void spiderman_vblank_wait(Core *c) {
   const uint32_t n = c->r[4];
   const uint32_t target = c->mem_r32(kGameVblankCount) + n;
 
-  // Nothing advances kGameVblankCount except the guest's registered per-vblank callback. If the game
-  // has not registered one yet, this wait can never complete and spinning here would look exactly
-  // like a hang with no cause. Say so instead — a wait that cannot finish is a real condition.
+  // Nothing advances kGameVblankCount except the guest's registered per-vblank callback. If the
+  // game has not registered one yet, this wait can never complete and spinning here would look
+  // exactly like a hang with no cause. Say so instead — a wait that cannot finish is a real
+  // condition.
   if (!s_vsync_cb) {
-    cfg_loge("sync", "FUN_8005E748(%u) called before the guest registered a VSyncCallback — nothing "
-                     "can advance 0x%08X, so this wait could never complete. This is an RE gap, not "
-                     "a stall: see docs/re-frontier.md RE-05.", n, kGameVblankCount);
+    cfg_loge("sync",
+             "FUN_8005E748(%u) called before the guest registered a VSyncCallback — nothing "
+             "can advance 0x%08X, so this wait could never complete. This is an RE gap, not "
+             "a stall: see docs/re-frontier.md RE-05.",
+             n,
+             kGameVblankCount);
     c->r[2] = 0;
     return;
   }
@@ -444,8 +509,14 @@ static void spiderman_vblank_wait(Core* c) {
   while ((int32_t)(c->mem_r32(kGameVblankCount) - target) < 0) {
     gpu_pace_frame(c);
     ++g_pace_fieldwait;
-    lucent::debug("pace", "entries fieldwait={} vsync={} | site=fieldwait(0x{:08X}) n={} vbl={} target={}",
-                  g_pace_fieldwait, g_pace_vsync, kVblankWait, n, c->mem_r32(kGameVblankCount), target);
+    lucent::debug("pace",
+                  "entries fieldwait={} vsync={} | site=fieldwait(0x{:08X}) n={} vbl={} target={}",
+                  g_pace_fieldwait,
+                  g_pace_vsync,
+                  kVblankWait,
+                  n,
+                  c->mem_r32(kGameVblankCount),
+                  target);
     vblank_advance(c);
   }
   c->r[2] = 0;
@@ -455,12 +526,12 @@ static void spiderman_vblank_wait(Core* c) {
 // then service input. Both were previously reachable ONLY from the native frame loop, which never
 // runs while the guest executes a straight-line boot — the single cause behind both the frozen
 // vblank counter and the never-filled pad buffer (docs/re-frontier.md RE-05).
-static void spiderman_host_turn(Core* c) {
+static void spiderman_host_turn(Core *c) {
   vblank_advance(c);
   c->game->pad.serviceFrame();
 }
 
-static void spiderman_vsync(Core* c) {
+static void spiderman_vsync(Core *c) {
   // `PSXPORT_DEBUG=vsyncregs` — does this handler preserve the guest's callee-saved registers?
   // It is an HLE standing in for a guest leaf, so its caller expects the guest ABI to hold across
   // it. But it presents frames, and presenting can run framework and guest code against the SAME
@@ -474,65 +545,97 @@ static void spiderman_vsync(Core* c) {
   const uint32_t _wa = g_diag_stack_watch;
   const uint32_t _wv = _wa ? c->mem_r32(_wa) : 0u;
   if (_wa) {
-    ++g_diag_vsync_while_armed;   // proves coverage, so a silent watch is not mistaken for innocence
+    ++g_diag_vsync_while_armed; // proves coverage, so a silent watch is not mistaken for innocence
     // The callee saves s1 to this slot and THEN calls VSync, so the value visible here is the
     // saved one. This distinguishes "the save never landed" from "the save landed and was later
     // destroyed" — the two remaining explanations, which every earlier probe conflated.
     // sp here IS the callee's frame pointer: the emitted code saves s1 and then calls VSync with no
-    // sp change between, so the effective save address is OBSERVED as sp+28 rather than derived from
-    // the caller's sp and an assumed frame size. That derivation is what went wrong before.
-    cfg_logf("stackwatch", "armed VSync #%u: callee sp=%08X -> save addr %08X = %08X | assumed %08X = %08X | s1 live=%08X",
-             g_diag_vsync_while_armed, c->r[29], c->r[29] + 28u, c->mem_r32(c->r[29] + 28u),
-             _wa, _wv, c->r[17]);
+    // sp change between, so the effective save address is OBSERVED as sp+28 rather than derived
+    // from the caller's sp and an assumed frame size. That derivation is what went wrong before.
+    cfg_logf("stackwatch",
+             "armed VSync #%u: callee sp=%08X -> save addr %08X = %08X | assumed %08X = %08X | s1 "
+             "live=%08X",
+             g_diag_vsync_while_armed,
+             c->r[29],
+             c->r[29] + 28u,
+             c->mem_r32(c->r[29] + 28u),
+             _wa,
+             _wv,
+             c->r[17]);
   }
-  vblank_advance(c);   // the ISR's job: the counter tracks real time on EVERY call, query or wait
+  vblank_advance(c); // the ISR's job: the counter tracks real time on EVERY call, query or wait
 
   const int32_t mode = (int32_t)c->r[4];
   const uint32_t ret = (h_counter(c) - c->mem_r32(kHBaseline)) & 0xFFFFu;
 
   // `PSXPORT_DEBUG=vsync` — THE instrument that answers "what frame rate does this game target?".
   // The question is not a matter of opinion or of what the port would like to run at: a blocking
-  // VSync(mode) waits `mode` vblanks (mode 0/1 degenerate to one), so the mode the GAME passes at its
-  // frame boundary IS its declared frame pacing on a 60 Hz field clock — 1 vblank = 60fps, 2 = 30fps,
-  // 3 = 20fps. Logged with the caller's `ra` so a per-call-site histogram distinguishes the real
-  // frame-boundary VSync from incidental waits inside loaders. See docs/info/instruments.md.
-  if (cfg_dbg("vsync"))
+  // VSync(mode) waits `mode` vblanks (mode 0/1 degenerate to one), so the mode the GAME passes at
+  // its frame boundary IS its declared frame pacing on a 60 Hz field clock — 1 vblank = 60fps, 2 =
+  // 30fps, 3 = 20fps. Logged with the caller's `ra` so a per-call-site histogram distinguishes the
+  // real frame-boundary VSync from incidental waits inside loaders. See docs/info/instruments.md.
+  if (cfg_dbg("vsync")) {
     cfg_logf("vsync", "VSync(%d) ra=0x%08X vbl=%u", mode, c->r[31], c->mem_r32(kVblankCount));
+  }
 
-  if (mode < 0)  { c->r[2] = c->mem_r32(kVblankCount); return; }   // query the vblank counter
-  if (mode == 1) { c->r[2] = ret; return; }                        // query the h-delta
+  if (mode < 0) {
+    c->r[2] = c->mem_r32(kVblankCount);
+    return;
+  } // query the vblank counter
+  if (mode == 1) {
+    c->r[2] = ret;
+    return;
+  } // query the h-delta
 
-  const uint32_t last  = c->mem_r32(kLastSyncVbl);
+  const uint32_t last = c->mem_r32(kLastSyncVbl);
   const uint32_t target = (mode > 1) ? last + (uint32_t)mode - 1u : last;
 
   // Blocking wait: reach `target`, and always at least one field past where we are (the guest's
   // second _vsync_wait(counter + 1) at 0x80084CB4). The counter is real-time-driven, so "waiting"
   // means pacing until real time has produced those fields — not incrementing a number ourselves.
   // gpu_pace_frame is the framework's frame-rate limiter; vblank_advance does the present + store.
-  const uint32_t want = (target > c->mem_r32(kVblankCount) + 1u) ? target : c->mem_r32(kVblankCount) + 1u;
+  const uint32_t want =
+      (target > c->mem_r32(kVblankCount) + 1u) ? target : c->mem_r32(kVblankCount) + 1u;
   while (c->mem_r32(kVblankCount) < want) {
     gpu_pace_frame(c);
     ++g_pace_vsync;
-    lucent::debug("pace", "entries fieldwait={} vsync={} | site=vsync(0x{:08X}) mode={} vbl={} want={}",
-                  g_pace_fieldwait, g_pace_vsync, kVSync, mode, c->mem_r32(kVblankCount), want);
+    lucent::debug("pace",
+                  "entries fieldwait={} vsync={} | site=vsync(0x{:08X}) mode={} vbl={} want={}",
+                  g_pace_fieldwait,
+                  g_pace_vsync,
+                  kVSync,
+                  mode,
+                  c->mem_r32(kVblankCount),
+                  want);
     vblank_advance(c);
   }
 
   // The tail stores of 0x80084D04..0x80084D3C, reproduced verbatim.
   c->mem_w32(kLastSyncVbl, c->mem_r32(kVblankCount));
   c->mem_w32(kHBaseline, h_counter(c));
-  (void)c->mem_r32(kGpuStatPtr);   // the guest's status read has no side effect on our GPU
+  (void)c->mem_r32(kGpuStatPtr); // the guest's status read has no side effect on our GPU
 
-  if (_wa) { const uint32_t now = c->mem_r32(_wa);
-    if (now != _wv) cfg_logf("stackwatch", "VSync CORRUPTED guest stack [%08X] %08X -> %08X", _wa, _wv, now); }
+  if (_wa) {
+    const uint32_t now = c->mem_r32(_wa);
+    if (now != _wv) {
+      cfg_logf("stackwatch", "VSync CORRUPTED guest stack [%08X] %08X -> %08X", _wa, _wv, now);
+    }
+  }
   c->r[2] = ret;
-  if (cfg_dbg("vsyncregs") && (c->r[17] != _s1_in || c->r[16] != _s0_in || c->r[18] != _s2_in))
-    cfg_logf("vsyncregs", "CLOBBERED across VSync: s0 %08X->%08X  s1 %08X->%08X  s2 %08X->%08X",
-             _s0_in, c->r[16], _s1_in, c->r[17], _s2_in, c->r[18]);
+  if (cfg_dbg("vsyncregs") && (c->r[17] != _s1_in || c->r[16] != _s0_in || c->r[18] != _s2_in)) {
+    cfg_logf("vsyncregs",
+             "CLOBBERED across VSync: s0 %08X->%08X  s1 %08X->%08X  s2 %08X->%08X",
+             _s0_in,
+             c->r[16],
+             _s1_in,
+             c->r[17],
+             _s2_in,
+             c->r[18]);
+  }
 }
 
 // Install this game's sync primitives. Called from main() INSTEAD of PlatformHle::initBuiltins().
-void spiderman_install_sync_natives(Game* g) {
+void spiderman_install_sync_natives(Game *g) {
   g->platform_hle.register_(kVSync, spiderman_vsync);
   cfg_logi("sync", "native VSync installed at 0x%08X (libetc, RE-verified)", kVSync);
   g->platform_hle.register_(kVSyncCallback, spiderman_vsync_callback);
@@ -540,9 +643,11 @@ void spiderman_install_sync_natives(Game* g) {
   // address, deliberately — engine logic is owned through the recomp override table instead. The
   // refusal is a correct gate and was not worked around by widening the window.
   psxport_recomp()->shard_set_override(kVblankWait, spiderman_vblank_wait);
-  cfg_logi("sync", "native field-wait installed at 0x%08X (game delay primitive, RE-verified)",
+  cfg_logi("sync",
+           "native field-wait installed at 0x%08X (game delay primitive, RE-verified)",
            kVblankWait);
-  cfg_logi("sync", "native VSyncCallback installed at 0x%08X (libapi, RE-verified)", kVSyncCallback);
+  cfg_logi(
+      "sync", "native VSyncCallback installed at 0x%08X (libapi, RE-verified)", kVSyncCallback);
   // Give the host a turn at recompiled-function entry on the field clock. Without this the guest's
   // straight-line boot never yields, so neither the registered vblank callback nor the pad fill can
   // run — see host_turn.cpp for why the pacing here is a hardware fact and not a tunable.

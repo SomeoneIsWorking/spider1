@@ -5,7 +5,7 @@ status: investigating
 symptom: python3 tools/gate.py boot reaches dem1/l1a1 and keeps emitting frame progress, but neither the supervisor cap nor frame watchdog ends it; gate refuses and reports one process alive immediately after group kill
 tags: gate,supervisor,hang,verification
 created: 2026-08-20
-updated: 2026-08-20
+updated: 2026-08-21
 ---
 
 ## Evidence
@@ -23,3 +23,11 @@ the same refusal.
 Unknown. This issue records a verifier defect, not a game-rendering conclusion. Do not call these
 gate runs passing until the supervisor/child shutdown contract is diagnosed and the same tool
 demonstrates both a capped clean exit and an intentional-hang refusal.
+
+### Note (2026-08-21)
+Reproduced on 2026-08-21 after the final Clang-format/tidy rebuild: the forced-Cross reference run
+advanced through a live mesh `MATCH` at frame 482 and into scene `l1a1`, but `tools/gate.py boot
+--seconds 12 --grace 5` still exited 2 because the supervisor reported the progressing child alive
+after group termination. No `spiderman_port` process remained when checked immediately afterward.
+Log: `scratch/logs/gate-boot-20260821-010831.log`. This is the known gate-lifecycle baseline, not a
+mesh-probe failure.

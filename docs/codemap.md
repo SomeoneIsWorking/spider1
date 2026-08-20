@@ -34,7 +34,8 @@ recompiled substrate.
 ```
 game/core/           the framework↔game seam (boot spine, GameConfig, HLE'd primitives, loaders)
 game/render/         the render seam on the engine's own submitFrame + the scene-identity lens
-external/psxport/    the framework, as a submodule (recompiler, runtime, PSX HW, harness, renderer)
+titles/              per-title identity/status for Spider-Man 1 and Enter Electro
+external/psxport/    resolved framework checkout (workspace symlink or private clone)
 generated/           the recompiled substrate — REGENERATED, never committed, never hand-edited
 tools/               provisioning + RE helpers
 cmake/               the port build definition
@@ -54,10 +55,13 @@ Cite the exact form. `CLAIM-Cnnn` in this file means the per-file `Cnnn`.
 
 | Subsystem | Where | Status |
 |---|---|---|
+| Default project launcher | `run.sh`, `tools/run.py`, `tools/disc_path.py` | **done 2026-08-21** — the stable zero-argument shell interface is a trivial Python exec wrapper; `tools/run.py` owns sync, Clang configuration, provisioning, the required `spiderman_port` build target, and launch environment. Disc precedence is shared with provisioning and the run gate through `tools/disc_path.py`. CTest `launcher_policy` exercises positive/refusal paths without building or launching the game |
 | Disc provisioning + static recompilation | `tools/ensure_recomp.py`, `game/recomp_seeds.json` | **done** — hash-gated; MAIN + **30 runtime-loaded modules**, seeded only from the binary |
 | Runtime module extraction + relocation | `tools/extract_modules.py` | **done** — offline half of the guest's own loader; relocating `shell.bin` reproduces guest RAM byte-for-byte (CLAIM-08). Also writes each module's `<stem>.reloc.json` sidecar (HI16 offsets) that the recompiler needs to emit it base-relative |
 | Relocation-model **static** check | `tools/check_reloc_model.py` | **done** — checks the shape assumptions base-relative emission rests on across all 30 modules (8883 sites); self-tested (`--selftest`), refuses rather than returning empty on a missing corpus (I005). **NOT a run gate** — it never launches the binary. This row used to call it "the relocation-model gate", which invited exactly that misreading (issue 0014) |
 | **THE RUN GATE** — does the built binary still boot? | `tools/gate.py` | **done 2026-08-12** (issue 0014, which recorded that NOTHING in this repo drove the built binary). `python3 tools/gate.py boot` launches `scratch/bin/spiderman_port` headless under `gpuguard run`, capped, and asserts on the port's OWN log lines: boot exe loaded, guest main dispatched, render seam installed AND fired (`[rseam] submitFrame override REACHED`), counters ADVANCED at ≥35% of the recorded baseline rate (14007 frames / 5632 submits in 240s), ≥2 scene changes into NAMED scenes, and no failure pattern. It cannot use the REPL — this port never enters the framework frame loop that services it — so it keys on log lines from a plain capped launch. `--selftest` judges a known-good capture plus 16 broken variants (11 FAIL, 4 REFUSE, 1 GPU-device-loss STOP), 15 through the analyser and 2 through the REAL launcher; `check-log <path>` runs the same analyser over any captured log. Refusals exit 2, device loss exits 3. Launcher audited the same day: the hang branch had NO coverage and two real defects (a refusal that saved an empty log because the port logs only to stderr; a child-only kill that orphaned 2 GPU-holding processes per hang) — both fixed, `killpg` on its own session, and selftest case 17 was run against the pre-fix code to prove it discriminates |
+| C++ policy verifier | `.clang-format`, `.clang-tidy`, CTest `cpp_policy`, shared `external/psxport/tools/check_cpp_style.py` | **done 2026-08-21** — `ctest --test-dir build --output-on-failure -R cpp_policy` checks all first-party source non-mutatingly for format, runs clang-tidy on all 15 compile-backed first-party C++ translation units against the real Clang commands, and enforces the 1,200-line ownership cap. Generated/framework/vendor sources are outside this game repo's ownership. No pre-commit hook |
+| Title manifests | `titles/` | **Spider-Man 1 identified; Enter Electro reserved, not implemented** — each title keeps its own status while shared Neversoft engine work remains under `game/` |
 | Build (framework + game + substrate) | `CMakeLists.txt`, `cmake/spiderman_port.cmake` | **done** |
 | `GameConfig` boot/crt0 group | `game/core/game_config.cpp` | **done** — RE-verified against the crt0 at `0x8008739C` |
 | Generated-substrate seam | `game/core/recomp_register.cpp` | **done** |
@@ -87,8 +91,8 @@ Cite the exact form. `CLAIM-Cnnn` in this file means the per-file `Cnnn`.
 | Audio | `game/core/sync_native.cpp` (`vblank_advance` drives `spu_audio.frame()` once per owed field) + framework `spu_audio.cpp` / `xa_stream.cpp` | **PRODUCES AUDIO headless, NOT user-confirmed** (C022, issue 0005). The port previously had NO audio at all: `spu_audio.init()` was called and `spu_audio.frame()` was called nowhere, so the SPU mixer never advanced and nothing ever pulled `CDC_GetCDAudioSample` — the XA streamer armed at the intro movie's LBA and stopped there having decoded 0 sectors. Now 149940 pulls / 16 sectors on ATVILOGO and 160965 / 69 on LOGO, and a headless WAV capture is 115 audible buckets of 198. Census instrument: `PSXPORT_DEBUG=xa` reports pulls AND sectors at stream stop, so a silent stream says which side failed. **Unmeasured:** A/V sync — the XA streamer and the guest's video path run two independent read heads over the same file. `SpuAudio::init` still bails on `!gpu_windowed()`, which is the SDL SINK only; the mixer, the XA decode and `PSXPORT_WAV` all run headless |
 | FMV / intro movies | framework DMA/MDEC path; guest `FUN_8002AA0C` player, `FUN_8002A338` decoder, `0x8002B28C` callback | **re-partial (RE-07).** Both boot logos decode into guest VRAM and the window starvation defect was fixed upstream. C036 now has bounded runtime skip evidence: boot IDs 0 and 1 each produced a fresh Cross edge after tick 30 and reached the common full teardown with active state cleared (2/2). Start similarly exited ID0, after which the retail held-Start rule suppressed ID1. Queued and dispatcher paths were not reached. Remaining gaps: queued responsiveness, A/V sync, pacing against STR duration, and every non-STR in-engine sequence. |
 | STR skip runtime discriminator | `game/core/str_skip_oracle.cpp`, qualified PCs in `game/recomp_seeds.json` | **instrument landed; bounded live evidence only.** `start` produced a post-30 edge and common teardown for boot ID0 (1/1), then retail held-Start suppression omitted ID1. Corrected headless replacement release gives `cross` a guest-observed release before each drive and a post-30 edge/common teardown for both boot IDs (2/2). Queued path is **MISSING CORPUS: 0 invocations; no verdict**. No behavior patch, menu-arrival claim, or non-STR claim. |
-| DMA interrupt registers (DPCR/DICR) | framework `dma_irq.h`, `mem.cpp` | **done for DMA3** — the guest's per-channel IRQ enable is honoured, so a transfer it deliberately runs silent no longer signals its callback. Hermetic gate `tests/test_dma_irq_gate.cpp` (7 cases / 30 checks). DPCR is storage only, deliberately: two of the three consuming ports never write it, so gating transfers on it would read their untouched 0 as "all channels disabled" |
-| The framework itself | `external/psxport/` | **not this repo's subsystem** — a submodule with its own history and its own codemap. Changes to it are made here but land in that repo; consumers pin their own commit |
+| DMA interrupt registers (DPCR/DICR) | framework `dma_irq.h`, `mem.cpp` | **done for DMA3** — the guest's per-channel IRQ enable is honoured, so a transfer it deliberately runs silent no longer signals its callback. Hermetic gate `external/psxport/tests/test_dma_irq_gate.cpp` (7 cases / 30 checks). DPCR is storage only, deliberately: two of the three consuming ports never write it, so gating transfers on it would read their untouched 0 as "all channels disabled" |
+| The framework itself | `external/psxport/` | **not this repo's subsystem** — a workspace symlink or private checkout with its own history and codemap. Framework changes land in that repo; this consumer was Clang-built and policy-verified at `be381503` on 2026-08-21, recorded in `psxport.pin` |
 | The recompiled substrate | `generated/` | **not a subsystem** — regenerated output of `tools/ensure_recomp.py`, never committed and never hand-edited. A mistranslation is fixed in the recompiler, not in its output |
 
 ## Where is X
@@ -99,7 +103,7 @@ Cite the exact form. `CLAIM-Cnnn` in this file means the per-file `Cnnn`.
   root) — **the env var is required**, or the tool points at a path that does not exist (INST-14;
   it now exits 1 saying it checked NOTHING instead of printing OK). Do not use a
   `$CLAUDE_SKILLS`-relative path: that variable is unset in a plain shell, so the command
-  collapses to `/re-frontier/re_frontier.py` and fails. **`set`/`add` are safe on a prose-bearing
+  collapses to a nonexistent absolute skill path and fails. **`set`/`add` are safe on a prose-bearing
   roadmap again** (issue 0003): they edit only the field lines named and refuse the write, naming
   what would be lost, if anything else would go missing. Guarded by
   `pytest tools/test_re_frontier.py` / `python3 tools/re_frontier.py selftest`.
@@ -127,8 +131,9 @@ Cite the exact form. `CLAIM-Cnnn` in this file means the per-file `Cnnn`.
 - **Driving the game without a controller** → `PSXPORT_FORCE_BUTTONS=<hex active-low mask>`
   (`0040` DOWN, `4000` CROSS, `0008` START).
 - **Did my change break boot?** → `python3 tools/gate.py boot` (build first: `cmake --build build
-  --target spiderman_port -j$(nproc)`). Never `./run.sh` — that is the user's windowed launcher and it
-  re-syncs the framework submodule out from under an in-progress measurement.
+  --target spiderman_port -j$(nproc)`). Never `./run.sh` — that is the user's windowed launcher; it
+  resolves the framework checkout and syncs nested dependencies before building, which contaminates
+  an in-progress measurement.
 
 ## Current state in one line
 

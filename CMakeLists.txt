@@ -51,6 +51,11 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+include(CTest)
+if(BUILD_TESTING)
+  find_package(Python3 REQUIRED COMPONENTS Interpreter)
+endif()
+
 find_package(ZLIB REQUIRED)
 find_package(zstd CONFIG QUIET)
 if(NOT TARGET zstd::libzstd_shared)
@@ -67,3 +72,17 @@ add_subdirectory(${PSXPORT_DIR}/vendor/beetle-psx/deps/libchdr
 # The game binary (spiderman_port): game/** + generated/** linking libpsxport.
 # (cmake/spiderman_port.cmake includes the framework's psxport.cmake itself.)
 include(cmake/spiderman_port.cmake)
+
+if(BUILD_TESTING)
+  add_test(
+    NAME launcher_policy
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/run.py --selftest
+  )
+  add_test(
+    NAME cpp_policy
+    COMMAND
+      ${Python3_EXECUTABLE} ${PSXPORT_DIR}/tools/check_cpp_style.py
+      --root ${CMAKE_SOURCE_DIR}
+      --compile-commands ${CMAKE_BINARY_DIR}
+  )
+endif()

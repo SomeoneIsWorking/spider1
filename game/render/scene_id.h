@@ -1,9 +1,9 @@
 // scene_id.h — SceneName: the game's own scene identity, read from the level name it keeps in RAM.
 //
 // WHY THIS EXISTS. A native renderer needs to know WHICH scene it is being asked to draw, so that a
-// scene with no producer can fail fast naming itself instead of drawing something plausible. Tomba!2
-// keys on its scheduler's stage pointer + substate selectors; this game has no visible task table
-// (docs/re-frontier.md RE-13), and the guest MODULE REGISTRY — the only other candidate — was
+// scene with no producer can fail fast naming itself instead of drawing something plausible.
+// Tomba!2 keys on its scheduler's stage pointer + substate selectors; this game has no visible task
+// table (docs/re-frontier.md RE-13), and the guest MODULE REGISTRY — the only other candidate — was
 // MEASURED useless as a discriminator: 8 load/evict events over a 13757-present run, 94.3% of it on
 // one constant resident set spanning the attract fly-through AND live gameplay (claim C026, issue
 // 0011).
@@ -20,7 +20,7 @@
 #pragma once
 #include <stdint.h>
 
-class Core;   // external/psxport/runtime/recomp/core.h
+class Core; // external/psxport/runtime/recomp/core.h
 
 // The 4 ASCII bytes at 0x800A568C that the engine encodes into a scene id, plus the encoding.
 //
@@ -37,29 +37,35 @@ class Core;   // external/psxport/runtime/recomp/core.h
 //   8005A7A8  lbu   $v0, 7($v1)           ; name[3] = 0x800A568F
 //
 // The same 0x800A568C buffer is what main() (FUN_8002C354) hands to FUN_8005F1D4 / FUN_80018898 /
-// FUN_80018800 on its case-3 path, next to the string literals at 0x800B4FD8 / 0x800B4FE0 — i.e. the
-// mode switch writes it, which is why it is the current level name and not a scratch buffer.
+// FUN_80018800 on its case-3 path, next to the string literals at 0x800B4FD8 / 0x800B4FE0 — i.e.
+// the mode switch writes it, which is why it is the current level name and not a scratch buffer.
 class SceneName {
- public:
+public:
   // Guest address of name[0]. name[2] is read by nothing in the encoder and is carried only so the
   // diagnostic can print the whole 4-byte field the engine treats as one datum.
   static constexpr uint32_t kAddr = 0x800A568Cu;
-  static constexpr int      kBytes = 4;
+  static constexpr int kBytes = 4;
 
   // "nothing has been read yet" — all bytes zero, text "....", printable() false. A distinct state
   // from any real read, so a census can tell its first sample from a stale one.
   SceneName();
-  explicit SceneName(Core* c);
+  explicit SceneName(Core *c);
 
   // The 4 bytes as a NUL-terminated C string, with every non-printable byte rendered '.' so a log
   // line can never be corrupted by whatever is really there. rawByte() is the unfiltered value.
-  const char* text() const { return mText; }
-  uint8_t     rawByte(int i) const { return mRaw[i]; }
+  const char *text() const {
+    return mText;
+  }
+  uint8_t rawByte(int i) const {
+    return mRaw[i];
+  }
 
   // True when all 4 bytes are printable ASCII. A false here is a REAL answer, not an error: it says
   // the mode switch has not written a level name yet (boot/FMV), and the code below still encodes
   // whatever is there — exactly as the guest's own encoder would.
-  bool printable() const { return mPrintable; }
+  bool printable() const {
+    return mPrintable;
+  }
 
   // All four bytes zero: the mode switch has not written a level name yet. This is the state the
   // engine's boot-init submit runs in (`FUN_80061140` calls submitFrame once at the end of graphics
@@ -81,10 +87,10 @@ class SceneName {
   // value is compared against.
   uint32_t code() const;
 
-  bool sameAs(const SceneName& o) const;
+  bool sameAs(const SceneName &o) const;
 
- private:
+private:
   uint8_t mRaw[kBytes];
-  char    mText[kBytes + 1];
-  bool    mPrintable;
+  char mText[kBytes + 1];
+  bool mPrintable;
 };

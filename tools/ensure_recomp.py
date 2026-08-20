@@ -6,8 +6,8 @@ matches a deterministic hash of its INPUTS. run.sh calls only this; all recomp p
 here rather than scattered through the shell script.
 
 What it does, in order:
-  1. Resolve the disc image (CLI arg > $PSXPORT_SPIDERMAN_DISC > .env > *.chd drop-in — this
-     mirrors run.sh exactly, so both agree on which disc is in play).
+  1. Resolve the disc image through tools/disc_path.py (CLI arg >
+     $PSXPORT_SPIDERMAN_DISC > .env > *.chd drop-in), so every tool agrees which disc is in play.
   2. Extract the boot executable SLUS_008.75 from the disc via the framework's `discdump`.
      SYSTEM.CNF boots SLUS_008.75 directly; the rest of the game lives in the packed archive
      CD.WAD, from which step 2b pulls 30 runtime-loaded code modules (see MODULE_SRCS below).
@@ -32,9 +32,11 @@ import os
 import re
 import subprocess
 import sys
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import extract_modules  # noqa: E402  (same directory; see MODULE_SRCS)
+from disc_path import resolve_disc as resolve_disc_path  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -95,19 +97,9 @@ def recomp_version():
 
 
 def resolve_disc(argv):
-    """CLI arg > $PSXPORT_SPIDERMAN_DISC > .env (PSXPORT_SPIDERMAN_DISC|PSXPORT_DISC) > *.chd drop-in."""
-    disc = argv[1] if len(argv) > 1 and argv[1] else os.environ.get("PSXPORT_SPIDERMAN_DISC", "")
-    if not disc and os.path.isfile(os.path.join(ROOT, ".env")):
-        env = open(os.path.join(ROOT, ".env")).read()
-        for key in ("PSXPORT_SPIDERMAN_DISC", "PSXPORT_DISC"):
-            m = re.search(rf"^\s*{key}\s*=\s*(.+?)\s*$", env, re.M)
-            if m:
-                disc = m.group(1)
-                break
-    if not disc:
-        chds = sorted(p for p in os.listdir(ROOT) if p.lower().endswith(".chd"))
-        if chds:
-            disc = os.path.join(ROOT, chds[0])
+    """Resolve and validate the disc selected by the shared tooling policy."""
+    argument = argv[1] if len(argv) > 1 and argv[1] else None
+    disc = resolve_disc_path(Path(ROOT), argument, os.environ)
     if not disc or not os.path.isfile(disc):
         die("no disc image — pass it as ./run.sh <disc.chd>, set PSXPORT_SPIDERMAN_DISC, "
             "or drop a *.chd here")

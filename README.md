@@ -44,7 +44,8 @@ See [`docs/codemap.md`](docs/codemap.md) for the full subsystem map and
 
 ## Requirements
 
-- **Linux:** `cmake`, `pkg-config`, `SDL3`, `libzstd`, `zlib`, `python3`, a C/C++ toolchain
+- **Linux:** `cmake`, `pkg-config`, `SDL3`, `libzstd`, `zlib`, `python3`, Clang,
+  `clang-format`, and `clang-tidy`
 - **macOS:** `brew install cmake pkg-config sdl3 zstd zlib python3`
 - A Vulkan-capable GPU + drivers
 - Your own Spider-Man (PSX, USA) disc image as a `.chd`
@@ -52,24 +53,40 @@ See [`docs/codemap.md`](docs/codemap.md) for the full subsystem map and
 ## Running
 
 ```sh
-git clone --recursive <this repo>
+git clone <this repo>
 cd spider1
 ./run.sh /path/to/"Spider-Man (USA).chd"
 ```
 
-`run.sh` does everything end to end: builds the CHD tooling, extracts the boot executable from your
-disc, statically recompiles it, builds the port, and launches it. Instead of passing the path you can
+`run.sh` is the stable launcher and delegates its implementation to `tools/run.py`. With no special
+mode it builds the CHD tooling, extracts the boot executable from your disc, statically recompiles
+it, builds the `spiderman_port` project target, and launches it. Instead of passing the path you can
 set `PSXPORT_SPIDERMAN_DISC`, copy `.env.example` to `.env`, or drop a `*.chd` in the repo root.
 
 Useful knobs: `PSXPORT_NOWINDOW=1` (headless), `PSXPORT_NOAUDIO=1`, `PSXPORT_WATCHDOG=<sec>`,
 `PSXPORT_DEBUG=vsync` (channel-gated diagnostics).
+
+## Verifying C++ changes
+
+After building, run:
+
+```sh
+ctest --test-dir build --output-on-failure -R 'cpp_policy|launcher_policy'
+```
+
+The C++ check covers all first-party C/C++ with the tracked Clang format profile, runs clang-tidy on
+every compile-backed first-party C++ translation unit using the real Clang commands, and enforces the
+1,200-line ownership cap. The launcher check covers disc-path precedence, refusal discrimination,
+the Clang configure command, the required `spiderman_port` target, and window/headless launch
+environments. The shared C++ checker lives in psxport; this repo owns only its policy files and CTest
+wiring. There is no pre-commit hook.
 
 ## Layout
 
 ```
 game/core/           the framework↔game seam — this repo's entire hand-written surface
 titles/              per-title identity and status (Spider-Man 1/2)
-external/psxport/    the framework (submodule): recompiler, runtime, PSX hardware, harness, renderer
+external/psxport/    resolved framework checkout: recompiler, runtime, PSX hardware, harness, renderer
 generated/           the recompiled substrate — regenerated, never committed, never hand-edited
 tools/               provisioning + reverse-engineering helpers
 docs/                codemap, RE frontier, issue catalog, claims + instruments ledgers

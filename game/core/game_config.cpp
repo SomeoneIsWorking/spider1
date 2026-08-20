@@ -1,26 +1,26 @@
 // game_config.cpp — the Spider-Man (SLUS_008.75, USA) GameConfig: the guest-address literals the
 // PSX-generic framework reads through `c->cfg->field`.
 //
-// EVERY value here is REVERSE-ENGINEERED from the retail executable and cited with the instruction it
-// came from. Nothing is guessed. Fields whose RE has NOT been done are left ZERO and are tracked as
-// open steps in docs/re-frontier.md — a zero here means "not yet RE'd", never "not needed". Do not
-// fill one in to make something run; that is exactly the jump-ahead the frontier tracker exists to
-// catch.
+// EVERY value here is REVERSE-ENGINEERED from the retail executable and cited with the instruction
+// it came from. Nothing is guessed. Fields whose RE has NOT been done are left ZERO and are tracked
+// as open steps in docs/re-frontier.md — a zero here means "not yet RE'd", never "not needed". Do
+// not fill one in to make something run; that is exactly the jump-ahead the frontier tracker exists
+// to catch.
 //
 // Provenance: disassembly of the retail US executable, entry 0x8008739C. Reproduce with
 //   python3 tools/redump_ram.py            # SLUS_008.75 -> a 2 MB RAM image
 //   python3 external/psxport/tools/disasm.py scratch/bin/spiderman/ram.bin 0x8008739C 0x80087440
 #include "game_iface.h"
-#include "overlay_table.h"   // generated: REC_MAIN_LO / REC_MAIN_HI (this game's recompiled .text range)
+#include "overlay_table.h" // generated: REC_MAIN_LO / REC_MAIN_HI (this game's recompiled .text range)
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
 // The crt0 (0x8008739C) — the standard Sony crt0, and the ONE group that is fully RE-verified.
 //
-// The framework's generic crt0_setup (runtime/recomp/native_boot.cpp) reproduces this shape exactly:
-// BSS-zero loop, sp from a stack-top global minus 8, heap base = end-of-BSS masked to a physical
-// address, heap size = (sp - <size global>) - heapBase, then InitHeap with a0 = heapBase|KSEG0 + 4.
-// Spider-Man's crt0 is that same sequence instruction for instruction, so the mapping below is a
-// structural match, not an approximation:
+// The framework's generic crt0_setup (runtime/recomp/native_boot.cpp) reproduces this shape
+// exactly: BSS-zero loop, sp from a stack-top global minus 8, heap base = end-of-BSS masked to a
+// physical address, heap size = (sp - <size global>) - heapBase, then InitHeap with a0 =
+// heapBase|KSEG0 + 4. Spider-Man's crt0 is that same sequence instruction for instruction, so the
+// mapping below is a structural match, not an approximation:
 //
 //   800873AC  sw   $zero,($v0)          BSS-zero  0x800B5994 .. 0x800C65D4   -> bssZeroLo/bssZeroHi
 //   800873C4  lw   $v0,0x3E70($v0)      stack-top global                     -> stackTopBase
@@ -33,7 +33,8 @@
 //   80087438  jal  0x8002C354           main()                               -> gameMain
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
 static const GameConfig g_spiderman_cfg = {
-    // --- crt0 / boot ---------------------------------------------------------------- RE-VERIFIED --
+    // --- crt0 / boot ---------------------------------------------------------------- RE-VERIFIED
+    // --
     /* bssZeroLo      */ 0x800B5994u,
     /* bssZeroHi      */ 0x800C65D4u,
     /* stackTopBase   */ 0x800B3E70u,
@@ -42,37 +43,45 @@ static const GameConfig g_spiderman_cfg = {
     /* heapSizePtr    */ 0x800B1240u,
     /* heapBasePtr    */ 0x800B123Cu,
     /* gp             */ 0x800B47F4u,
-    /* libcInit       */ 0x8008DC98u,   // BIOS A(39h) InitHeap stub
+    /* libcInit       */ 0x8008DC98u, // BIOS A(39h) InitHeap stub
     /* gameMain       */ 0x8002C354u,
-    /* crt0           */ 0x8008739Cu,   // PS-X EXE header entry pc
+    /* crt0           */ 0x8008739Cu, // PS-X EXE header entry pc
 
-    // --- recompiled MAIN .text range (physical) ------------------------- from the recompiler run --
+    // --- recompiled MAIN .text range (physical) ------------------------- from the recompiler run
+    // --
     // Sourced from the generated header so these can never drift from the substrate they describe.
-    /* recMainLo      */ REC_MAIN_LO,   // 0x00010000  (PS-X EXE load address)
+    /* recMainLo      */ REC_MAIN_LO, // 0x00010000  (PS-X EXE load address)
     // recMainHi is DELIBERATELY the heap base, not REC_MAIN_HI (= load + text size = 0x000C6800).
     //
-    // The PS-X EXE loads 0xB6800 bytes, but crt0 sets heapBase to the end of BSS, 0x000C65D4 — so the
+    // The PS-X EXE loads 0xB6800 bytes, but crt0 sets heapBase to the end of BSS, 0x000C65D4 — so
+    // the
     // last 0x22C bytes of the loaded image ARE THE HEAP at runtime and are overwritten by the first
     // allocation. They are file padding, not code: the recompiler found 36 "functions" up there
     // (0xC661C..0xC67FC) purely by scanning bytes it had no reason to believe were text.
     //
     // Leaving the range at 0x000C6800 makes rec_dispatch claim heap addresses for MAIN. That is not
-    // hypothetical — it broke RE-09: the module slot is the heap's first block (0x000C65EC), so every
-    // call into a runtime-loaded module was routed to MAIN's switch, found no function, and failed as
+    // hypothetical — it broke RE-09: the module slot is the heap's first block (0x000C65EC), so
+    // every
+    // call into a runtime-loaded module was routed to MAIN's switch, found no function, and failed
+    // as
     // a dispatch miss WITHOUT ever consulting the overlay router. The router was correct and the
     // residency was right; the address never reached it.
     //
-    // A call that genuinely lands in the padding now fails loudly rather than silently resolving to a
+    // A call that genuinely lands in the padding now fails loudly rather than silently resolving to
+    // a
     // padding-derived phantom, which is the better failure of the two.
-    /* recMainHi      */ 0x000C65D4u,   // = heapBase; see above. NOT REC_MAIN_HI (0x000C6800).
+    /* recMainHi      */ 0x000C65D4u, // = heapBase; see above. NOT REC_MAIN_HI (0x000C6800).
 
-    // --- disc key ------------------------------------------------------- this port's own env name --
+    // --- disc key ------------------------------------------------------- this port's own env name
+    // --
     // The framework's disc resolver used to hardcode the FIRST consumer's variable, so run.sh set
     // PSXPORT_SPIDERMAN_DISC, nothing read it, and every boot ran with NO MEDIA behind an ordinary
-    // -looking log. Not RE — a port fact — but it belongs here because the framework must not know it.
+    // -looking log. Not RE — a port fact — but it belongs here because the framework must not know
+    // it.
     /* discEnvVar     */ "PSXPORT_SPIDERMAN_DISC",
 
-    // --- boot intro movies ------------------------------------------ deliberately EMPTY, and why --
+    // --- boot intro movies ------------------------------------------ deliberately EMPTY, and why
+    // --
     // Not a gap. This port's boot runs on the recompiled substrate, so movies are played by the
     // GUEST, not by the framework's boot sequencer. The framework used to hardcode the reference
     // consumer's MOVIE/LOGO.STR here, which does not exist on this disc.
@@ -85,11 +94,12 @@ static const GameConfig g_spiderman_cfg = {
     // +0x10. Self-consistent: entry 0 is CINEMAS/ATVILOGO.STR at 320x240 with frameBytes 0x25800 =
     // 320*240*2, entry 1 CINEMAS/LOGO.STR at 320x192 with 0x1E000 = 320*192*2.
     //
-    // What is NOT established is which ID the boot plays: both callers of 0x8002B0F4 (0x8002AAB8 and
+    // What is NOT established is which ID the boot plays: both callers of 0x8002B0F4 (0x8002AAB8
+    // and
     // 0x8003D2EC) pass the index in a REGISTER, not as a constant, and the port stalls in CdInit
     // long before any movie is reached, so it cannot be observed either. Naming one here would be a
     // guess wearing a citation. That is RE-07.
-    /* bootFmv        */ { nullptr, nullptr, nullptr, nullptr },
+    /* bootFmv        */ {nullptr, nullptr, nullptr, nullptr},
 
     // --- everything below: NOT YET REVERSE-ENGINEERED --------------------------------------------
     // Zero is the honest value. Each group is an open step in docs/re-frontier.md; the framework
@@ -98,35 +108,50 @@ static const GameConfig g_spiderman_cfg = {
     // Phase-0 boot runs the guest's own main() on the substrate instead. See docs/codemap.md.
 
     // --- per-frame OT / packet pool (re-frontier: RE-02) ---
-    /* otRegionBase   */ 0, /* otRegionStride */ 0,
-    /* packetPoolBase */ 0, /* packetPoolStride */ 0,
+    /* otRegionBase   */ 0,
+    /* otRegionStride */ 0,
+    /* packetPoolBase */ 0,
+    /* packetPoolStride */ 0,
     /* otBasePtr      */ 0,
     /* dwellCounter   */ 0,
-    /* poolPtrCur     */ 0, /* poolPtrLast */ 0,
-    /* clearOtagR     */ 0, /* putDrawEnv */ 0, /* drawSync */ 0,
+    /* poolPtrCur     */ 0,
+    /* poolPtrLast */ 0,
+    /* clearOtagR     */ 0,
+    /* putDrawEnv */ 0,
+    /* drawSync */ 0,
     /* irqEventClasses*/ {0, 0, 0},
-    /* dualviewRenderOrch */ 0, /* dualviewSubmit */ 0,
+    /* dualviewRenderOrch */ 0,
+    /* dualviewSubmit */ 0,
 
     // --- scheduler task layout (re-frontier: RE-03) ---
-    /* taskTableBase  */ 0, /* taskSlotStride */ 0, /* taskCount */ 0,
+    /* taskTableBase  */ 0,
+    /* taskSlotStride */ 0,
+    /* taskCount */ 0,
     /* curTaskPtr     */ 0,
-    /* stageStart     */ 0, /* stageDemo */ 0, /* stageGame */ 0,
+    /* stageStart     */ 0,
+    /* stageDemo */ 0,
+    /* stageGame */ 0,
 
-    // --- overlay router slots -------------------------------------------------- N/A for this game --
+    // --- overlay router slots -------------------------------------------------- N/A for this game
+    // --
     // ONE overlay slot, and it is the port's own (RE-09). The disc carries no per-stage .BIN images
     // — `discdump list` shows only SLUS_008.75 plus the packed archive CD.WAD, which is what the
     // comment here used to cite as proof that this game "has no overlay modules". That was a claim
-    // about the ISO layout being read as a claim about code coverage: the game loads 30 further code
+    // about the ISO layout being read as a claim about code coverage: the game loads 30 further
+    // code
     // modules OUT of CD.WAD as <name>.bin + <name>.rel pairs at runtime.
     //
     // Those modules are relocatable, and the port pins every one of them to a single reserved slot
     // (game/core/module_loader.cpp) so the recompiler can emit them. Only one is ever resident. The
-    // base is the heap's first block, 0x800C65EC — reserved before any guest code runs, and re-checked
+    // base is the heap's first block, 0x800C65EC — reserved before any guest code runs, and
+    // re-checked
     // at runtime against the base the substrate was actually emitted for.
     //
-    // Residency is recorded EXACTLY, by name, from the loader — not by content signature. Pinning the
+    // Residency is recorded EXACTLY, by name, from the loader — not by content signature. Pinning
+    // the
     // modules to one base makes their signatures collide (30 modules -> 14 distinct 32-byte
-    // signatures; 12 share one), because the entry prologues are identical boilerplate and relocating
+    // signatures; 12 share one), because the entry prologues are identical boilerplate and
+    // relocating
     // them to the same address makes the words identical too. See overlay_router.h.
     /* overlaySlots   */ {{0x800C65ECu, "MODULE"}, {0, nullptr}, {0, nullptr}},
 
@@ -152,14 +177,19 @@ static const GameConfig g_spiderman_cfg = {
     // i.e. the guest is left inside a critical section it never exits. Implementing COP0 Status
     // (psxport, same session) did not clear it, so the restore is happening by some route still not
     // modelled. Find that, then set this back to 0. See docs/re-frontier.md RE-03.
-    /* cdInit         */ 0, /* cdCommand */ 0x8008CE8Cu,
+    /* cdInit         */ 0,
+    /* cdCommand */ 0x8008CE8Cu,
     // cdSync: 0x80086C60, stock libcd's CdSync(mode, result) — a thin wrapper over 0x8008CBC4. The
     // CD streaming poller at 0x80085000 calls it in a loop and only proceeds when the result is not
     // 5 (disk error); the framework handler reports complete, which is true here because every CD
     // operation this port performs has already finished synchronously by the time it is asked.
-    /* cdSync */ 0x80086C60u, /* cdReadPrim */ 0,
-    /* cdFileLoad     */ 0, /* cdAsyncRead */ 0,
-    /* voicePlay      */ 0, /* voiceStop */ 0, /* lastSectorTracker */ 0,
+    /* cdSync */ 0x80086C60u,
+    /* cdReadPrim */ 0,
+    /* cdFileLoad     */ 0,
+    /* cdAsyncRead */ 0,
+    /* voicePlay      */ 0,
+    /* voiceStop */ 0,
+    /* lastSectorTracker */ 0,
     /* cdInlineLoad   */ 0,
     /* cdCmdStream    */ 0,
     /* cdCallbackTable*/ {0, 0, 0, 0},
@@ -182,8 +212,10 @@ static const GameConfig g_spiderman_cfg = {
     // (`old = g; g = param; return old`) — the pair at 0x80086C80 does the same for the SYNC
     // callback at 0x800B3B14.
     //
-    // This is what lets the PC own the read outright. The game's handler (0x800899A0) is a per-sector
-    // driver: it calls CdGetSector, advances its own destination, decrements its remaining count, and
+    // This is what lets the PC own the read outright. The game's handler (0x800899A0) is a
+    // per-sector
+    // driver: it calls CdGetSector, advances its own destination, decrements its remaining count,
+    // and
     // when the count hits zero restores the callbacks and issues Pause. So a read completes by
     // invoking that callback once per sector — no CD interrupt, no ISR chain, no busy-wait.
     /* cdReadyCbPtr   */ 0x800B3B18u,
@@ -198,7 +230,8 @@ static const GameConfig g_spiderman_cfg = {
     // the sector header against stale bytes and reported "CdRead: sector error" forever.
     /* cdLastPosBuf   */ 0x800B3B2Cu,
 
-    // cdReadStock / cdReadSync: 0x80089ECC and 0x8008A068 — stock libcd's CdRead(sectors, buf, mode)
+    // cdReadStock / cdReadSync: 0x80089ECC and 0x8008A068 — stock libcd's CdRead(sectors, buf,
+    // mode)
     // and CdReadSync(mode, result). Identified from their decompiled bodies and their pairing: the
     // same three game routines (0x800649E4, 0x80064DA4, 0x80086A6C) call one then the other.
     // CdRead's argument mapping is explicit in its own code — param_1 -> sector count, param_2 ->
@@ -210,7 +243,8 @@ static const GameConfig g_spiderman_cfg = {
     /* cdReadStock    */ 0x80089ECCu,
     /* cdReadSync     */ 0x8008A068u,
 
-    // cdSearchFile: 0x80086170, stock libcd's CdSearchFile(CdlFILE*, name). Identified from the boot
+    // cdSearchFile: 0x80086170, stock libcd's CdSearchFile(CdlFILE*, name). Identified from the
+    // boot
     // loop at 0x800649E4, which calls it with the literal "\CD_HED;1" and loops re-running CdInit
     // for as long as it returns 0 — that loop is the boot stall. Its result then feeds
     // CdControl(CdlSetloc, &loc) and CdRead(ceil(size/2048), buf, 0x80), which confirms the CdlFILE
@@ -221,9 +255,12 @@ static const GameConfig g_spiderman_cfg = {
     // registrar at 0x8009152C, which computes `0x800B4388 + index*4` and stores its argument there.
     // Everything the guest registers goes through it, via the BIOS thunk 0x8008B89C:
     //
-    //   slot 3 (CD)       <- 0x8008DB44, from the streaming setup at 0x80086030. Promotes a ring slot
-    //                        from "DMA in flight" (3) to "ready" (2). Measured: the ring sat with ten
-    //                        slots at 3 while the consumer, which only accepts 2, spun on a full ring.
+    //   slot 3 (CD)       <- 0x8008DB44, from the streaming setup at 0x80086030. Promotes a ring
+    //   slot
+    //                        from "DMA in flight" (3) to "ready" (2). Measured: the ring sat with
+    //                        ten
+    //                        slots at 3 while the consumer, which only accepts 2, spun on a full
+    //                        ring.
     //   slot 1 (MDEC-out) <- 0x8002B28C, from the intro FMV player's init 0x8002B1FC
     //                        (FUN_80085BC0 -> DMACallback(1, ...)). This is what uploads a decoded
     //                        strip to VRAM. It was NEVER CALLED over a whole run while the port
@@ -241,82 +278,111 @@ static const GameConfig g_spiderman_cfg = {
     //     FUN_8008ad08();                          // PadStartCom
     //
     // and the two arguments are exactly 0x22 apart — the 34-byte libpad direct buffer. Disassembly:
-    //   tools/redump_ram.py && external/psxport/tools/disasm.py scratch/bin/ram.bin 0x8006AE34 0x8006AE90
+    //   tools/redump_ram.py && external/psxport/tools/disasm.py scratch/bin/ram.bin 0x8006AE34
+    //   0x8006AE90
     //
     // The per-frame consumer 0x8006B27C confirms the same layout INDEPENDENTLY: it walks 2 slots at
-    // stride 0x22 from 0x800A50EC, tests byte +1 against 0x80 (libpad's multitap type nibble), and on
-    // the ordinary-controller path copies 8 bytes from the buffer BASE — i.e. {status, type, btn_lo,
+    // stride 0x22 from 0x800A50EC, tests byte +1 against 0x80 (libpad's multitap type nibble), and
+    // on
+    // the ordinary-controller path copies 8 bytes from the buffer BASE — i.e. {status, type,
+    // btn_lo,
     // btn_hi, …}, which is precisely the framework's fillBuffer packet. On the multitap path it
     // instead copies four sub-pads from +2/+10/+18/+26, so +2 is a sub-record, NOT the slot base.
     //   external/psxport/tools/disasm.py scratch/bin/ram.bin 0x8006B27C 0x8006B3C8
     //
-    // That resolves the base-vs-+2 ambiguity recorded against CLAIM-07: the framework's buf[0] is the
+    // That resolves the base-vs-+2 ambiguity recorded against CLAIM-07: the framework's buf[0] is
+    // the
     // status byte, so the buffer base is 0x800A50EC. 0x800A50EE is only its button halfword, and
-    // 0x800A5130 is the game's own per-frame mirror (the 62,114 writes from 0x8006B3C8 that falsified
+    // 0x800A5130 is the game's own per-frame mirror (the 62,114 writes from 0x8006B3C8 that
+    // falsified
     // the earlier guess) — writing either from the port would be wrong.
     //
     // padDriverFn is left at zero because the FRAMEWORK NEVER READS IT: the field is declared in
-    // game_iface.h and consumed nowhere; its intended handler (pad_input.cpp `pad_read`) is a static
+    // game_iface.h and consumed nowhere; its intended handler (pad_input.cpp `pad_read`) is a
+    // static
     // function that overridesInit() does not register. Recorded as a wart, not a gap in this port's
     // RE — see docs/issues/framework-agnosticism-warts.md.
-    /* padSlot0Buf    */ 0x800A50ECu, /* padSlot1Buf */ 0x800A510Eu, /* padDriverFn */ 0,
+    /* padSlot0Buf    */ 0x800A50ECu,
+    /* padSlot1Buf */ 0x800A510Eu,
+    /* padDriverFn */ 0,
     /* padSlotPtrTable*/ 0,
     // Byte distance between consecutive slots' pointers. 0 is read as 4 by the framework, which is
     // the correct default; stated explicitly so this initialiser lists every field the struct has.
     /* padSlotPtrStride*/ 0,
 
-    // --- platform HLE: the PSX hardware-sync primitives -------------------------------------------
-    /* hle */ {
+    // --- platform HLE: the PSX hardware-sync primitives
+    // -------------------------------------------
+    /* hle */
+    {
         // The address window PlatformHle::register_() accepts. Its job is to keep GAME/engine logic
         // out of the hardware-sync table, so both bounds are evidence-based:
         //
         //   LOWER 0x80083000 — below the lowest observed SDK kernel-call stub (0x80083EC8) and well
-        //     above the highest observed game-logic address (main 0x8002C354, 0x800649E4, 0x8006BF9C).
+        //     above the highest observed game-logic address (main 0x8002C354, 0x800649E4,
+        //     0x8006BF9C).
         //     Evidence: scanning the text for the SDK's BIOS-call stub idiom
         //     (`addiu $t2,$zero,0xA0/0xB0/0xC0 ; jr $t2`) finds 41 of them, ALL within
         //     0x80083EC8..0x80091730 — that cluster is the SCEI library text.
         //   UPPER 0x80096000 — the end of library text: the first address known to be .rodata is
         //     0x80096020, the "VSync: timeout" string that identified VSync in the first place.
         //
-        // Provisional in the sense that it may need widening as more of the library is RE'd — but it
+        // Provisional in the sense that it may need widening as more of the library is RE'd — but
+        // it
         // fails LOUDLY (a REFUSED diagnostic) rather than silently, so widening is evidence-driven.
         /* windowLo */ {0x80083000u, 0},
         /* windowHi */ {0x80096000u, 0},
 
-        // codeScanLo/Hi left zero on purpose: the framework then falls back to [recMainLo, recMainHi),
-        // which is exactly right here — this game has no overlays, so the recompiled MAIN text IS the
+        // codeScanLo/Hi left zero on purpose: the framework then falls back to [recMainLo,
+        // recMainHi),
+        // which is exactly right here — this game has no overlays, so the recompiled MAIN text IS
+        // the
         // entire resident code range.
-        /* codeScanLo */ 0, /* codeScanHi */ 0,
+        /* codeScanLo */ 0,
+        /* codeScanHi */ 0,
 
         // NOT YET REVERSE-ENGINEERED — zero means the framework installs no handler, and the guest
         // will spin in the real primitive if it reaches one. That is the honest signal, and it is
         // precisely what currently stops the boot (docs/issues/boot-stalls.md STALL-03).
-        /* decDctInSync    */ 0, /* decDctOutSync */ 0,   // libmdec       (re-frontier: RE-07)
-        /* cdReadSync      */ 0, /* cdDataSync    */ 0,   // libcd         (re-frontier: RE-03)
-        /* cdInitHandshake */ 0,                          // libcd         (re-frontier: RE-03)
-        /* gpuTimeoutArm   */ 0, /* gpuTimeoutCheck */ 0, // libgpu        (re-frontier: RE-04)
-        /* gpuTimeoutDeadlineVar */ 0, /* gpuTimeoutFlagVar */ 0,
-        /* changeThread    */ 0,                          // kernel yield  (re-frontier: RE-05)
+        /* decDctInSync    */ 0,
+        /* decDctOutSync */ 0, // libmdec       (re-frontier: RE-07)
+        /* cdReadSync      */ 0,
+        /* cdDataSync    */ 0,   // libcd         (re-frontier: RE-03)
+        /* cdInitHandshake */ 0, // libcd         (re-frontier: RE-03)
+        /* gpuTimeoutArm   */ 0,
+        /* gpuTimeoutCheck */ 0, // libgpu        (re-frontier: RE-04)
+        /* gpuTimeoutDeadlineVar */ 0,
+        /* gpuTimeoutFlagVar */ 0,
+        /* changeThread    */ 0, // kernel yield  (re-frontier: RE-05)
 
-        // --- libgte SetGeomOffset / SetGeomScreen: the camera projection ---------------------------
-        // The two leaves through which the game STATES its projection. Owning them natively makes the
-        // port RECORD (OFX, OFY, H) where the game sets them, instead of reading CR24/25/26 back out of
-        // the GTE at draw time — that read-back is the banned tap. Only the ADDRESSES are per-game; the
+        // --- libgte SetGeomOffset / SetGeomScreen: the camera projection
+        // ---------------------------
+        // The two leaves through which the game STATES its projection. Owning them natively makes
+        // the
+        // port RECORD (OFX, OFY, H) where the game sets them, instead of reading CR24/25/26 back
+        // out of
+        // the GTE at draw time — that read-back is the banned tap. Only the ADDRESSES are per-game;
+        // the
         // recording lives in psxport (proj_params.cpp libgte_set_geom_offset/_screen), which also
         // performs the ctc2 writes the real bodies would have done, so the GTE is unchanged.
         //
         // RE PROVENANCE. Located by the only thing that marks them — the instruction they execute —
         // not by a name, a string or a caller:
         //     python3 tools/ghidra_query.py scan ctc2
-        // walks every disassembled instruction and prints its denominator. Over 130,588 instructions in
-        // 1,564 defined functions it found 1,404 `ctc2` sites, of which exactly 10 target cop2 control
+        // walks every disassembled instruction and prints its denominator. Over 130,588
+        // instructions in
+        // 1,564 defined functions it found 1,404 `ctc2` sites, of which exactly 10 target cop2
+        // control
         // registers 24/25/26 (Ghidra renders the operand pre-shifted: CR24=0xc000, CR25=0xc800,
         // CR26=0xd000). Reproduce either leaf with
-        //     python3 external/psxport/tools/disasm.py scratch/bin/spiderman/ram.bin 0x8008BF14 0x8008BF3C
-        // (capstone stops AT the ctc2 — it does not decode cop2 control moves — so the ctc2 words are
-        // cited by encoding below; that limitation is why Ghidra, not disasm.py, is the authority here.)
+        //     python3 external/psxport/tools/disasm.py scratch/bin/spiderman/ram.bin 0x8008BF14
+        //     0x8008BF3C
+        // (capstone stops AT the ctc2 — it does not decode cop2 control moves — so the ctc2 words
+        // are
+        // cited by encoding below; that limitation is why Ghidra, not disasm.py, is the authority
+        // here.)
         //
-        //   0x8008BF14  SetGeomScreen(h)                     word 48C4D000 = ctc2 $a0,$26   ; H = a0
+        //   0x8008BF14  SetGeomScreen(h)                     word 48C4D000 = ctc2 $a0,$26   ; H =
+        //   a0
         //               0x8008BF18  jr $ra / 0x8008BF1C nop   -- a 3-instruction leaf, nothing else
         //   0x8008BF24  SetGeomOffset(ofx, ofy)
         //               0x8008BF24  00240400 = sll  $a0,$a0,0x10   ; ofx << 16 (CR24/25 are 16.16)
@@ -331,10 +397,14 @@ static const GameConfig g_spiderman_cfg = {
         // values before it draws.
         //
         // NO VALUES ARE BAKED IN HERE, AND THAT IS NOT LAZINESS — SPIDER-MAN HAS NONE TO BAKE.
-        // Tomba!2 states literal constants (OFX 160 / OFY 120 / H 350). Spider-Man does not: the sole
-        // call site of each leaf is inside FUN_80075D0C (jal at 0x80076180 and 0x80076190, one caller
-        // each — `tools/ghidra_query.py xrefs 0x8008BF14` / `0x8008BF24`), and it passes fields it has
-        // just COMPUTED from a viewport descriptor `param_2` (u16 array; the caller loads them back as
+        // Tomba!2 states literal constants (OFX 160 / OFY 120 / H 350). Spider-Man does not: the
+        // sole
+        // call site of each leaf is inside FUN_80075D0C (jal at 0x80076180 and 0x80076190, one
+        // caller
+        // each — `tools/ghidra_query.py xrefs 0x8008BF14` / `0x8008BF24`), and it passes fields it
+        // has
+        // just COMPUTED from a viewport descriptor `param_2` (u16 array; the caller loads them back
+        // as
         //     8007617C  lhu $a0,0xE($s4)          -> H     = vp[7]
         //     80076188  lhu $a0,0x10($s4)         -> OFX   = vp[8]
         //     8007618C  lhu $a1,0x12($s4)         -> OFY   = vp[9] ):
@@ -346,9 +416,11 @@ static const GameConfig g_spiderman_cfg = {
         // therefore not merely the tidy option here, it is the only correct one.
         //
         // ONE OTHER PATH WRITES CR24/25 AND IT IS ACCOUNTED FOR. FUN_8007C2AC (a hand-written GTE
-        // routine) zeroes OFX/OFY for its inner loop (0x8007C0B4/0x8007C0B8, ctc2 $zero) and RESTORES
+        // routine) zeroes OFX/OFY for its inner loop (0x8007C0B4/0x8007C0B8, ctc2 $zero) and
+        // RESTORES
         // them at 0x8007C268/0x8007C26C from `*(u32*)(*(void**)0x800B5918 + 0x10)`, split into two
-        // 16.16 halves. 0x800B5918 is gp+0x1124 (gp = 0x800B47F4, line 44 above), which FUN_80075D0C
+        // 16.16 halves. 0x800B5918 is gp+0x1124 (gp = 0x800B47F4, line 44 above), which
+        // FUN_80075D0C
         // writes with that same `param_2`; +0x10 is vp[8]/vp[9]. So the restore replays exactly the
         // pair SetGeomOffset was given — the recorded ProjParams cannot drift from the GTE, and no
         // handler is needed there. H is never written outside SetGeomScreen.
@@ -356,40 +428,49 @@ static const GameConfig g_spiderman_cfg = {
         // COVERAGE / NEGATIVE CONTROL. Ghidra had disassembled only 24.9% of the 2 MB image, so the
         // scan's own blind-spot line was checked by a raw word scan of ALL 524,288 words of
         // scratch/bin/spiderman/ram.bin for every `ctc2 rX,CR24/25/26` encoding and for
-        // `jal 0x8008BF14` / `jal 0x8008BF24` / `jal 0x8008BE5C`. It returned the SAME 10 ctc2 sites
+        // `jal 0x8008BF14` / `jal 0x8008BF24` / `jal 0x8008BE5C`. It returned the SAME 10 ctc2
+        // sites
         // and the same one caller each — 0 additional sites hidden by the undisassembled 75%.
         /* setGeomOffset */ 0x8008BF24u,
         /* setGeomScreen */ 0x8008BF14u,
 
-        // vsyncTrap stays ZERO, and that is a deliberate statement rather than a gap. The trap means
-        // "nothing may reach VSync because the native frame loop owns all timing" — untrue here. This
+        // vsyncTrap stays ZERO, and that is a deliberate statement rather than a gap. The trap
+        // means
+        // "nothing may reach VSync because the native frame loop owns all timing" — untrue here.
+        // This
         // port runs the guest's own loop on the substrate, so it REIMPLEMENTS VSync faithfully and
         // registers that handler itself (game/core/sync_native.cpp). Setting both would let
         // initBuiltins clobber the real implementation with an abort.
         //
-        // (Adding the two fields above also repairs a latent mislabel: this initialiser is POSITIONAL,
-        // and before today the entry commented `/* vsyncTrap */` sat in the setGeomOffset SLOT, with
-        // setGeomScreen and vsyncTrap left implicitly zero. Harmless only because all three were 0 —
+        // (Adding the two fields above also repairs a latent mislabel: this initialiser is
+        // POSITIONAL,
+        // and before today the entry commented `/* vsyncTrap */` sat in the setGeomOffset SLOT,
+        // with
+        // setGeomScreen and vsyncTrap left implicitly zero. Harmless only because all three were 0
+        // —
         // the day anyone set vsyncTrap it would have installed the VSync abort at the GTE setter.)
         /* vsyncTrap */ 0,
     },
 
     // --- present policy -------------------------------------------------------------------------
     // preserveVramBackdrop = 1, because THIS PORT STILL RUNS THE GUEST'S OWN DRAWING CODE, which is
-    // exactly the condition the field's own documentation names ("Set to 1 while the guest still owns
+    // exactly the condition the field's own documentation names ("Set to 1 while the guest still
+    // owns
     // drawing"): an upload into the display area IS visible on hardware, so upload-only screens —
     // loading screens, fades, static art that submits no primitives — must not be cleared away.
     //
     // HONESTY NOTE, because this was tried as a fix and is NOT one: it does not address the 30 Hz
     // full-scene/black flicker. That flicker came from presents being paced by the display field
-    // clock while this game builds one ordering table per TWO fields, so every other present rebuilt
+    // clock while this game builds one ordering table per TWO fields, so every other present
+    // rebuilt
     // the composite from an empty batch. Setting this flag only skips render_geom's CLEAR, while
     // upload_vram still overwrites the composite with guest VRAM — which for a natively-compositing
     // port is empty, so the frame came out black regardless. Measured: unchanged at 0.0/99.4/0.0/
     // 99.4/0.0/99.4% across six consecutive presents.
     //
     // The real fix is in the framework: a present carrying no new geometry now re-shows the last
-    // composite instead of rebuilding one (gpu_vk.cpp, geom_batch_empty), which is what hardware does
+    // composite instead of rebuilding one (gpu_vk.cpp, geom_batch_empty), which is what hardware
+    // does
     // — the display re-scans the same persistent framebuffer every field. After that, the same six
     // presents are 99.4% each.
     /* preserveVramBackdrop */ 1,
@@ -410,8 +491,10 @@ static const GameConfig g_spiderman_cfg = {
     // garbage and ran ~2.3x slower windowed than headless. That fallback is deleted (psxport
     // gpu_native.cpp).
     //
-    // DERIVATION — why 1, and why the 2 that stood here was wrong. paceQuota is NOT the game's frame
-    // rate. game_iface.h states its semantics explicitly: "by CALLING CADENCE, not the game's display
+    // DERIVATION — why 1, and why the 2 that stood here was wrong. paceQuota is NOT the game's
+    // frame
+    // rate. game_iface.h states its semantics explicitly: "by CALLING CADENCE, not the game's
+    // display
     // rate", and it is the number of vblanks that ONE gpu_pace_frame call represents. The framework
     // then sleeps exactly `quota/60 s` per call (gpu_native.cpp gpu_pace_subframe).
     //
@@ -422,10 +505,13 @@ static const GameConfig g_spiderman_cfg = {
     //
     // vblank_advance recomputes that counter from REAL elapsed time at the NTSC field rate, so the
     // loop is a real-time wait and one gpu_pace_frame call is its WAIT QUANTUM — the granularity at
-    // which the wait can notice it is done. The counter it tests is denominated in VBLANKS. A quantum
-    // therefore has to be ONE vblank, or every wait is rounded up to a multiple of the quantum. That
+    // which the wait can notice it is done. The counter it tests is denominated in VBLANKS. A
+    // quantum
+    // therefore has to be ONE vblank, or every wait is rounded up to a multiple of the quantum.
+    // That
     // is precisely the case game_iface.h names: "A port that still runs the guest's own frame loop
-    // and paces once per vblank (each vblank is 1/60s) sets 1." This port runs the guest's own loop.
+    // and paces once per vblank (each vblank is 1/60s) sets 1." This port runs the guest's own
+    // loop.
     //
     // The 2 was a guess at the game's display rate, and the guess also mis-modelled the game: the
     // guest does NOT ask for two fields at a time. MEASURED windowed with `PSXPORT_DEBUG=pace`
@@ -433,10 +519,12 @@ static const GameConfig g_spiderman_cfg = {
     // FUN_8005E748(n=1) — a request for ONE field — and the remaining 122 are one n=240 loading
     // delay. With quota=2, 578 of 599 consecutive entries advanced the guest counter by 2 while it
     // had asked for 1, at a median spacing of 33.30 ms (= 2/60 s). Every one-field wait was served
-    // with a two-field sleep, and the game issues ~2 of them per rendered frame, so the frame budget
+    // with a two-field sleep, and the game issues ~2 of them per rendered frame, so the frame
+    // budget
     // was 4 fields instead of 2 and the port ran at half speed.
     //
-    // GATE, WINDOWED (headless is never paced — gpu_pace_subframe early-returns without a window, so
+    // GATE, WINDOWED (headless is never paced — gpu_pace_subframe early-returns without a window,
+    // so
     // it cannot measure this at all), one build apart, same instrument, same 215 s steady window,
     // same PSXPORT_PAD_REPLAY (scratch/g1_pace/logs/{before_quota2_paced,after_quota1}.log):
     //   quota=2  presents 59.94/s  rebuild_geom 15.57/s  presents/geom 3.85  pace entries 30.00/s
@@ -454,9 +542,9 @@ static const GameConfig g_spiderman_cfg = {
     /* stackBias       */ {1, -8},
 };
 
-extern void spiderman_install_game_hooks();   // game/core/game_hooks.cpp
+extern void spiderman_install_game_hooks(); // game/core/game_hooks.cpp
 
 void spiderman_install_game_config() {
-  extern const GameHooks* spiderman_game_hooks();
+  extern const GameHooks *spiderman_game_hooks();
   psxport_install_game(&g_spiderman_cfg, spiderman_game_hooks());
 }

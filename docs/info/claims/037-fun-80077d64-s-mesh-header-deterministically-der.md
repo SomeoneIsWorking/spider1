@@ -5,6 +5,8 @@ status: holds
 created: 2026-08-20
 tags: re-21,render,mesh-layout
 depends: game/render/mesh_probe.cpp#deriveLayout
+reconfirmed: 2026-08-21 01:02:42
+verified_at: 2026-08-21 01:02:42
 ---
 
 ## Claim
@@ -18,3 +20,7 @@ Static Ghidra decompilation in scratch/logs/re21_decomp_7c4d8.txt shows +0x1C + 
 ## What would falsify it
 
 Any call to FUN_8007C4D8 nested under FUN_80077D64 reports layout=MISMATCH, or disassembly shows a path deriving those arguments by different arithmetic.
+
+## Re-confirmed 2026-08-21 01:02:42
+
+2026-08-21: rebuilt spiderman_port with Clang after the typed MeshCounts and null/empty face-stream guard; scratch/logs/gate-boot-20260821-010144.log reports SELFTEST PASS and live layout=MATCH tuples at frames 382 and 777 with no mismatch line.
