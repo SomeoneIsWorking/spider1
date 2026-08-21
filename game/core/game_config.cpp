@@ -163,8 +163,10 @@ static const GameConfig g_spiderman_cfg = {
     //                            I_MASK directly at 0x8008BCF0 (via *0x800B3914 = 0x1F801074)
     //   CD_getsector 0x8008D82C  fetches sector data by DMA3 (*0x800B3E14/18/1C =
     //                            0x1F8010B0/B4/B8 — verified in the load image)
-    // The framework's CDC register model, DMA3 channel and interrupt delivery serve all of that
-    // directly, so this port needs NO CD chokepoint and no game address in the framework.
+    // The framework's CDC register model, DMA3 channel and BIOS interrupt delivery now model the
+    // route needed to serve that directly, without a game address in the framework. This consumer
+    // has not yet removed the cdCommand override below, so the stock route is not claimed as
+    // end-to-end verified here.
     //
     // STATE OF PLAY, 2026-07-28. cdCommand = 0x8008CE8C (CD_cw) is set because it is the BEST KNOWN
     // state: with it, CdInit passes and the boot reaches the CD read path. Without it the boot
@@ -173,10 +175,11 @@ static const GameConfig g_spiderman_cfg = {
     // It is nonetheless the WRONG long-term answer and is tracked as such: an ACK moves no data, so
     // reads stall one stage later. The right design is to let the guest's own register-level libcd
     // run against the framework's CDC model (DMA3 + per-sector INT1 now exist for exactly that).
-    // That path is blocked on ONE measured thing: interrupt delivery declines with irq_enabled = 0,
-    // i.e. the guest is left inside a critical section it never exits. Implementing COP0 Status
-    // (psxport, same session) did not clear it, so the restore is happening by some route still not
-    // modelled. Find that, then set this back to 0. See docs/re-frontier.md RE-03.
+    // The former interrupt-delivery blocker was resolved upstream: psxport walks SysEnqIntRP, then
+    // restores the measured HookEntryInt continuation. For this binary that continuation is
+    // 0x8008B990, declared under main_reentry in game/recomp_seeds.json. Removing cdCommand still
+    // requires its own end-to-end stock-libcd proof; do not infer that proof from the delivery
+    // seam.
     /* cdInit         */ 0,
     /* cdCommand */ 0x8008CE8Cu,
     // cdSync: 0x80086C60, stock libcd's CdSync(mode, result) — a thin wrapper over 0x8008CBC4. The

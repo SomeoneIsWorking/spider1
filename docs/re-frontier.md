@@ -32,7 +32,7 @@ Statuses: ✅ re-verified · 🟡 re-partial (honest gap) · 🔬 in-progress ·
 ### RE-00 — Provision + statically recompile the executable
 - status: re-verified
 - deps: 
-- evidence: PS-X EXE header: entry 0x8008739C, load 0x80010000, text 0xB6800; 1561 fns from 335 seeds (game/recomp_seeds.json is empty by design)
+- evidence: PS-X EXE header: entry 0x8008739C, load 0x80010000, text 0xB6800; psxport 692b9b20 emits 1672 resident fragments from 738 discovery roots. `game/recomp_seeds.json` keeps `main` empty and contains one retail-measured `main_reentry`: CdInit's HookEntryInt continuation 0x8008B990
 - where: 
 - gap: 
 - notes: 

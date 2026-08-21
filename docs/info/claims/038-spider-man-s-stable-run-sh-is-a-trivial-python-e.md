@@ -5,8 +5,8 @@ status: holds
 created: 2026-08-21
 tags:
 depends: run.sh, tools/run.py#launch, tools/run.py#port_commands
-reconfirmed: 2026-08-21 02:58:33
-verified_at: 2026-08-21 02:58:33
+reconfirmed: 2026-08-21 11:40:39
+verified_at: 2026-08-21 11:40:39
 ---
 
 ## Claim
@@ -32,3 +32,7 @@ Falsified if run.sh regains nontrivial policy, the zero-special-mode launcher st
 ## Re-confirmed 2026-08-21 02:58:33
 
 2026-08-21 clean-framework verification after recording psxport 2b5ef7b5522f3b879b69315acd11a037ca7a78bb: CMake reports CMAKE_CXX_COMPILER_ID=Clang, spiderman_port built, CTest launcher_policy and cpp_policy passed, and tools/psxport_sync.py --check confirmed build metadata and pin both name 2b5ef7b5.
+
+## Re-confirmed 2026-08-21 11:40:39
+
+Final 2026-08-21 verification after recording psxport 692b9b20e3d4a6194452522060fd2657c2235f40: CMake reports that exact framework SHA with CMAKE_CXX_COMPILER_ID=Clang, spiderman_port built, all four CTests passed, explicit cpp_policy checked format 33/33 and clang-tidy 21/21, and tools/psxport_sync.py --check confirmed build metadata and pin both name 692b9b20.

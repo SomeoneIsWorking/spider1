@@ -6,11 +6,12 @@
 // functions reached exclusively through a function pointer (`jalr`), or entered mid-body at a resume
 // point. Every entry is a fact about THIS executable, which is why it lives in the game repo.
 //
-// It is EMPTY on purpose. The framework used to hardcode Tomba!2's seed list, and that list is
+// `main` is EMPTY on purpose. The framework used to hardcode Tomba!2's seed list, and that list is
 // actively wrong here: 27 of its 34 addresses land inside this game's text ([0x80010000,0x800C6800)),
 // where each would declare a bogus function entry at an arbitrary offset and silently split a real
-// function. Starting empty means every function in the substrate is one the binary itself vouches
-// for.
+// function. The one `main_reentry` below is different: the running game stores it in the exact
+// HookEntryInt jmp_buf field that the BIOS later restores, and narrow disassembly confirms it is the
+// instruction after the corresponding setjmp call inside CdInit.
 //
 // HOW TO ADD ONE — do not guess. A missing seed announces itself: the runtime fail-fasts with a
 // [recomp-MISS] naming the address it could not dispatch to. Add that address here, with a note on
@@ -41,7 +42,13 @@
 // it must equal LINK_BASE in tools/extract_modules.py.
 {
   "main": [],
-  "main_reentry": [],
+
+  // FUN_8008B928 CdInit calls setjmp at 0x8008B988 and saves its resume PC 0x8008B990 in the
+  // HookEntryInt buffer at 0x800B28BC. The framework restores that retail continuation after the
+  // SysEnq chain, so it must be emitted as a dispatchable mid-function entry. The live jmp_buf and
+  // instruction-exact 0x8008B970..0x8008B9A8 read are recorded in
+  // docs/issues/framework-agnosticism-warts.md.
+  "main_reentry": ["0x8008B990"],
 
   // Selected ordinary-instruction boundaries inside the sole retail STR player.
   "diagnostic_pcs": [

@@ -202,16 +202,18 @@ subtly wrong, the substrate would be built from bytes the game never actually ex
 
 ---
 
-## CLAIM-04 — The substrate is now seeded only from this game's own binary — **holds**
+## CLAIM-04 — The substrate's discovery roots are vouched for by this game's own binary — **holds**
 
 *Claimed:* the current recomp contains no foreign seed, so every recompiled function entry is one the
 executable itself vouches for.
 
-*Evidence:* psxport ≥ `9127e10e` ships no seeds and takes them via `--seeds`; this repo's
-`game/recomp_seeds.json` is deliberately EMPTY, so discovery runs purely from the entry point, the
-recompiler's pointer/table scans, and direct `jal` following. Result: **335 seeds → 1561 functions**,
-against 355 → 1580 under the contaminated run. The seed file is a hash input to
-`tools/ensure_recomp.py`, so a change to it forces a regenerate on every machine.
+*Evidence:* psxport ≥ `9127e10e` ships no game-specific seeds and takes them via `--seeds`.
+Discovery runs from the executable entry point, pointer/table scans, direct `jal` following, and one
+explicit retail-measured exception continuation: Spider-Man stores CdInit's post-`setjmp` PC
+`0x8008B990` in its `HookEntryInt` jmp buffer, so current psxport requires that interior address under
+`main_reentry`. Current result: **738 discovery roots → 1672 resident fragments**. `main` remains
+empty, and no ordinary function entry is guessed. The seed file is a hash input to
+`tools/ensure_recomp.py`, so a change to it forces regeneration on every machine.
 
 *Expires if:* a seed is ever added without a recorded rationale, or if the recompiler's own discovery
 changes — either makes "every entry is binary-vouched" no longer automatic.
@@ -301,4 +303,3 @@ means the recompiler was never handed any, which was a consequence of the same a
 `game/core/recomp_register.cpp` (asserted the table was empty "not a gap"), `GameConfig::overlaySlots`
 (same), and RE-00 in the frontier. All four now say the opposite, and all 30 modules are recompiled
 and routed. See RE-09.
-

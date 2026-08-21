@@ -5,8 +5,8 @@ status: holds
 created: 2026-08-21
 tags: render,re-21,texture,asset-lifetime
 depends: game/render/mesh_probe.cpp#logDecodedSourceFace, game/render/texture_asset_probe.cpp#parsePsxAsset, game/render/texture_asset_probe.cpp#spiderman_report_texture_asset_binding, game/render/asset_upload_ledger.cpp#latestCovering
-reconfirmed: 2026-08-21 10:44:27
-verified_at: 2026-08-21 10:44:27
+reconfirmed: 2026-08-21 11:40:38
+verified_at: 2026-08-21 11:40:38
 ---
 
 ## Claim
@@ -28,3 +28,7 @@ Fresh Clang build replay scratch/logs/re21-asset-owner-live-final.log resolved t
 ## Re-confirmed 2026-08-21 10:44:27
 
 Post-landing Clang build and four focused CTests passed; the retained real-disc trace re21-asset-owner-live-final.log still resolves the first face to Dem1_G+0xB4 and its texture/CLUT uploads to transient Dem1_L+0x2B30/+0x38, with the exact-versus-perturbed ledger test discriminating.
+
+## Re-confirmed 2026-08-21 11:40:38
+
+Final repin to psxport 692b9b20: Clang rebuild and all four CTests passed. Bounded PID-owned replay scratch/logs/re21-asset-owner-live-692b9b20.log passed the exact-versus-one-word-perturbed selftest, resolved Dem1_G+0xB4 live geometry and Dem1_L+0x2B30/+0x38 transient texture/CLUT owners, observed both unloads, and contained zero recomp-MISS or missing geometry-owner marker.

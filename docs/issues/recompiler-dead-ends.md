@@ -285,13 +285,15 @@ answer "is this `jal` target a real function?" and produced demotion sets of 1, 
 question is not reliably answerable by a peephole over the function set, and every wrong answer breaks
 a real library function or misses the target.
 
-**The recompiler already had the mechanism.** `main_reentry` seeds mid-function re-entry points and
-makes them router-dispatchable. So the shape of the fix is not "merge the subroutine into its host"
-but "let `jr $ra` be a computed jump, and seed the addresses it can compute":
+**The recompiler already intended to have the mechanism.** `main_reentry` marks mid-function
+re-entry points whose preceding fragment must fall through into them. So the shape of the attempted
+fix was not "merge the subroutine into its host" but "let `jr $ra` be a computed jump, and seed the
+addresses it can compute":
 
 1. `emit.py ra_computed_jumps` — per-`jr` reaching-definitions on `$ra`. **1 site out of 1722** in the
    whole substrate: `0x8002A460`. Everything else keeps `return;`.
-2. `game/recomp_seeds.json` — the seven resume points, in **both** `main` and `main_reentry`.
+2. `game/recomp_seeds.json` — the seven resume points. At the time they had to appear in **both**
+   `main` and `main_reentry` because of the emitter defect below.
 
 *Two false-positive classes, both found by auditing the sites the analysis reported rather than by a
 build, and both worth knowing:*
@@ -300,10 +302,15 @@ build, and both worth knowing:*
   … `lw $ra, 0x392C($ra)` (6 → 1). **"Not the stack" is not the same as "not a return address."**
   The discriminator is whether that function ever stored `$ra` to that offset.
 
-*A trap that cost real time:* **`main_reentry` is a MODIFIER, not a seed source.** `emit.py` builds its
-seed set from `main` alone; `main_reentry` only makes the preceding fragment fall through instead of
-returning. An address listed only under `main_reentry` is silently not a function. The tell was the
-regeneration reporting 1672 functions — *exactly* the pre-change count. Listing them in both gives 1679.
+*Historical emitter defect, resolved 2026-08-21 in psxport `6bfc8d2e` and carried by `692b9b20`:*
+`main_reentry` used to be only a modifier. `emit.py` built its discovery roots from `main` alone, so
+an address listed only under `main_reentry` was silently absent; the unchanged 1672-function count
+was the tell, and duplicating the seven addresses in both arrays produced 1679. **That duplication is
+obsolete advice.** Current `emit.py` unions `main_reentry` directly into the discovery roots and also
+passes it as the fallthrough marker. A `main_reentry`-only address therefore emits a wrapper, body,
+and dispatch case. The hermetic positive/negative test
+`test_main_reentry_emits_a_wrapper_body_and_dispatch_case` pins both answers: the listed interior PC
+is dispatchable, while the same PC absent from `main_reentry` is not emitted.
 
 **Result: the port gets FURTHER than any previous attempt.** Clean build, and the
 `PSXPORT_FORCE_BUTTONS=0040` run RENDERS A FRAME (`scratch/screenshots/shot_2301.ppm`), where attempts

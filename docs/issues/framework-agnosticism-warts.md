@@ -123,9 +123,18 @@ refusals and the nine unconfigured CD entries were the same nine.
 
 ---
 
-## WART-05 — There is no interrupt delivery at all — **OPEN, blocks RE-03**
+## WART-05 — There was no BIOS interrupt delivery — **RESOLVED upstream at psxport `6bfc8d2e`, verified here at `692b9b20`**
 
-*What it is:* the framework accepts every interrupt-registration call a guest can make and discards
+**Current result (2026-08-21):** psxport now walks the measured `SysEnqIntRP` chain, restores the
+optional `HookEntryInt` jmp-buffer continuation, and treats `B0:17 ReturnFromException` as a
+non-returning unwind back to the interrupted R3000 context. Spider-Man's saved continuation is the
+instruction-exact post-`setjmp` PC `0x8008B990` inside CdInit. On the first 9f1 consumer run it was
+absent from the generated dispatch graph and fail-fast reported `[recomp-MISS] 0x8008B990`; declaring
+that one measured address as `main_reentry` emitted its wrapper, body, and dispatch case. A bounded
+rerun reached the Dem1 asset-owner proof with zero recomp misses; the final `692b9b20` replay did the
+same. The analysis below is the derivation history of the defect, not current framework guidance.
+
+*What it was:* the framework accepted every interrupt-registration call a guest could make and discarded
 all of them. `B(19h) HookEntryInt` assigns `hle.int_handler` (`runtime/recomp/hle.cpp:176`) and no
 other line in the runtime reads that field — the declaration and the assignment are its only two
 mentions. `C(02h)/C(03h) SysEnqIntRP/DeqIntRP` return `$a1` and record nothing. So guest code that
@@ -182,8 +191,10 @@ exactly this boot. Code that cannot be seen firing is code that has not been ver
 guest's own `I_MASK` reads **`0x00D`** — bits 0 (VBlank), 2 (CDROM) and 3 (DMA) all enabled. So the
 game does want the CD interrupt; the only thing still missing is the dispatch into guest code.
 
-*Still missing, and it is the whole remaining wart:* nothing calls the registered handlers. The chain
-from `SysEnqIntRP` is still discarded and `hle.int_handler` is still never read.
+*What remained missing at that milestone:* nothing called the registered handlers. The chain from
+`SysEnqIntRP` was discarded and `hle.int_handler` was never read. That historical gap is the one
+resolved by psxport `6bfc8d2e`; the opening resolution records the current contract and Spider-Man's
+consumer evidence.
 
 ### `B(19h)` is `SetCustomExitFromException`, and for this binary it is ERROR RECOVERY — measured
 
@@ -252,7 +263,7 @@ can `jalr` through it) and `desc[+0x14]` gets the return of `0x8008C290`. `_96_r
 discarded. **MIPS delay slots execute before the call they follow; a store in one belongs to the
 previous instruction's result.**
 
-**So the frontier reverts to interrupt delivery**, which this detour did not change. The table
+**At that point the frontier reverted to interrupt delivery**, which this detour did not change. The table
 carrying `I_STAT`/`I_MASK`/`DPCR` pointers at `+0x24`/`+0x28`/`+0x2C` is direct evidence of what its
 ISR glue polls, and libcd's every-command `-1` alongside its own `intr timeout(...)` diagnostic is
 exactly what a CD interrupt that never fires produces.
