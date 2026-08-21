@@ -18,6 +18,7 @@
 #include "mesh_face_format.h"
 #include "mesh_transform.h"
 #include "override_registry.h"
+#include "texture_asset_probe.h"
 
 #include <lucent/log.h>
 
@@ -225,6 +226,9 @@ void logDecodedSourceFace(
                 texture.texturePageY,
                 texture.bitsPerPixel,
                 texture.blendMode);
+  if (textureValid) {
+    spiderman_report_texture_asset_binding(c, g_active.mesh, texture);
+  }
 }
 
 void renderDisplayObject(Core *c) {

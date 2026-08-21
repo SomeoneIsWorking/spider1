@@ -79,6 +79,11 @@ if(BUILD_TESTING)
     game/render/mesh_transform.cpp)
   target_include_directories(mesh_transform_contract_test PRIVATE game/render)
   add_test(NAME mesh_transform_contract COMMAND mesh_transform_contract_test)
+  add_executable(asset_upload_ledger_test
+    tests/asset_upload_ledger_test.cpp
+    game/render/asset_upload_ledger.cpp)
+  target_include_directories(asset_upload_ledger_test PRIVATE game/render)
+  add_test(NAME asset_upload_ledger COMMAND asset_upload_ledger_test)
   add_test(
     NAME launcher_policy
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/run.py --selftest

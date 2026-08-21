@@ -27,6 +27,7 @@
 #include "override_registry.h"
 #include "proj_params.h" // the geomwatch probe reads the recorded projection off c->rsub
 #include "str_skip_oracle.h"
+#include "texture_asset_probe.h"
 #include <lucent/log.h>
 
 // The recompiled bodies this file wraps. Declared with the signature the recompiler emits.
@@ -580,6 +581,7 @@ static void diag_geom_setup(Core *c) {
 
 void spiderman_install_diag_overrides(Game *g) {
   spiderman_install_str_skip_oracle(g);
+  spiderman_install_texture_asset_probe(g);
   spiderman_install_mesh_probe(g);
   // Interned channel: the guard is around the INSTALL (real work), not around a log call.
   static const lucent::Channel geomwatch{"geomwatch"};

@@ -33,6 +33,8 @@ set(GAME_SRC
   game/render/frame_census.cpp    # RE-21 display-list inventory instrument (diagnostic only)
   game/render/mesh_face_format.cpp  # RE-21 executable-derived source face semantics
   game/render/mesh_transform.cpp  # RE-21 object-local-to-camera source transform contract
+  game/render/asset_upload_ledger.cpp  # RE-21 authored texture/CLUT ownership ledger
+  game/render/texture_asset_probe.cpp  # RE-21 retail asset/upload/lifetime instrument
   game/render/mesh_probe.cpp      # RE-21 mesh/object submission-boundary instrument
   game/render/gpu_env.cpp         # DRAWENV/DISPENV lenses + the ported libgpu word builders
   game/render/frame_envelope.cpp  # THE FIRST NATIVE PRODUCER: page flip + draw area + clear
