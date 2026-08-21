@@ -5,8 +5,8 @@ status: holds
 created: 2026-08-21
 tags:
 depends: run.sh, tools/run.py#launch, tools/run.py#port_commands
-reconfirmed: 2026-08-21 11:40:39
-verified_at: 2026-08-21 11:40:39
+reconfirmed: 2026-08-21 14:15:27
+verified_at: 2026-08-21 14:15:27
 ---
 
 ## Claim
@@ -36,3 +36,7 @@ Falsified if run.sh regains nontrivial policy, the zero-special-mode launcher st
 ## Re-confirmed 2026-08-21 11:40:39
 
 Final 2026-08-21 verification after recording psxport 692b9b20e3d4a6194452522060fd2657c2235f40: CMake reports that exact framework SHA with CMAKE_CXX_COMPILER_ID=Clang, spiderman_port built, all four CTests passed, explicit cpp_policy checked format 33/33 and clang-tidy 21/21, and tools/psxport_sync.py --check confirmed build metadata and pin both name 692b9b20.
+
+## Re-confirmed 2026-08-21 14:15:27
+
+Final 2026-08-21 verification at psxport 3418a79b624765614f3f198dc1e89632e1e650f0: a fresh CMake configure selected Clang 22.1.8, spiderman_port built, all six CTests passed, cpp_policy checked format 39/39 and clang-tidy 25/25, and psxport_sync --check matched build metadata to the pin. The real zero-argument ./run.sh route rebuilt the required target, selected PSXPORT_RENDER_PATH=gte from its Default layer, and reached dem1 then l1a1 before the separately catalogued FPS60 queue-overflow boundary.

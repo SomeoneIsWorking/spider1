@@ -5,6 +5,8 @@ status: holds
 created: 2026-08-21
 tags: recomp,bios,interrupt
 depends: game/recomp_seeds.json
+reconfirmed: 2026-08-21 14:15:27
+verified_at: 2026-08-21 14:15:27
 ---
 
 ## Claim
@@ -18,3 +20,7 @@ The retail CdInit instruction stream calls setjmp at 0x8008B988 and resumes at 0
 ## What would falsify it
 
 The exact retail disassembly or live jmp_buf names a different continuation, removing the root still lets a clean regenerated 9f1+ substrate execute the modeled custom exit without a dispatch miss, or the seeded continuation falls through instead of returning through B0:17
+
+## Re-confirmed 2026-08-21 14:15:27
+
+Final psxport 3418a79b verification: ensure_recomp extracted all 30 retail modules and accepted the current 738-root/1672-fragment corpus; the fresh Clang 22.1.8 build passed all six CTests. Bounded retail Native log scratch/logs/re21-guest-fallback-3418a79b.log crossed the modeled interrupt/CD path into dem1 and l1a1 with zero recomp-MISS, retaining the seeded 0x8008B990 continuation evidence.

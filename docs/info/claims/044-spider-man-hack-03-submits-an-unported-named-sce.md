@@ -5,8 +5,8 @@ status: holds
 created: 2026-08-21
 tags: render,re-21,hack-03
 depends: game/render/guest_frame_fallback.cpp#decideGuestFrameFallback, game/render/render_seam.cpp#RenderSeam::submitFrame, game/render/render_seam.cpp#RenderSeam::seamPass
-reconfirmed: 2026-08-21 12:52:52
-verified_at: 2026-08-21 12:52:52
+reconfirmed: 2026-08-21 14:15:27
+verified_at: 2026-08-21 14:15:27
 ---
 
 ## Claim
@@ -36,3 +36,7 @@ Final post-ownership-gate captured-PID retail replay scratch/logs/re21-guest-fal
 ## Re-confirmed 2026-08-21 12:52:52
 
 Post-landing guest_frame_fallback test passed; live Native-path evidence retained nativeSubmitted=0, nativeEnvelopeDelta=0, interpolation=0, while disabled and FPS60 controls refused with the named opposite answers.
+
+## Re-confirmed 2026-08-21 14:15:27
+
+Final psxport 3418a79b Clang rebuild passed guest_frame_fallback and all five other CTests. Bounded retail Native log scratch/logs/re21-guest-fallback-3418a79b.log submitted six dem1 and two l1a1 guest frames; every SELECTED/SUBMITTED record says nativeSubmitted=0, nativeEnvelopeDelta=0, and interpolation=0. The run crossed the repaired FIFO 70 + controller-zero 434 DMA boundary and only later reached the separately catalogued FPS60 queue overflow; DISABLED, INTERPOLATION_FORBIDDEN, and NATIVE_OVERLAP_FORBIDDEN remain the opposite-answer gates.
