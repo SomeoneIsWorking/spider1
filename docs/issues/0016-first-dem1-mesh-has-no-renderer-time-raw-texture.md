@@ -41,3 +41,6 @@ is the asset load/parse boundary, while the retained `Dem1_G` mesh remains a ren
 
 ### Resolution (2026-08-21)
 The retail FUN_80069A60 -> FUN_80068BB0 loader owns both sampled uploads: Dem1_L.psx uploads the 2x8 texture from raw offset 0x2B30 and the 16x1 CLUT from 0x38, then the parser trims its allocation from 12,288 to 48 bytes before the first face and henchman.psx reuses that released range. Therefore both raw source ranges are intentionally transient; capture texture ownership at load time. The live mesh itself is retained at Dem1_G.psx+0xB4 until the level unload.
+
+### Note (2026-08-21)
+The next load-time dependency is now resolved without reviving the dead raw-source approach: FUN_80074C98 embeds the final UV/CLUT/TPAGE values into the retained Dem1_G face, and the render-time source boundary matches the copied cooked record byte-for-byte. Raw Dem1_L pointers remain forbidden; future producer work consumes the retained cooked face and separately proven authored upload ownership.

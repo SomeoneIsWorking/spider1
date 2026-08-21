@@ -84,6 +84,18 @@ if(BUILD_TESTING)
     game/render/asset_upload_ledger.cpp)
   target_include_directories(asset_upload_ledger_test PRIVATE game/render)
   add_test(NAME asset_upload_ledger COMMAND asset_upload_ledger_test)
+  add_executable(mesh_asset_cook_test
+    tests/mesh_asset_cook_test.cpp
+    game/render/mesh_asset_cook.cpp)
+  target_include_directories(mesh_asset_cook_test PRIVATE game/render)
+  add_test(NAME mesh_asset_cook COMMAND mesh_asset_cook_test)
+  add_executable(guest_frame_fallback_test
+    tests/guest_frame_fallback_test.cpp
+    game/render/guest_frame_fallback.cpp)
+  target_include_directories(guest_frame_fallback_test PRIVATE
+    game/render
+    ${PSXPORT_DIR}/runtime/recomp)
+  add_test(NAME guest_frame_fallback COMMAND guest_frame_fallback_test)
   add_test(
     NAME launcher_policy
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/run.py --selftest

@@ -37,12 +37,16 @@ between two identical black pages. GP1(08) is not a discriminator either: the bo
 the display mode directly, so both legs log the same '[gpu] display depth -> 15-bit (GP1(08)=
 08000002, 512x240)'.
 
-## Why the native leg cannot be driven somewhere better
+## Why the new guest-frame debt still does not create a pixel gate
 
-The seam aborts at the first scene with no display-list producer, which is 'dem1' at submitFrame
-call #2. That abort is the designed behaviour and must NOT be softened — a leg that renders past a
-scene it cannot draw is exactly the plausible-looking fallback external/psxport/docs/workspace/PROTOCOL.md forbids. So the
-producer's window is genuinely two frames, both black, until a 'dem1' producer exists.
+The user explicitly authorized actual guest-time GTE/OT output as a non-interpolated fallback for
+graphics whose native producer remains unported. HACK-03 can therefore drive Native past `dem1` and
+into `l1a1`, but it submits the WHOLE guest frame and mechanically skips every native producer for
+that frame. Layering it over the frame envelope would double-draw shared frame state and would make
+the pixel result unattributable, so the fallback refuses native overlap instead. Consequently it
+does not extend the envelope producer's observable window: the only frames that exercise the native
+envelope remain the two black boot-init frames. Forcing HACK-03 off restores the former call-#2
+`dem1` abort, now named `DISABLED`.
 
 ## What was used instead, and its limits
 
@@ -64,3 +68,12 @@ reaches the screen.
 
 ### Note (2026-08-21)
 2026-08-21 RE-21 advanced its next dependency without adding a producer: retail disassembly and the source-boundary validator establish the zero-rotation/unscaled object-local-to-camera contract (C040/I034). The live log scratch/logs/gate-boot-20260821-032403.log matched (objectPosition20p12 sra 12)-cameraPosition at both direct FUN_80077D64 callsites under distinct matrices. It also corrected a prior probe attribution: 0x8018BB90/flags 0x9000 was the outer list head, while actual first owner 0x8018BBB4 has flags 0x0000. This issue remains open because no display-list producer or meaningful pixel A/B exists.
+
+### Note (2026-08-21)
+RE-21 advanced through the exact retained face-cook/lifetime dependency without adding a producer. FUN_80068BB0 -> FUN_80074C98 cooks the raw Dem1_G first face in place; the copied post-cook 28-byte record later matched FUN_8007C4D8 byte-for-byte in scratch/logs/re21-mesh-cook-live-final.log, with one-word MISMATCH, MISSING, and UNLOADED opposite answers. The issue remains open: face flag 0x1000 enters the unresolved projection/cull/lighting/colour path, so a meaningful dem1 producer and pixel A/B are still unavailable.
+
+### Note (2026-08-21)
+HACK-03 adds only a mutually-exclusive whole guest-frame path. A bounded Native run reached `dem1`
+and `l1a1` with `nativeSubmitted=0 interpolation=0`; the disabled and FPS60 controls refused at the
+same `dem1` boundary as `DISABLED` and `INTERPOLATION_FORBIDDEN`. This does not close the issue: the
+fallback deliberately skips the envelope, so it cannot supply an attributable dem1 envelope A/B.

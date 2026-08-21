@@ -4,7 +4,9 @@ kind: claim
 status: holds
 created: 2026-08-21
 tags: re-21,render,mesh-transform
-depends: game/render/mesh_transform.cpp, game/render/mesh_probe.cpp
+depends: game/render/mesh_transform.cpp#inspectMeshDirectTransform, game/render/mesh_probe.cpp#submitMesh
+reconfirmed: 2026-08-21 12:11:35
+verified_at: 2026-08-21 12:11:35
 ---
 
 ## Claim
@@ -18,3 +20,7 @@ Retail instructions 0x800767B0..0x800767E4 load `camera+0x74` into the GTE rotat
 ## What would falsify it
 
 Any instruction-exact decode changes these field/guard meanings, or any live FUN_80077D64 call from either direct return address has valid owner/camera/relative sources but passedRelative differs from (objectPosition20p12 sra 12)-cameraPosition or uses a matrix other than camera+0x74.
+
+## Re-confirmed 2026-08-21 12:11:35
+
+The only mesh_probe change adds a retained-cook identity report after the existing decoded-face path and does not change transform capture or validation. Final Clang replay scratch/logs/re21-mesh-cook-live-final.log repeated the direct-transform selftest PASS and logged the first contextual face transform=MATCH before the retained-source MATCH.

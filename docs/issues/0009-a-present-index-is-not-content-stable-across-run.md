@@ -5,7 +5,7 @@ status: open
 symptom: present 4500 showed a corrupted city skyline in one run and a pause screen in another, on builds minutes apart; 'the same frame' is not the same frame
 tags: method,instrument,measurement,trap
 created: 2026-08-06
-updated: 2026-08-06
+updated: 2026-08-21
 ---
 
 FOUND 2026-08-06 while re-checking the city-skyline corruption noted in issue 0007. I captured
@@ -114,3 +114,13 @@ whatever it is, it is stable and not flickering.
 The pad replay that reaches this state is replays/bugs/pause-corruption.pad; the resting state after
 the replay ends (present ~2600 onward) is the pause screen and is completely static, which makes it a
 good anchor for anyone re-examining it: 150 consecutive presents were byte-identical.
+
+### Note (2026-08-21)
+
+The trap reproduced while trying to picture-gate HACK-03. A Native run with
+`PSXPORT_NOPACE=1`, forced Cross, and `PSXPORT_PRESENT_SHOT_AT=450` captured a wholly black frame
+before `dem1`; after 39 seconds the log still contained only the boot-init scene even though a
+same-build bounded run without the shot request reached `dem1` and `l1a1` in seven seconds. The
+capture API reported exactly what it sampled and is not distrusted, but present 450 was not a
+content anchor. The black PPM was deleted and no native-vs-Gte picture claim was made. A valid
+fallback picture comparison needs a scene/content-triggered capture, not another selected index.

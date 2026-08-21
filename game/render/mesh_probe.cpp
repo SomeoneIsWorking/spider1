@@ -46,11 +46,6 @@ constexpr uint32_t kCameraRotation = 0x74u;
 //   +0x1C source vertices, 8 bytes each
 //   then secondary records, 8 bytes each
 //   then the variable-length face stream handed to FUN_8007C4D8
-constexpr uint32_t kMeshVertexCount = 0x02u;
-constexpr uint32_t kMeshSecondaryCount = 0x04u;
-constexpr uint32_t kMeshFaceCount = 0x06u;
-constexpr uint32_t kMeshVertices = 0x1Cu;
-constexpr uint32_t kRecordBytes = 8u;
 
 struct ActiveSubmission {
   uint32_t listHead = 0;
@@ -68,19 +63,6 @@ struct SeenContext {
   uint32_t mesh = 0;
 };
 
-struct MeshLayout {
-  uint32_t vertices = 0;
-  uint32_t secondary = 0;
-  uint32_t faces = 0;
-  uint16_t faceCount = 0;
-};
-
-struct MeshCounts {
-  uint16_t vertices = 0;
-  uint16_t secondary = 0;
-  uint16_t faces = 0;
-};
-
 ActiveSubmission g_active;
 uint64_t g_objectCalls = 0;
 uint64_t g_meshCalls = 0;
@@ -93,19 +75,6 @@ SeenContext g_seen[64];
 uint32_t g_seenCount = 0;
 uint32_t g_orphanLines = 0;
 uint32_t g_transformMismatchLines = 0;
-
-MeshLayout deriveLayout(uint32_t mesh, const MeshCounts &counts) {
-  MeshLayout layout;
-  layout.vertices = mesh + kMeshVertices;
-  layout.secondary = layout.vertices + static_cast<uint32_t>(counts.vertices) * kRecordBytes;
-  layout.faces = layout.secondary + static_cast<uint32_t>(counts.secondary) * kRecordBytes;
-  layout.faceCount = counts.faces;
-  return layout;
-}
-
-bool argsMatch(const MeshLayout &layout, uint32_t secondary, uint32_t faces, uint32_t faceCount) {
-  return secondary == layout.secondary && faces == layout.faces && faceCount == layout.faceCount;
-}
 
 bool firstContext(uint32_t owner, uint32_t mesh) {
   for (uint32_t i = 0; i < g_seenCount; ++i) {
@@ -163,7 +132,7 @@ void logDecodedSourceFace(
     const uint32_t index = header.vertexIndices[i];
     indicesInRange = indicesInRange && index < vertexCount;
     if (vertices != 0u && index < vertexCount) {
-      const uint32_t source = vertices + index * kRecordBytes;
+      const uint32_t source = vertices + index * kSpiderMeshRecordBytes;
       sourceVertices[i] = decodeMeshSourceVertex(c->mem_r32(source), c->mem_r32(source + 4u));
     }
   }
@@ -227,6 +196,7 @@ void logDecodedSourceFace(
                 texture.bitsPerPixel,
                 texture.blendMode);
   if (textureValid) {
+    spiderman_report_mesh_asset_cook(faces, words.data(), header.recordBytes / sizeof(uint32_t));
     spiderman_report_texture_asset_binding(c, g_active.mesh, texture);
   }
 }
@@ -388,15 +358,15 @@ void buildFaces(Core *c) {
   uint16_t headerFaceCount = 0;
   if (g_active.mesh != 0u) {
     ++g_contextualFaceCalls;
-    vertexCount = c->mem_r16(g_active.mesh + kMeshVertexCount);
-    secondaryCount = c->mem_r16(g_active.mesh + kMeshSecondaryCount);
-    headerFaceCount = c->mem_r16(g_active.mesh + kMeshFaceCount);
+    vertexCount = c->mem_r16(g_active.mesh + kSpiderMeshVertexCountOffset);
+    secondaryCount = c->mem_r16(g_active.mesh + kSpiderMeshSecondaryCountOffset);
+    headerFaceCount = c->mem_r16(g_active.mesh + kSpiderMeshFaceCountOffset);
     const MeshLayout layout =
-        deriveLayout(g_active.mesh, {vertexCount, secondaryCount, headerFaceCount});
+        deriveMeshLayout(g_active.mesh, {vertexCount, secondaryCount, headerFaceCount});
     vertices = layout.vertices;
     expectedSecondary = layout.secondary;
     expectedFaces = layout.faces;
-    layoutMatches = argsMatch(layout, secondary, faces, faceCount);
+    layoutMatches = meshLayoutArgsMatch(layout, secondary, faces, faceCount);
     if (!layoutMatches) {
       ++g_layoutMismatches;
     }
@@ -448,9 +418,9 @@ void spiderman_install_mesh_probe(Game *) {
   if (!channel) {
     return;
   }
-  const MeshLayout control = deriveLayout(0x80100000u, {4u, 1u, 1u});
-  const bool acceptsBaseline = argsMatch(control, 0x8010003Cu, 0x80100044u, 1u);
-  const bool rejectsPerturbation = !argsMatch(control, 0x8010003Cu, 0x80100048u, 1u);
+  const MeshLayout control = deriveMeshLayout(0x80100000u, {4u, 1u, 1u});
+  const bool acceptsBaseline = meshLayoutArgsMatch(control, 0x8010003Cu, 0x80100044u, 1u);
+  const bool rejectsPerturbation = !meshLayoutArgsMatch(control, 0x8010003Cu, 0x80100048u, 1u);
   const bool guardsEmptyFaces =
       faceWord(nullptr, 0u, 1u, 0u) == 0u && faceWord(nullptr, 0x80100044u, 0u, 0u) == 0u;
   const bool decodesFaceFormat = meshFaceFormatSelftest();

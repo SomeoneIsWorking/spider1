@@ -66,6 +66,24 @@ MeshSourceVertex decodeMeshSourceVertex(uint32_t xy, uint32_t zFlags) {
           static_cast<uint16_t>(zFlags >> 16u)};
 }
 
+MeshLayout deriveMeshLayout(uint32_t mesh, const MeshLayoutCounts &counts) {
+  MeshLayout layout;
+  layout.vertices = mesh + kSpiderMeshHeaderBytes;
+  layout.secondary =
+      layout.vertices + static_cast<uint32_t>(counts.vertices) * kSpiderMeshRecordBytes;
+  layout.faces =
+      layout.secondary + static_cast<uint32_t>(counts.secondary) * kSpiderMeshRecordBytes;
+  layout.faceCount = counts.faces;
+  return layout;
+}
+
+bool meshLayoutArgsMatch(const MeshLayout &layout,
+                         uint32_t secondary,
+                         uint32_t faces,
+                         uint32_t faceCount) {
+  return secondary == layout.secondary && faces == layout.faces && faceCount == layout.faceCount;
+}
+
 bool meshFaceFormatSelftest() {
   const MeshFaceHeader known = decodeMeshFaceHeader(0x001C1083u, 0x02030001u, 0xFFFF0000u);
   const MeshFaceHeader controlled = decodeMeshFaceHeader(0x001C1083u, 0x02030001u, 0xFFFC0001u);
@@ -74,6 +92,7 @@ bool meshFaceFormatSelftest() {
   const MeshFt4TextureBinding plainTexture =
       decodeMeshFt4TextureBinding(0u, 0x00E2FD3Bu, 0x0008FD34u, 0xF634F63Bu);
   const MeshSourceVertex vertex = decodeMeshSourceVertex(0xFFFE0001u, 0x90000003u);
+  const MeshLayout layout = deriveMeshLayout(0x80100000u, {4u, 1u, 1u});
   return known.effective == 0x001C1083u && known.recordBytes == 0x1Cu && known.flags == 0x1083u &&
          known.quad && known.directTexture &&
          known.vertexIndices == std::array<uint8_t, 4>{1u, 0u, 3u, 2u} &&
@@ -83,5 +102,6 @@ bool meshFaceFormatSelftest() {
          texture.texturePageX == 512u && texture.texturePageY == 0u && texture.blendMode == 1u &&
          texture.bitsPerPixel == 4u && plainTexture.tpage == 0x0008u &&
          plainTexture.blendMode == 0u && vertex.x == 1 && vertex.y == -2 && vertex.z == 3 &&
-         vertex.flags == 0x9000u;
+         vertex.flags == 0x9000u && meshLayoutArgsMatch(layout, 0x8010003Cu, 0x80100044u, 1u) &&
+         !meshLayoutArgsMatch(layout, 0x8010003Cu, 0x80100048u, 1u);
 }

@@ -4,6 +4,7 @@
 #include "asset_upload_ledger.h"
 #include "core.h"
 #include "game.h"
+#include "mesh_asset_cook.h"
 #include "mesh_face_format.h"
 #include "override_registry.h"
 
@@ -40,9 +41,133 @@ struct ActiveAsset {
 };
 
 AssetUploadLedger g_ledger;
+MeshAssetCookLedger g_cookLedger;
 std::array<ActiveAsset, kMaxLoaderDepth> g_loaderStack{};
 uint32_t g_loaderDepth = 0;
 bool g_installed = false;
+
+struct CookCaptureSummary {
+  uint32_t meshCount = 0;
+  uint32_t faceCount = 0;
+  uint32_t refusedCount = 0;
+};
+
+bool rangeInside(uint32_t base, uint32_t bytes, uint32_t address, uint32_t length) {
+  const uint64_t end = static_cast<uint64_t>(base) + bytes;
+  return bytes != 0u && address >= base && static_cast<uint64_t>(address) + length <= end;
+}
+
+bool readFaceWords(Core *core,
+                   uint32_t base,
+                   uint32_t bytes,
+                   uint32_t face,
+                   std::array<uint32_t, MeshAssetCookLedger::kMaxFaceWords> &words,
+                   std::size_t &wordCount) {
+  if (!rangeInside(base, bytes, face, sizeof(uint32_t))) {
+    return false;
+  }
+  const uint32_t header = core->mem_r32(face);
+  const uint32_t recordBytes = (header >> 18u) * sizeof(uint32_t);
+  if (recordBytes == 0u || recordBytes % sizeof(uint32_t) != 0u ||
+      recordBytes > words.size() * sizeof(uint32_t) ||
+      !rangeInside(base, bytes, face, recordBytes)) {
+    return false;
+  }
+  wordCount = recordBytes / sizeof(uint32_t);
+  for (std::size_t word = 0; word < wordCount; ++word) {
+    words[word] = core->mem_r32(face + static_cast<uint32_t>(word * sizeof(uint32_t)));
+  }
+  return true;
+}
+
+CookCaptureSummary
+captureFirstFaces(Core *core, uint32_t slot, uint32_t base, uint32_t bytes, bool relocated) {
+  CookCaptureSummary summary;
+  if (!rangeInside(base, bytes, base + 8u, sizeof(uint32_t))) {
+    g_cookLedger.refuseCapture();
+    summary.refusedCount = 1u;
+    return summary;
+  }
+  const uint32_t sectionCount = core->mem_r32(base + 8u);
+  const uint64_t table64 =
+      static_cast<uint64_t>(base) + static_cast<uint64_t>(sectionCount) * 0x24u + 0x10u;
+  if (table64 > UINT32_MAX) {
+    g_cookLedger.refuseCapture();
+    summary.refusedCount = 1u;
+    return summary;
+  }
+  const uint32_t table = static_cast<uint32_t>(table64);
+  if (table < base + sizeof(uint32_t) ||
+      !rangeInside(base, bytes, table - sizeof(uint32_t), sizeof(uint32_t))) {
+    g_cookLedger.refuseCapture();
+    summary.refusedCount = 1u;
+    return summary;
+  }
+  summary.meshCount = core->mem_r32(table - sizeof(uint32_t));
+  if (summary.meshCount > MeshAssetCookLedger::kMaxFaces ||
+      !rangeInside(base, bytes, table, summary.meshCount * sizeof(uint32_t))) {
+    g_cookLedger.refuseCapture();
+    summary.refusedCount = 1u;
+    return summary;
+  }
+
+  for (uint32_t meshIndex = 0; meshIndex < summary.meshCount; ++meshIndex) {
+    const uint32_t entry = core->mem_r32(table + meshIndex * sizeof(uint32_t));
+    const uint64_t mesh64 = relocated ? entry : static_cast<uint64_t>(base) + entry;
+    if (mesh64 > UINT32_MAX ||
+        !rangeInside(base, bytes, static_cast<uint32_t>(mesh64), kSpiderMeshHeaderBytes)) {
+      g_cookLedger.refuseCapture();
+      ++summary.refusedCount;
+      continue;
+    }
+    const uint32_t mesh = static_cast<uint32_t>(mesh64);
+    const uint16_t vertexCount = core->mem_r16(mesh + kSpiderMeshVertexCountOffset);
+    const uint16_t secondaryCount = core->mem_r16(mesh + kSpiderMeshSecondaryCountOffset);
+    const uint16_t faceCount = core->mem_r16(mesh + kSpiderMeshFaceCountOffset);
+    if (faceCount == 0u) {
+      continue;
+    }
+    const MeshLayout layout = deriveMeshLayout(mesh, {vertexCount, secondaryCount, faceCount});
+    const uint64_t face64 = layout.faces;
+    if (face64 > UINT32_MAX) {
+      g_cookLedger.refuseCapture();
+      ++summary.refusedCount;
+      continue;
+    }
+    const uint32_t face = static_cast<uint32_t>(face64);
+    std::array<uint32_t, MeshAssetCookLedger::kMaxFaceWords> words{};
+    std::size_t wordCount = 0;
+    if (!readFaceWords(core, base, bytes, face, words, wordCount)) {
+      g_cookLedger.refuseCapture();
+      ++summary.refusedCount;
+      continue;
+    }
+    const bool recorded =
+        relocated
+            ? g_cookLedger.recordCookedFace(slot, meshIndex, mesh, face, words.data(), wordCount)
+            : g_cookLedger.recordRawFace(slot, meshIndex, mesh, face, words.data(), wordCount);
+    if (recorded) {
+      ++summary.faceCount;
+    } else {
+      ++summary.refusedCount;
+    }
+  }
+  return summary;
+}
+
+const char *cookMatchName(MeshAssetCookMatch match) {
+  switch (match) {
+  case MeshAssetCookMatch::Missing:
+    return "MISSING";
+  case MeshAssetCookMatch::Match:
+    return "MATCH";
+  case MeshAssetCookMatch::Mismatch:
+    return "MISMATCH";
+  case MeshAssetCookMatch::Unloaded:
+    return "UNLOADED";
+  }
+  return "UNKNOWN";
+}
 
 std::array<char, 64> readAssetName(Core *core, uint32_t address) {
   std::array<char, 64> result{};
@@ -102,20 +227,30 @@ void parsePsxAsset(Core *core) {
     asset->base = base;
     asset->bytes = bytes;
     g_ledger.registerAsset(asset->name.data(), slot, base, bytes);
+    g_cookLedger.beginAsset(asset->name.data(), slot);
   }
+  const CookCaptureSummary raw =
+      asset != nullptr ? captureFirstFaces(core, slot, base, bytes, false) : CookCaptureSummary{};
   gen_func_80068BB0(core);
   if (asset != nullptr) {
     const uint32_t retainedBytes = allocationBytes(core, base);
     g_ledger.registerAsset(asset->name.data(), slot, base, retainedBytes);
+    const CookCaptureSummary cooked = captureFirstFaces(core, slot, base, retainedBytes, true);
     lucent::info("assetprobe",
                  "LOAD asset={} slot={} base={:08X} rawAllocationBytes={} retainedBytes={} "
-                 "sequence={}",
+                 "sequence={} meshCook(raw={}/{}, cooked={}/{}, structuralExact={}, refused={})",
                  asset->name.data(),
                  slot,
                  base,
                  bytes,
                  retainedBytes,
-                 g_ledger.sequence());
+                 g_ledger.sequence(),
+                 raw.faceCount,
+                 raw.meshCount,
+                 cooked.faceCount,
+                 cooked.meshCount,
+                 g_cookLedger.structuralExactCount(slot),
+                 raw.refusedCount + cooked.refusedCount);
   }
 }
 
@@ -143,6 +278,7 @@ void unloadPsxAsset(Core *core) {
   const AssetResidence residence = g_ledger.residenceForSlot(slot);
   gen_func_800695D0(core);
   g_ledger.unregisterAsset(slot);
+  g_cookLedger.unregisterAsset(slot);
   if (residence.valid && residence.live) {
     lucent::info("assetprobe",
                  "UNLOAD asset={} slot={} base={:08X} bytes={} sequence={}",
@@ -234,8 +370,13 @@ void spiderman_install_texture_asset_probe(Game *) {
     return;
   }
   g_ledger.reset();
+  g_cookLedger.reset();
   if (!assetUploadLedgerSelftest()) {
     lucent::error("assetprobe", "SELFTEST FAILED; wrappers NOT installed");
+    return;
+  }
+  if (!meshAssetCookLedgerSelftest()) {
+    lucent::error("assetprobe", "MESH COOK SELFTEST FAILED; wrappers NOT installed");
     return;
   }
   g_installed = true;
@@ -246,10 +387,29 @@ void spiderman_install_texture_asset_probe(Game *) {
   lucent::info(
       "assetprobe",
       "SELFTEST PASS: latest exact upload selected, a one-word target perturbation returned "
-      "MISSING, geometry residence resolved, and unload changed live=yes to live=no");
+      "MISSING, geometry residence resolved, retail mesh cook matched, a cooked-word "
+      "perturbation mismatched, and unload changed both ownership contracts to unloaded");
   lucent::info("assetprobe",
                "ARMED retail .psx load/parse/unload and LoadImage boundaries; every wrapper "
                "super-calls the guest body");
+}
+
+void spiderman_report_mesh_asset_cook(uint32_t face, const uint32_t *words, std::size_t wordCount) {
+  if (!g_installed) {
+    return;
+  }
+  const MeshAssetCookResolution result = g_cookLedger.resolve(face, words, wordCount);
+  lucent::info("assetprobe",
+               "MESH_COOK face={:08X} asset={} slot={} mesh={:08X} recordBytes={} "
+               "loadSequence={} structuralCook={} retainedSource={}",
+               face,
+               result.assetName.data(),
+               result.slot,
+               result.mesh,
+               result.recordBytes,
+               result.loadSequence,
+               result.structuralCookExact ? "EXACT" : "REFUSED",
+               cookMatchName(result.match));
 }
 
 void spiderman_report_texture_asset_binding(Core *,

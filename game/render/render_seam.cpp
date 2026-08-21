@@ -5,39 +5,42 @@
 //   the picture exactly as it does today. Byte-unchanged: this leg adds reads and log lines and
 //   nothing else.
 //
-// LEG 2, `pc_render` — THE NATIVE RENDERER. Do NOT run the guest body: produce the frame ENVELOPE
-//   natively (game/render/frame_envelope.cpp — the page flip, the drawing area/offset/mode and the
-//   background clear), then classify the scene from the game's own state and dispatch to its native
-//   DISPLAY-LIST producer. There are ZERO display-list producers today, so every scene except the
-//   boot-init scene '....' — whose entire picture IS the envelope, measured — reaches
-//   abortUnimplemented() and the run dies naming the scene. THAT IS THE CORRECT RESULT for this
-//   step (docs/re-frontier.md RE-20/RE-18): no plausible-looking fallback, no OT transcription —
-//   the crash list IS the rebuild backlog.
+// LEG 2, `pc_render` — NATIVE OWNERSHIP, with one explicit debt path. Scene '....' is produced by
+//   FrameEnvelope. A scene with a complete native display-list producer will be dispatched to it.
+//   While no such producer exists, HACK-03 may submit the WHOLE guest frame by super-calling the
+//   retail body under RenderPath::Gte. That path is mutually exclusive with native submission for
+//   the frame, reuses the exact guest DrawOTag walk, and refuses FPS60/interpolated presentation.
+//   It is not a guessed producer and it does not advance RE-21; it keeps the missing graphics
+//   visible from their actual guest-time GTE/OT result while the native producer is still being
+//   derived.
 //
 // WHICH LEG IS THE DEFAULT, and why this port's default is the opposite of Tomba!2's.
 //   Tomba!2 defaults to pc_render because it has producers for the scenes its boot passes through.
-//   This port has one producer and it covers exactly one scene, so defaulting to pc_render would
-//   abort every run at submitFrame call #2 — including every other agent's boot gate. The default
-//   is therefore the REFERENCE leg, stated as the DEFAULT LAYER of the framework's render-path CVar
+//   This port has one native producer and it covers exactly one scene. Native can now stay alive by
+//   selecting the explicit whole-guest-frame debt path for every other scene, but that does not
+//   make it a native renderer. The default is therefore the REFERENCE leg, stated as the DEFAULT
+//   LAYER of the framework's render-path CVar
 //   (`PSXPORT_RENDER_PATH`, psxport docs/plans/render-path-tristate.md), so `native` / `gte` /
 //   `psx` from the settings file, the environment or a REPL `renderpath` all outrank it by
 //   construction — not by this call happening to run before the flag is read. This is not a
-//   fallback and not a stopgap: it is the honest statement that this port's shipping picture still
+//   hidden fallback: it is the honest statement that this port's shipping picture still
 //   comes from the guest's OT walk. The condition for flipping it is not "a producer exists" but
 //   "every scene a boot passes through has one" — today that is '....' and not 'dem1'.
 //
-// THE PICTURE RULE (coord/PROTOCOL.md). The native leg runs no `gen_func_*` body — structurally, by
-// not super-calling. Everything this file reads (the level name, the double-buffer context) is read
-// for DIAGNOSTICS and for scene identity, never to reconstruct a transform out of GTE output. When
-// a producer lands it must resolve from what SUBMITS to the GTE (the setters recorded in
-// `c->rsub.projParams`, RE-17), never from the OT, GP0 packets or `gte_read_ctrl()`.
+// THE PICTURE RULE (coord/PROTOCOL.md). A NATIVE producer runs no `gen_func_*` body and resolves
+// only from game-owned inputs. HACK-03 is deliberately outside that claim: it super-calls the
+// unmodified retail submit body for an entire frame, marks itself as guest output, and never mixes
+// that output with a native producer. RE-21 still has to derive its producer from what submits to
+// the GTE.
 #include "render_seam.h"
+#include "config_var.h"
 #include "config_vars.h" // psx::config::cv_render_path — this port's DEFAULT render path
 #include "core.h"
 #include "frame_census.h"
 #include "frame_envelope.h"
 #include "game.h"
 #include "game_iface.h"
+#include "guest_frame_fallback.h"
 #include "recomp_iface.h"
 #include "render_substrate.h"
 #include "scene_id.h"
@@ -51,6 +54,22 @@ int gpu_frame_no(Core *c);
 void gpu_vram_save(Core *, uint16_t *); // gpu_native.cpp — a copy of the whole 1024x512 CPU VRAM
 
 namespace {
+
+// HACK-03's explicit control. Default-on only inside the explicitly selected Native path: the
+// port's default path remains Gte below. Non-persistable because this is tracked RE debt, not a
+// user graphics preference. `=0` supplies the live opposite answer and restores the named-scene
+// abort.
+psx::config::BoolVar cvGuestFrameFallback(
+    "PSXPORT_SPIDER1_GUEST_FRAME_FALLBACK",
+    true,
+    "HACK-03: whole guest GTE/OT frame for scenes without a native display-list producer",
+    /*persistable=*/false);
+
+enum class FrameSubmission {
+  ReferenceGuest,
+  Native,
+  FallbackGuest,
+};
 
 // WHAT THE NATIVE LEG HAD DRAWN WHEN IT GAVE UP. The abort below is the designed outcome for a
 // scene with no producer, but "it aborted" says nothing about whether the producers that DID run
@@ -182,7 +201,7 @@ public:
   void submitFrame(Core *c);
 
 private:
-  void seamPass(Core *c, bool psxLeg); // everything that must not write guest RAM
+  FrameSubmission seamPass(Core *c, bool psxLeg); // everything that must not write guest RAM
   void censusTick(Core *c, const SceneName &scene);
   void renderScene(Core *c, const SceneName &scene);
   [[noreturn]] void abortUnimplemented(Core *c, const SceneName &scene, const char *why);
@@ -191,6 +210,8 @@ private:
   // Counted UNCONDITIONALLY, on the same line as the work, so the number is honest whether or not a
   // channel is on — a counter bumped inside a log call only counts while someone is watching.
   unsigned long long mCalls = 0;
+  unsigned long long mFallbackSelected = 0;
+  unsigned long long mFallbackSubmitted = 0;
   unsigned long mSceneChanges = 0;
   bool mHaveScene = false;
   SceneName mLastScene; // default = "nothing read yet"; replaced on the first call
@@ -206,9 +227,9 @@ private:
   // A run killed at any moment still leaves the count in the log.
   static constexpr unsigned long long kReportEvery = 512;
 
-  // THE FIRST NATIVE PRODUCER. The frame envelope belongs to the FRAME, not to a scene — every
-  // scene's picture sits inside the page it flips to and the clip/clear it programs — so it runs
-  // before the per-scene dispatch, for every scene. See frame_envelope.h.
+  // THE FIRST NATIVE PRODUCER. On a native-owned frame, the envelope precedes scene geometry. A
+  // whole-guest fallback frame skips it along with every other native producer, so the guest body
+  // remains the one owner of its environment and display list. See frame_envelope.h / HACK-03.
   FrameEnvelope mEnvelope;
 
   // The scene census (docs/re-frontier.md RE-23's open gap): report every CHANGE of the game's own
@@ -274,6 +295,7 @@ void RenderSeam::censusTick(Core *c, const SceneName &scene) {
 void RenderSeam::submitFrame(Core *c) {
   ++mCalls;
   const bool psxLeg = c->rsub.mode.psxRender();
+  const unsigned long long envelopeBefore = mEnvelope.produced();
 
   // READ-ONLY SCOPE, enforced rather than asserted. Everything this seam does OUTSIDE the guest
   // body — the scene census, the diagnostics, and the whole native leg — must not write guest main
@@ -281,13 +303,45 @@ void RenderSeam::submitFrame(Core *c) {
   // store (mem.cpp display_pass_write_guard) that aborts with a guest backtrace on the first
   // violation, so this is a live invariant with a real failure mode, not a comment. The super-call
   // is deliberately OUTSIDE it: the guest's own body legitimately writes guest RAM.
+  FrameSubmission submission;
   {
     DisplayPassGuard readOnly(c->rsub.mode);
-    seamPass(c, psxLeg);
+    submission = seamPass(c, psxLeg);
   }
 
-  if (psxLeg) {
-    superCall(c);
+  if (submission != FrameSubmission::Native) {
+    if (submission == FrameSubmission::FallbackGuest) {
+      // MECHANICAL no-double-draw gate for the native producers that exist today. FrameEnvelope is
+      // currently the complete native-producer set; if this call advanced it, the ownership branch
+      // was violated and the guest frame must not be submitted. A future producer must join this
+      // per-frame ownership accounting before it can coexist with HACK-03.
+      if (mEnvelope.produced() != envelopeBefore) {
+        abortUnimplemented(c, mLastScene, "NATIVE_OVERLAP_FORBIDDEN");
+      }
+      ++mFallbackSelected;
+      if (mFallbackSelected <= 8 || mFallbackSelected % kReportEvery == 0) {
+        lucent::info("guestfallback",
+                     "SELECTED whole guest frame #{} at submitFrame call #{} scene='{}': "
+                     "nativeSubmitted=0 nativeEnvelopeDelta=0 interpolation=0; the native "
+                     "envelope and native display-list producers are both skipped for this frame",
+                     mFallbackSelected,
+                     mCalls,
+                     mLastScene.text());
+      }
+      GuestFrameFallbackModeScope pureGuestPackets(c->rsub.mode);
+      superCall(c);
+      ++mFallbackSubmitted;
+      if (mFallbackSubmitted <= 8 || mFallbackSubmitted % kReportEvery == 0) {
+        lucent::info(
+            "guestfallback",
+            "SUBMITTED whole guest frame #{} through retail FUN_80061308 under path=gte "
+            "(actual guest GTE/OT output, PC rasterizer, interpolation=0, nativeSubmitted=0, "
+            "nativeEnvelopeDelta=0)",
+            mFallbackSubmitted);
+      }
+    } else {
+      superCall(c);
+    }
     // THE EQUIVALENCE CHECK RUNS AFTER THE SUPER-CALL, and the ordering is the whole point: the
     // guest builds this frame's DR_ENV inside PutDrawEnv, so before the super-call the packet in
     // guest RAM is the one from two frames ago (the DB alternates) — or, on the very first call,
@@ -299,7 +353,7 @@ void RenderSeam::submitFrame(Core *c) {
   }
 }
 
-void RenderSeam::seamPass(Core *c, bool psxLeg) {
+FrameSubmission RenderSeam::seamPass(Core *c, bool psxLeg) {
   // The level name the mode switch keeps at 0x800A568C, and the engine's own encoding of it. This
   // is scene IDENTITY, not picture data.
   const SceneName scene(c);
@@ -349,16 +403,35 @@ void RenderSeam::seamPass(Core *c, bool psxLeg) {
   // guest's own DR_ENV packet to compare against and therefore only exists on this leg. It is a
   // diagnostic (PSXPORT_DEBUG=envcheck), off by default, and emits nothing.
   if (psxLeg) {
-    return;
+    return FrameSubmission::ReferenceGuest;
   }
 
-  // ---- LEG 2: the one native renderer ----------------------------------------------------------
-  // No super-call, so no `gen_func_*` body runs in the picture path — that is the structural half
-  // of the picture rule, checkable by reading this call path.
+  // ---- LEG 2: native ownership or the explicit whole-guest-frame debt path ---------------------
+  // Decide ownership BEFORE any native producer runs. This ordering plus the production decision's
+  // NativeOverlapForbidden answer is the no-double-draw control: a fallback frame has no native
+  // envelope underneath it and no native geometry over it.
+  if (!scene.unset()) {
+    const GuestFrameFallbackInputs fallbackInputs{
+        .enabled = cvGuestFrameFallback.get(),
+        .nativeProducerReady =
+            false, // RE-21: no named scene has a native display-list producer yet
+        .nativeSubmissionStarted = false,
+        .interpolationActive = c->game->fps60.active(),
+    };
+    const GuestFrameFallbackDecision fallback = decideGuestFrameFallback(fallbackInputs);
+    if (fallback == GuestFrameFallbackDecision::SubmitGuestFrame) {
+      return FrameSubmission::FallbackGuest;
+    }
+    abortUnimplemented(c, scene, guestFrameFallbackDecisionName(fallback));
+  }
+
+  // A genuinely native frame runs no generated body. The boot-init scene is the only scene whose
+  // complete native ownership is proven today.
   //
-  // THE FRAME ENVELOPE FIRST, for every scene: the page flip, the drawing area/offset/mode, and the
-  // background clear. It is the whole of scene '....' (measured — see frame_envelope.h) and it is
-  // layer 0 of every other scene, so it cannot live behind the per-scene dispatch.
+  // THE FRAME ENVELOPE FIRST on every NATIVE-owned scene: the page flip, drawing
+  // area/offset/mode, and background clear. It is the whole of scene '....' (measured — see
+  // frame_envelope.h) and layer 0 of a future native scene. Guest-fallback frames returned above,
+  // before this producer, to prevent double draw.
   mEnvelope.produce(c, db.drawEnv(), db.dispEnv());
 
   renderScene(c, scene);
@@ -368,12 +441,14 @@ void RenderSeam::seamPass(Core *c, bool psxLeg) {
   // and queue nothing, so there is nothing to flush YET — the first producer that uses
   // RenderQueue::emitOrQueue must add `c->game->rq.flush(c)` here, and this comment is the note
   // that it is missing rather than forgotten.
+  return FrameSubmission::Native;
 }
 
 void RenderSeam::renderScene(Core *c, const SceneName &scene) {
-  // THE ONE NATIVE-RENDERER DISPATCH. A producer is selected here from the scene IDENTITY — never
-  // from the OT, the GP0 stream or the GTE. Every scene without one falls through to the abort, and
-  // the abort names it, so the crash sequence IS the backlog (docs/re-frontier.md RE-21).
+  // THE ONE NATIVE-RENDERER DISPATCH. A producer is selected here from scene IDENTITY — never from
+  // the OT, the GP0 stream or the GTE. Missing named scenes are intercepted before any native draw
+  // by the whole-frame fallback decision; reaching the tail below still aborts so a future dispatch
+  // cannot silently claim coverage it does not have.
   //
   // SCENE '....' — the engine's boot-init submit, and the FIRST scene the abort named. Its picture
   // is the frame envelope and NOTHING ELSE: mEnvelope.produce() has already drawn it by the time we
@@ -411,13 +486,7 @@ void RenderSeam::renderScene(Core *c, const SceneName &scene) {
         c, scene, "scene '....' is no longer envelope-only — see the [rseam] line above");
   }
 
-  abortUnimplemented(
-      c,
-      scene,
-      "no native producer exists for this scene. The frame ENVELOPE (page flip, "
-      "drawing area/offset/mode, background clear) is produced natively for every "
-      "scene; what is missing here is the DISPLAY LIST — RE-21, not one display-object "
-      "type is decoded yet");
+  abortUnimplemented(c, scene, "NATIVE_SCENE_DISPATCH_HAS_NO_COMPLETE_PRODUCER");
 }
 
 void RenderSeam::abortUnimplemented(Core *c, const SceneName &scene, const char *why) {
@@ -434,9 +503,10 @@ void RenderSeam::abortUnimplemented(Core *c, const SceneName &scene, const char 
       "        frame {} / submitFrame call #{} / scene changes so far {}\n"
       "        db={:08X} drawenv={:08X} dispenv={:08X} ot={:08X} otHead={:08X} pool={:08X}\n"
       "        projection: geomValid={} OFX={} OFY={} H={}\n"
-      "        pc_render has no native producer for this scene. Build one (RE-21), or run the\n"
-      "        reference renderer with PSXPORT_RENDER_PSX=1 to get past here. There is no OT-walk\n"
-      "        fallback and no env escape hatch on this leg — that is the point of it.\n",
+      "        pc_render has no complete native producer for this scene. RE-21 remains the owner.\n"
+      "        HACK-03 may submit the mutually-exclusive whole guest frame, but it REFUSES when\n"
+      "        PSXPORT_SPIDER1_GUEST_FRAME_FALLBACK=0, when interpolation is active, or after any\n"
+      "        native submission. It never interpolates or double-draws guest packets.\n",
       why,
       scene.text(),
       scene.rawByte(0),
@@ -510,18 +580,19 @@ void spiderman_install_render_seam(Game *g) {
   // PSXPORT_RENDER_PATH, a REPL `renderpath` — still outranks it by construction instead of by call
   // order.
   //
-  // WHY THIS PORT DEFAULTS TO THE REFERENCE LEG while Tomba!2 defaults to native: it has no
-  // DISPLAY-LIST producer for any scene, so a native default would abort every run — including
-  // every boot gate — on its first engine frame.
+  // WHY THIS PORT STILL DEFAULTS TO THE REFERENCE LEG while Tomba!2 defaults to native: it has no
+  // native DISPLAY-LIST producer for any scene. HACK-03 can keep an explicitly selected Native path
+  // alive with the real whole guest frame, but debt is not native coverage and cannot justify
+  // relabelling the default.
   psx::config::cv_render_path.set(psx::config::Layer::Default, "gte");
   lucent::info("rseam",
                "default render leg = psx_render (reference). This port has ONE native "
                "producer — the frame envelope (page flip, drawing area/offset/mode, "
                "background clear), which is the whole of the boot-init scene '....' and "
-               "layer 0 of every other scene. It has no DISPLAY-LIST producer for any scene, "
-               "so PSXPORT_RENDER_PSX=0 renders scene '....' natively and then aborts at the "
-               "next scene naming it. That abort is the correct result, and it is why the "
-               "default has NOT flipped: a pc_render default would abort every boot gate at "
-               "submitFrame call #2.");
+               "layer 0 of every other scene. It has no native DISPLAY-LIST producer. An "
+               "explicit Native path therefore uses HACK-03's mutually-exclusive whole guest "
+               "frame for named scenes by default, with interpolation forbidden and "
+               "PSXPORT_SPIDER1_GUEST_FRAME_FALLBACK=0 as the fail-fast opposite answer. The "
+               "default remains gte because guest-frame debt is not native coverage.");
   g_seam.install();
 }

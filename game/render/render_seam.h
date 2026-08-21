@@ -26,8 +26,9 @@
 // 2, 0 ABI violations — while two other traced addresses in the same run reported NEVER CALLED, so
 // that instrument could produce the other answer.
 //
-// TWO LEGS, and today the reference leg is the DEFAULT — see render_seam.cpp for why that is the
-// honest state of this port and not a fallback.
+// TWO SELECTABLE PATHS, and today Gte is the DEFAULT. Native owns only the envelope-only boot-init
+// scene; for named scenes without a complete producer, HACK-03 may select one mutually-exclusive,
+// non-interpolated whole guest frame. See render_seam.cpp and docs/re-frontier.md.
 #pragma once
 #include <stdint.h>
 

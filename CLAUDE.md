@@ -53,23 +53,33 @@ stalled boot is diagnosable; a boot fed garbage by a stub is not. If a real fix 
 right now, say so plainly, name the proper fix, and let the user decide — and mark any approved
 stopgap in-code as `// STOPGAP: <proper fix> because <why>` and add it to the `⛔ hack` list.
 
-The `⛔ hack` list in `docs/re-frontier.md` is currently **empty**. Keep it that way, or shrink it.
+The `⛔ hack` list in `docs/re-frontier.md` currently contains HACK-03, the user-authorized whole
+guest-frame fallback for graphics whose native producer remains unported. Burn it down as native
+producers land; do not let it silently become architecture.
 
-## The picture comes from GAME STATE, never from what the GTE produced
+## Native producers come from GAME STATE; the guest-output fallback is explicit debt
 
 Two checkable rules; the binding statement is `external/psxport/docs/workspace/PROTOCOL.md`. The word "tap" is retired — it
 needed case-by-case adjudication every time, which is the signature of an underspecified rule.
 
-1. **The shipping picture path runs no `gen_func_*` body.** Reads are not the problem: a producer
+1. **A native producer runs no `gen_func_*` body.** Reads are not the problem: a producer
    reads the node's own fields, and diagnostics are exempt because they ANSWER QUESTIONS rather than
    produce the picture. The gate: a producer that runs a gen body cannot interpolate, since re-running
    it under a lerped camera would write guest RAM.
-2. **Resolve from what SUBMITS to the GTE, never from what it produced.** Find the
+2. **Resolve a native producer from what SUBMITS to the GTE, never from what it produced.** Find the
    `SetRotMatrix`/`SetTransMatrix`/RTPS site and take its INPUTS — the game's own pre-quantisation
    values. Never invert `gte_read_ctrl()`/the OT/a composed GP0 packet to recover a transform: those
    are s16-quantised and factoring the camera back out leaves a residue that is *a function of the
    camera* (0.13 px still, 1.53 px panning, 12/12 sign alternations — a layer that "vibrated" with
    nothing in the game moving it).
+
+USER-AUTHORIZED EXCEPTION, 2026-08-21: graphics whose native producer remains unported may be drawn
+from the ACTUAL guest-time GTE result / guest packets, but MUST NOT be interpolated. Spider-Man's
+HACK-03 implements only a mutually-exclusive WHOLE guest frame through the retail submit body under
+`RenderPath::Gte`; it skips all native producers for that frame and refuses FPS60 or prior native
+submission. This does not make guest output a valid native-producer input and does not advance
+RE-21. A future mixed frame needs proven packet ownership and mechanical no-double-draw control;
+never add a second packet parser, guess missing state, or interpolate packet output.
 
 Intercepting the guest's own store as it writes (the framework's `gte_store_xy` hook) is observation
 at the submission boundary, not inversion — that is RE-08 and it is allowed.

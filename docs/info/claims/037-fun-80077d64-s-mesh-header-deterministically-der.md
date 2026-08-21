@@ -4,9 +4,9 @@ kind: claim
 status: holds
 created: 2026-08-20
 tags: re-21,render,mesh-layout
-depends: game/render/mesh_probe.cpp#deriveLayout
-reconfirmed: 2026-08-21 02:58:33
-verified_at: 2026-08-21 02:58:33
+depends: game/render/mesh_face_format.cpp#deriveMeshLayout, game/render/mesh_probe.cpp#buildFaces
+reconfirmed: 2026-08-21 12:18:22
+verified_at: 2026-08-21 12:18:22
 ---
 
 ## Claim
@@ -28,3 +28,7 @@ Any call to FUN_8007C4D8 nested under FUN_80077D64 reports layout=MISMATCH, or d
 ## Re-confirmed 2026-08-21 02:58:33
 
 2026-08-21 clean-framework verification at psxport 2b5ef7b5: Clang rebuilt spiderman_port; cpp_policy passed 16/16 first-party C++ TUs; scratch/logs/gate-boot-20260821-025743.log reports meshprobe SELFTEST PASS plus live layout=MATCH at frames 487 and 904, with no layout=MISMATCH line.
+
+## Re-confirmed 2026-08-21 12:18:22
+
+The duplicated layout arithmetic was moved without semantic change into mesh_face_format.cpp#deriveMeshLayout. Final Clang replay scratch/logs/re21-mesh-cook-live-final.log repeated the in-band exact-versus-+4 selftest and live headerCounts 4/1/1 -> derived 8018BC54/8018BC74/8018BC7C with layout=MATCH.

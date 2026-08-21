@@ -27,8 +27,8 @@
 // A producer for it is a producer for the envelope, and nothing else.
 //
 // THE PICTURE RULE (coord/PROTOCOL.md), checkably satisfied:
-//   1. No `gen_func_*` body runs — the seam does not super-call on this leg, and nothing here calls
-//      into the substrate.
+//   1. No `gen_func_*` body runs on a native-owned frame — the seam does not super-call there, and
+//      nothing here calls into the substrate. HACK-03 whole-guest frames skip this producer.
 //   2. Every input is the game's own submission INPUT: the DRAWENV and DISPENV blocks the engine
 //      fills in and hands to libgpu, plus libgpu's own VRAM-extent and video-standard bytes.
 //      Nothing is recovered from an OT link, a GP0 packet, or a GTE register.
@@ -54,8 +54,9 @@ class Core;
 class FrameEnvelope {
 public:
   // Produce this frame's envelope: the page flip, the drawing area/offset/mode, and the background
-  // clear. Called from the seam's native leg for EVERY scene, before the per-scene dispatch,
-  // because the envelope belongs to the frame rather than to the scene.
+  // clear. Called before the per-scene dispatch for every NATIVE-owned scene because the envelope
+  // belongs to the frame rather than to scene geometry. A mutually-exclusive whole-guest fallback
+  // frame skips it; the retail submit body owns that frame's environment instead.
   //
   // `drawEnvAddr` / `dispEnvAddr` are the two blocks the current double-buffer context names — the
   // same two addresses the guest's own submitFrame passes to PutDrawEnv / PutDispEnv.

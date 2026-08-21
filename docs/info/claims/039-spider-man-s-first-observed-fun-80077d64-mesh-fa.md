@@ -4,7 +4,9 @@ kind: claim
 status: holds
 created: 2026-08-21
 tags: re-21,render,mesh-face,source-record
-depends: game/render/mesh_face_format.cpp
+depends: game/render/mesh_face_format.cpp#decodeMeshFaceHeader, game/render/mesh_face_format.cpp#decodeMeshFt4TextureBinding, game/render/mesh_probe.cpp#logDecodedSourceFace
+reconfirmed: 2026-08-21 12:18:22
+verified_at: 2026-08-21 12:18:22
 ---
 
 ## Claim
@@ -18,3 +20,7 @@ Executable instructions at 0x8007C570..0x8007C588 apply the scratchpad control w
 ## What would falsify it
 
 Any instruction-exact decode contradicts these flag/offset meanings, or a repeated live observation of this same encoded source record under the same control word produces a different decoded stride, indices, source fields, UVs, CLUT, or texture page.
+
+## Re-confirmed 2026-08-21 12:18:22
+
+The mesh format owner now also owns the previously duplicated header layout formula; face decoding itself is unchanged. Final Clang replay scratch/logs/re21-mesh-cook-live-final.log repeated the same 28-byte source face, indices, vertices, UVs, CLUT, TPAGE, and in-band format selftest PASS.
