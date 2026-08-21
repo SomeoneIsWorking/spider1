@@ -5,8 +5,8 @@ status: holds
 created: 2026-08-21
 tags: render,re-21,texture,asset-lifetime
 depends: game/render/mesh_probe.cpp#logDecodedSourceFace, game/render/texture_asset_probe.cpp#parsePsxAsset, game/render/texture_asset_probe.cpp#spiderman_report_texture_asset_binding, game/render/asset_upload_ledger.cpp#latestCovering
-reconfirmed: 2026-08-21 10:41:32
-verified_at: 2026-08-21 10:41:32
+reconfirmed: 2026-08-21 10:44:27
+verified_at: 2026-08-21 10:44:27
 ---
 
 ## Claim
@@ -24,3 +24,7 @@ A clean real-disc replay of the same first contextual face resolves a different 
 ## Re-confirmed 2026-08-21 10:41:32
 
 Fresh Clang build replay scratch/logs/re21-asset-owner-live-final.log resolved the first face to Dem1_G+0xB4 and its exact texture/CLUT uploads to transient Dem1_L+0x2B30/+0x38; hermetic and in-band opposite-answer tests passed.
+
+## Re-confirmed 2026-08-21 10:44:27
+
+Post-landing Clang build and four focused CTests passed; the retained real-disc trace re21-asset-owner-live-final.log still resolves the first face to Dem1_G+0xB4 and its texture/CLUT uploads to transient Dem1_L+0x2B30/+0x38, with the exact-versus-perturbed ledger test discriminating.
