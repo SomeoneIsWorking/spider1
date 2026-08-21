@@ -18,6 +18,8 @@ Usage:
     tools/ghidra_query.py func  0x8008C3E0    containing function + decompiled C
     tools/ghidra_query.py calls 0x80087660    what that function calls
     tools/ghidra_query.py data  0x800B38EC 16 dump N words with symbol/xref annotation
+    tools/ghidra_query.py disasm 0x8007C4D8 0x8007C520
+                                                exact instructions in [start, end)
     tools/ghidra_query.py scan  ctc2            every instruction whose mnemonic matches, with
                                                 operands + owning function + the enclosing function's
                                                 full instruction list
@@ -58,6 +60,9 @@ def main():
         af = prog.getAddressFactory()
         fm = prog.getFunctionManager()
         addr = af.getAddress(addr_s)
+        if mode != "scan" and addr is None:
+            print(f"invalid address: {addr_s}")
+            return 2
 
         def owner_str(a):
             f = fm.getFunctionContaining(a)
@@ -124,6 +129,32 @@ def main():
                     if fn is not None:
                         note = "  -> %s @%s" % (fn.getName(), fn.getEntryPoint())
                 print("  %s  %08X%s" % (a, v, note))
+        elif mode == "disasm":
+            if len(sys.argv) != 4:
+                print("disasm requires start and exclusive end addresses")
+                return 2
+            end = af.getAddress(sys.argv[3])
+            if end is None:
+                print(f"invalid exclusive end address: {sys.argv[3]}")
+                return 2
+            if addr.compareTo(end) >= 0:
+                print("disasm end must be greater than start")
+                return 2
+            listing = prog.getListing()
+            hits = []
+            for ins in listing.getInstructions(addr, True):
+                if ins.getAddress().compareTo(end) >= 0:
+                    break
+                hits.append(ins)
+                print("  {}  {:<8} {}".format(
+                    ins.getAddress(), ins.getMnemonicString(),
+                    ", ".join(str(ins.getDefaultOperandRepresentation(i))
+                              for i in range(ins.getNumOperands()))))
+            print(f"// disassembled {len(hits)} instruction(s) in [{addr}, {end}); "
+                  f"requested {end.subtract(addr)} byte(s)")
+            if not hits:
+                print("// REFUSED: Ghidra has no disassembled instructions in the requested range")
+                return 1
         elif mode == "scan":
             # `addr_s` is a mnemonic prefix here, not an address.
             want = addr_s.lower()

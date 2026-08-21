@@ -5,7 +5,7 @@ status: open
 symptom: producer-enabled vs producer-disabled A/B reports 0 pixels differing even though the producer provably ran (produced=2 clears=2 in band)
 tags: render,producer,gate,negative-control,envelope
 created: 2026-08-06
-updated: 2026-08-06
+updated: 2026-08-21
 ---
 
 ## What happened
@@ -58,3 +58,6 @@ FUN_8002BD5C -> FUN_80076480 -> FUN_80077D64 -> FUN_8007C4D8 -> FUN_8007D978). T
 survives into frames with real content, and this A/B must be re-run in dem1 calls #2..#728. If it
 STILL shows zero there, the envelope really is inert and C033 is measuring something that never
 reaches the screen.
+
+### Note (2026-08-21)
+2026-08-21 RE-21 advanced one dependency-ready step: executable disassembly plus the live source-boundary probe decoded the first observed mesh face as a 28-byte direct-textured quad with four source vertex indices, UVs, CLUT and texture page (C039; scratch/logs/gate-boot-20260821-025743.log). This does not close the issue: no display-list producer exists yet, so the dem1 pixel gate is still unavailable.

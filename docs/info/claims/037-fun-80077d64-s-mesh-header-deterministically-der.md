@@ -5,8 +5,8 @@ status: holds
 created: 2026-08-20
 tags: re-21,render,mesh-layout
 depends: game/render/mesh_probe.cpp#deriveLayout
-reconfirmed: 2026-08-21 01:02:42
-verified_at: 2026-08-21 01:02:42
+reconfirmed: 2026-08-21 02:58:33
+verified_at: 2026-08-21 02:58:33
 ---
 
 ## Claim
@@ -24,3 +24,7 @@ Any call to FUN_8007C4D8 nested under FUN_80077D64 reports layout=MISMATCH, or d
 ## Re-confirmed 2026-08-21 01:02:42
 
 2026-08-21: rebuilt spiderman_port with Clang after the typed MeshCounts and null/empty face-stream guard; scratch/logs/gate-boot-20260821-010144.log reports SELFTEST PASS and live layout=MATCH tuples at frames 382 and 777 with no mismatch line.
+
+## Re-confirmed 2026-08-21 02:58:33
+
+2026-08-21 clean-framework verification at psxport 2b5ef7b5: Clang rebuilt spiderman_port; cpp_policy passed 16/16 first-party C++ TUs; scratch/logs/gate-boot-20260821-025743.log reports meshprobe SELFTEST PASS plus live layout=MATCH at frames 487 and 904, with no layout=MISMATCH line.

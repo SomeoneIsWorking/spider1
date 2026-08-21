@@ -17,6 +17,13 @@ Live log `scratch/logs/gate-boot-20260821-010831.log` on the final Clang/tidy-cl
 `layout=MATCH` inside `FUN_80077D64` context and `NO-CONTEXT` for other `FUN_8007C4D8` callers. The
 long denominator remains `scratch/logs/gate-boot-20260820-221812.log`: 27,579 contextual calls and
 zero mismatches.
+The extended source-record path first decodes the executable-derived stride and only reads fields
+that fit inside it. On the final Clang/tidy-clean build,
+`scratch/logs/gate-boot-20260821-025743.log` reported a 28-byte direct-textured quad, four in-range
+source vertices, UVs, CLUT, stored TPAGE `0x0008`, and effective TPAGE `0x0028` / blend mode 1 for
+the first contextual mesh face. A second contextual mesh independently decoded a 32-byte record
+with valid vertices and material fields. The installed self-test perturbs the scratchpad control
+word and checks the resulting effective flags and TPAGE blend bits.
 
 ## Known failure modes
 
@@ -27,3 +34,6 @@ attribute those callers. Context is tracked with process-global nesting state an
 these guest render calls are serialized on one execution thread. A null relative-translation pointer
 is reported as `(0,0,0)` rather than dereferenced.
 An empty or null face stream reports zero sample words rather than being dereferenced.
+The source-record line is emitted only for a new contextual object/mesh pair whose derived layout
+matches. It therefore proves that sampled record, not every face format or every caller. Fields that
+do not fit the decoded stride remain zero and `textureValid=false`; those zeroes are not source data.

@@ -14,6 +14,7 @@
 
 #include "core.h"
 #include "game.h"
+#include "mesh_face_format.h"
 #include "override_registry.h"
 
 #include <lucent/log.h>
@@ -30,6 +31,7 @@ namespace {
 constexpr uint32_t kRenderDisplayObject = 0x80076480u;
 constexpr uint32_t kSubmitMesh = 0x80077D64u;
 constexpr uint32_t kBuildFaces = 0x8007C4D8u;
+constexpr uint32_t kFaceControl = 0x1F8003F4u;
 
 // FUN_80076480 conditionally treats the object's byte-offset 0x38 field as a transform pointer.
 // Some paths do not use it, so the probe reports the raw field instead of laundering it into a
@@ -118,6 +120,98 @@ bool firstContext(uint32_t object, uint32_t mesh) {
 
 uint32_t faceWord(Core *c, uint32_t faces, uint32_t faceCount, uint32_t byteOffset) {
   return faces != 0u && faceCount != 0u ? c->mem_r32(faces + byteOffset) : 0u;
+}
+
+void logDecodedSourceFace(
+    Core *c, uint32_t faces, uint32_t faceCount, uint32_t vertices, uint16_t vertexCount) {
+  std::array<uint32_t, 7> words{};
+  words[0] = faceWord(c, faces, faceCount, 0u);
+  const uint32_t control = c->mem_r32(kFaceControl);
+  MeshFaceHeader header = decodeMeshFaceHeader(words[0], 0u, control);
+  const bool hasIndices = header.recordBytes >= 8u;
+  if (hasIndices) {
+    words[1] = faceWord(c, faces, faceCount, 4u);
+    header = decodeMeshFaceHeader(words[0], words[1], control);
+  }
+  for (uint32_t i = 2u; i < words.size(); ++i) {
+    if (header.recordBytes >= (i + 1u) * sizeof(uint32_t)) {
+      words[i] = faceWord(c, faces, faceCount, i * sizeof(uint32_t));
+    }
+  }
+  const bool textureValid = header.quad && header.directTexture && header.recordBytes >= 28u;
+  const MeshFt4TextureBinding texture =
+      textureValid ? decodeMeshFt4TextureBinding(header.flags, words[4], words[5], words[6])
+                   : MeshFt4TextureBinding{};
+  std::array<MeshSourceVertex, 4> sourceVertices{};
+  const uint32_t usedVertexCount = header.quad ? 4u : 3u;
+  bool indicesInRange = hasIndices && vertices != 0u;
+  for (uint32_t i = 0; i < usedVertexCount; ++i) {
+    const uint32_t index = header.vertexIndices[i];
+    indicesInRange = indicesInRange && index < vertexCount;
+    if (vertices != 0u && index < vertexCount) {
+      const uint32_t source = vertices + index * kRecordBytes;
+      sourceVertices[i] = decodeMeshSourceVertex(c->mem_r32(source), c->mem_r32(source + 4u));
+    }
+  }
+  lucent::debug("meshprobe",
+                "sourceFace raw=[{:08X} {:08X} {:08X} {:08X} {:08X} {:08X} {:08X}] "
+                "control={:08X} effective={:08X} stride={} flags={:04X} shape={} directTexture={} "
+                "textureValid={} indices=[{},{},{},{}] inRange={} "
+                "vertices=[({},{},{},{:04X}) ({},{},{},{:04X}) ({},{},{},{:04X}) "
+                "({},{},{},{:04X})] uv=[({},{}) ({},{}) ({},{}) ({},{})] "
+                "clut={:04X}@({}, {}) tpageRaw={:04X} tpage={:04X}@({}, {}) bpp={} blend={}",
+                words[0],
+                words[1],
+                words[2],
+                words[3],
+                words[4],
+                words[5],
+                words[6],
+                control,
+                header.effective,
+                header.recordBytes,
+                header.flags,
+                header.quad ? "quad" : "triangle",
+                header.directTexture,
+                textureValid,
+                header.vertexIndices[0],
+                header.vertexIndices[1],
+                header.vertexIndices[2],
+                header.vertexIndices[3],
+                indicesInRange,
+                sourceVertices[0].x,
+                sourceVertices[0].y,
+                sourceVertices[0].z,
+                sourceVertices[0].flags,
+                sourceVertices[1].x,
+                sourceVertices[1].y,
+                sourceVertices[1].z,
+                sourceVertices[1].flags,
+                sourceVertices[2].x,
+                sourceVertices[2].y,
+                sourceVertices[2].z,
+                sourceVertices[2].flags,
+                sourceVertices[3].x,
+                sourceVertices[3].y,
+                sourceVertices[3].z,
+                sourceVertices[3].flags,
+                texture.uv[0].u,
+                texture.uv[0].v,
+                texture.uv[1].u,
+                texture.uv[1].v,
+                texture.uv[2].u,
+                texture.uv[2].v,
+                texture.uv[3].u,
+                texture.uv[3].v,
+                texture.clut,
+                texture.clutX,
+                texture.clutY,
+                texture.encodedTpage,
+                texture.tpage,
+                texture.texturePageX,
+                texture.texturePageY,
+                texture.bitsPerPixel,
+                texture.blendMode);
 }
 
 void renderDisplayObject(Core *c) {
@@ -262,6 +356,9 @@ void buildFaces(Core *c) {
                   headerFaceCount,
                   layoutMatches);
   }
+  if (newContext && layoutMatches) {
+    logDecodedSourceFace(c, faces, faceCount, vertices, vertexCount);
+  }
   if (g_faceCalls == 1u || (g_faceCalls % 4096u) == 0u) {
     logProgress();
   }
@@ -281,18 +378,21 @@ void spiderman_install_mesh_probe(Game *) {
   const bool rejectsPerturbation = !argsMatch(control, 0x8010003Cu, 0x80100048u, 1u);
   const bool guardsEmptyFaces =
       faceWord(nullptr, 0u, 1u, 0u) == 0u && faceWord(nullptr, 0x80100044u, 0u, 0u) == 0u;
-  if (!acceptsBaseline || !rejectsPerturbation || !guardsEmptyFaces) {
+  const bool decodesFaceFormat = meshFaceFormatSelftest();
+  if (!acceptsBaseline || !rejectsPerturbation || !guardsEmptyFaces || !decodesFaceFormat) {
     lucent::error("meshprobe",
-                  "SELFTEST FAILED (baseline={}, perturbed={}, emptyFaceGuard={}) — wrappers NOT "
-                  "installed",
+                  "SELFTEST FAILED (baseline={}, perturbed={}, emptyFaceGuard={}, faceFormat={}) "
+                  "— wrappers NOT installed",
                   acceptsBaseline ? "accepted" : "rejected",
                   rejectsPerturbation ? "rejected" : "accepted",
-                  guardsEmptyFaces ? "guarded" : "read");
+                  guardsEmptyFaces ? "guarded" : "read",
+                  decodesFaceFormat ? "decoded" : "wrong");
     return;
   }
   lucent::info("meshprobe",
                "SELFTEST PASS: accepted the header-derived pointers and rejected a +4-byte "
-               "face-stream perturbation; null and empty face streams were not read");
+               "face-stream perturbation; null and empty face streams were not read; executable-"
+               "derived face decoding passed");
   engine_set_override_main(kRenderDisplayObject, renderDisplayObject, gen_func_80076480);
   engine_set_override_main(kSubmitMesh, submitMesh, gen_func_80077D64);
   engine_set_override_main(kBuildFaces, buildFaces, gen_func_8007C4D8);
