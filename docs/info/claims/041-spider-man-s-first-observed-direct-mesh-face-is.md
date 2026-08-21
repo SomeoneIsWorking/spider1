@@ -5,8 +5,8 @@ status: holds
 created: 2026-08-21
 tags: render,re-21,texture,asset-lifetime
 depends: game/render/mesh_probe.cpp#logDecodedSourceFace, game/render/texture_asset_probe.cpp#parsePsxAsset, game/render/texture_asset_probe.cpp#spiderman_report_texture_asset_binding, game/render/asset_upload_ledger.cpp#latestCovering
-reconfirmed: 2026-08-21 12:18:22
-verified_at: 2026-08-21 12:18:22
+reconfirmed: 2026-08-21 12:52:52
+verified_at: 2026-08-21 12:52:52
 ---
 
 ## Claim
@@ -36,3 +36,7 @@ Final repin to psxport 692b9b20: Clang rebuild and all four CTests passed. Bound
 ## Re-confirmed 2026-08-21 12:18:22
 
 Final Clang replay scratch/logs/re21-mesh-cook-live-final.log again resolved mesh 8018BC38 to live Dem1_G+0xB4 and the exact texture/CLUT targets to transient Dem1_L+0x2B30/+0x38 with sourceBytesLive=no; it also observed Dem1_G unload. The upload-ledger and new retained-cook opposite-answer tests passed.
+
+## Re-confirmed 2026-08-21 12:52:52
+
+Post-landing live replay still identified Dem1_G+0xB4 as retained geometry and Dem1_L transient texture/CLUT sources with explicit unload and zero ownership failures.

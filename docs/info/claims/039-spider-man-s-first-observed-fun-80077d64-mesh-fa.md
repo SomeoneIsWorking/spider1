@@ -5,8 +5,8 @@ status: holds
 created: 2026-08-21
 tags: re-21,render,mesh-face,source-record
 depends: game/render/mesh_face_format.cpp#decodeMeshFaceHeader, game/render/mesh_face_format.cpp#decodeMeshFt4TextureBinding, game/render/mesh_probe.cpp#logDecodedSourceFace
-reconfirmed: 2026-08-21 12:18:22
-verified_at: 2026-08-21 12:18:22
+reconfirmed: 2026-08-21 12:52:51
+verified_at: 2026-08-21 12:52:51
 ---
 
 ## Claim
@@ -24,3 +24,7 @@ Any instruction-exact decode contradicts these flag/offset meanings, or a repeat
 ## Re-confirmed 2026-08-21 12:18:22
 
 The mesh format owner now also owns the previously duplicated header layout formula; face decoding itself is unchanged. Final Clang replay scratch/logs/re21-mesh-cook-live-final.log repeated the same 28-byte source face, indices, vertices, UVs, CLUT, TPAGE, and in-band format selftest PASS.
+
+## Re-confirmed 2026-08-21 12:52:51
+
+Post-landing Clang CTest passed 6/6 and the PID-owned live cook replay matched all 28 bytes of the first retained direct-textured face.

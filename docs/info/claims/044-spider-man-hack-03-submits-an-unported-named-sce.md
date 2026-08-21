@@ -5,8 +5,8 @@ status: holds
 created: 2026-08-21
 tags: render,re-21,hack-03
 depends: game/render/guest_frame_fallback.cpp#decideGuestFrameFallback, game/render/render_seam.cpp#RenderSeam::submitFrame, game/render/render_seam.cpp#RenderSeam::seamPass
-reconfirmed: 2026-08-21 12:45:07
-verified_at: 2026-08-21 12:45:07
+reconfirmed: 2026-08-21 12:52:52
+verified_at: 2026-08-21 12:52:52
 ---
 
 ## Claim
@@ -32,3 +32,7 @@ Final post-documentation Clang 22 rebuild and all six normal CTests passed; the 
 ## Re-confirmed 2026-08-21 12:45:07
 
 Final post-ownership-gate captured-PID retail replay scratch/logs/re21-guest-fallback-ownership-final.log submitted three dem1 and five l1a1 guest frames. Every line records nativeEnvelopeDelta=0, nativeSubmitted=0 and interpolation=0; the shipped seam now mechanically aborts if FrameEnvelope advanced during a fallback-selected call.
+
+## Re-confirmed 2026-08-21 12:52:52
+
+Post-landing guest_frame_fallback test passed; live Native-path evidence retained nativeSubmitted=0, nativeEnvelopeDelta=0, interpolation=0, while disabled and FPS60 controls refused with the named opposite answers.

@@ -5,8 +5,8 @@ status: holds
 created: 2026-08-20
 tags: re-21,render,mesh-layout
 depends: game/render/mesh_face_format.cpp#deriveMeshLayout, game/render/mesh_probe.cpp#buildFaces
-reconfirmed: 2026-08-21 12:18:22
-verified_at: 2026-08-21 12:18:22
+reconfirmed: 2026-08-21 12:52:51
+verified_at: 2026-08-21 12:52:51
 ---
 
 ## Claim
@@ -32,3 +32,7 @@ Any call to FUN_8007C4D8 nested under FUN_80077D64 reports layout=MISMATCH, or d
 ## Re-confirmed 2026-08-21 12:18:22
 
 The duplicated layout arithmetic was moved without semantic change into mesh_face_format.cpp#deriveMeshLayout. Final Clang replay scratch/logs/re21-mesh-cook-live-final.log repeated the in-band exact-versus-+4 selftest and live headerCounts 4/1/1 -> derived 8018BC54/8018BC74/8018BC7C with layout=MATCH.
+
+## Re-confirmed 2026-08-21 12:52:51
+
+Post-landing Clang CTest passed 6/6; the shared mesh layout derivation still produced the exact first-face layout and the live cook replay reported transform/layout MATCH with zero mismatches.

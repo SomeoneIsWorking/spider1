@@ -5,8 +5,8 @@ status: holds
 created: 2026-08-21
 tags: render,re-21,mesh,asset-lifetime
 depends: game/render/mesh_asset_cook.cpp#MeshAssetCookLedger, game/render/mesh_face_format.cpp#deriveMeshLayout, game/render/texture_asset_probe.cpp#parsePsxAsset, game/render/mesh_probe.cpp#logDecodedSourceFace
-reconfirmed: 2026-08-21 12:19:30
-verified_at: 2026-08-21 12:19:30
+reconfirmed: 2026-08-21 12:52:52
+verified_at: 2026-08-21 12:52:52
 ---
 
 ## Claim
@@ -36,3 +36,7 @@ Final DRY integration moved the shared mesh layout formula into mesh_face_format
 ## Re-confirmed 2026-08-21 12:19:30
 
 Final naming cleanup changed no semantics. Clang rebuilt the port, all five normal CTests including all-TU format/tidy passed, and the captured-PID NOPACE real-disc replay again reached Dem1 in five seconds with raw=2/2 cooked=2/2 structuralExact=2 refused=0 plus all-28-byte retained source MATCH and explicit unload.
+
+## Re-confirmed 2026-08-21 12:52:52
+
+Post-landing mesh_asset_cook test passed and the live ledger reported raw=2/2 cooked=2/2 structuralExact=2 with the later 28-byte source record MATCH.
