@@ -7,19 +7,22 @@
 //       -> FUN_8007C4D8(faceStream, secondaryRecords, faceCount)
 //
 // FUN_80077D64 derives all three FUN_8007C4D8 arguments from the mesh header. This observe-only
-// probe checks that derivation against a running game and names the display object and transform
-// that own each mesh. Those are producer inputs; unlike the ordering table and projected GTE
-// output, a future native renderer is allowed to consume them.
+// probe checks that derivation against a running game and names the actual object, camera matrix,
+// and relative translation that own each mesh. Those are producer inputs; unlike the ordering
+// table, projected GTE output, or live GTE registers, a future native renderer is allowed to
+// consume them.
 #include "mesh_probe.h"
 
 #include "core.h"
 #include "game.h"
 #include "mesh_face_format.h"
+#include "mesh_transform.h"
 #include "override_registry.h"
 
 #include <lucent/log.h>
 
 #include <cstdint>
+#include <cstring>
 
 extern void gen_func_80076480(Core *);
 extern void gen_func_80077D64(Core *);
@@ -32,13 +35,8 @@ constexpr uint32_t kRenderDisplayObject = 0x80076480u;
 constexpr uint32_t kSubmitMesh = 0x80077D64u;
 constexpr uint32_t kBuildFaces = 0x8007C4D8u;
 constexpr uint32_t kFaceControl = 0x1F8003F4u;
-
-// FUN_80076480 conditionally treats the object's byte-offset 0x38 field as a transform pointer.
-// Some paths do not use it, so the probe reports the raw field instead of laundering it into a
-// pointer unconditionally. Its position is three signed 20.12 values at byte offsets
-// 0x08/0x10/0x18; the function subtracts the camera position before passing a three-word
-// translation to FUN_80077D64.
-constexpr uint32_t kObjectField38 = 0x38u;
+constexpr uint32_t kCameraGlobal = 0x1128u;
+constexpr uint32_t kCameraRotation = 0x74u;
 
 // FUN_80077D64's mesh layout, from its instruction-exact pointer arithmetic:
 //   +0x02 u16 source-vertex count
@@ -54,17 +52,18 @@ constexpr uint32_t kMeshVertices = 0x1Cu;
 constexpr uint32_t kRecordBytes = 8u;
 
 struct ActiveSubmission {
-  uint32_t object = 0;
-  uint32_t objectField38 = 0;
+  uint32_t listHead = 0;
+  uint32_t owner = 0;
+  uint32_t returnAddress = 0;
+  uint32_t camera = 0;
   uint32_t mesh = 0;
   uint32_t relativeTranslation = 0;
-  int32_t relativeX = 0;
-  int32_t relativeY = 0;
-  int32_t relativeZ = 0;
+  MeshDirectTransformInput transformInput;
+  MeshDirectTransformContract transform;
 };
 
 struct SeenContext {
-  uint32_t object = 0;
+  uint32_t owner = 0;
   uint32_t mesh = 0;
 };
 
@@ -88,9 +87,11 @@ uint64_t g_faceCalls = 0;
 uint64_t g_contextualFaceCalls = 0;
 uint64_t g_orphanFaceCalls = 0;
 uint64_t g_layoutMismatches = 0;
+uint64_t g_transformMismatches = 0;
 SeenContext g_seen[64];
 uint32_t g_seenCount = 0;
 uint32_t g_orphanLines = 0;
+uint32_t g_transformMismatchLines = 0;
 
 MeshLayout deriveLayout(uint32_t mesh, const MeshCounts &counts) {
   MeshLayout layout;
@@ -105,17 +106,29 @@ bool argsMatch(const MeshLayout &layout, uint32_t secondary, uint32_t faces, uin
   return secondary == layout.secondary && faces == layout.faces && faceCount == layout.faceCount;
 }
 
-bool firstContext(uint32_t object, uint32_t mesh) {
+bool firstContext(uint32_t owner, uint32_t mesh) {
   for (uint32_t i = 0; i < g_seenCount; ++i) {
-    if (g_seen[i].object == object && g_seen[i].mesh == mesh) {
+    if (g_seen[i].owner == owner && g_seen[i].mesh == mesh) {
       return false;
     }
   }
   if (g_seenCount == 64u) {
     return false;
   }
-  g_seen[g_seenCount++] = {object, mesh};
+  g_seen[g_seenCount++] = {owner, mesh};
   return true;
+}
+
+int32_t signedWord(uint32_t word) {
+  int32_t result = 0;
+  std::memcpy(&result, &word, sizeof(result));
+  return result;
+}
+
+int16_t signedHalf(uint16_t half) {
+  int16_t result = 0;
+  std::memcpy(&result, &half, sizeof(result));
+  return result;
 }
 
 uint32_t faceWord(Core *c, uint32_t faces, uint32_t faceCount, uint32_t byteOffset) {
@@ -216,37 +229,59 @@ void logDecodedSourceFace(
 
 void renderDisplayObject(Core *c) {
   const ActiveSubmission previous = g_active;
-  g_active.object = c->r[4];
-  g_active.objectField38 = g_active.object ? c->mem_r32(g_active.object + kObjectField38) : 0u;
+  g_active.listHead = c->r[4];
   ++g_objectCalls;
   gen_func_80076480(c);
   g_active = previous;
 }
 
 void submitMesh(Core *c) {
-  const uint32_t previousMesh = g_active.mesh;
-  const uint32_t previousTranslation = g_active.relativeTranslation;
-  const int32_t previousX = g_active.relativeX;
-  const int32_t previousY = g_active.relativeY;
-  const int32_t previousZ = g_active.relativeZ;
+  const ActiveSubmission previous = g_active;
+  g_active.owner = c->r[19]; // s3: FUN_80076480's current object in its internal list walk.
+  g_active.returnAddress = c->r[31];
   g_active.mesh = c->r[4];
   g_active.relativeTranslation = c->r[5];
+
+  MeshDirectTransformInput &input = g_active.transformInput;
+  input = {};
+  input.ownerPresent = g_active.owner != 0u;
+  input.relativePresent = g_active.relativeTranslation != 0u;
+  input.returnAddress = g_active.returnAddress;
+  if (input.ownerPresent) {
+    input.objectFlags = c->mem_r16(g_active.owner);
+    for (uint32_t axis = 0; axis < 3u; ++axis) {
+      input.objectPosition20p12[axis] =
+          signedWord(c->mem_r32(g_active.owner + 4u + axis * sizeof(uint32_t)));
+      input.objectRotation[axis] =
+          signedHalf(c->mem_r16(g_active.owner + 0x10u + axis * sizeof(uint16_t)));
+    }
+  }
+
+  g_active.camera = c->mem_r32(c->r[28] + kCameraGlobal);
+  input.cameraPresent = g_active.camera != 0u;
+  if (input.cameraPresent) {
+    for (uint32_t axis = 0; axis < 3u; ++axis) {
+      input.cameraPosition[axis] =
+          signedWord(c->mem_r32(g_active.camera + 4u + axis * sizeof(uint32_t)));
+    }
+    for (uint32_t word = 0; word < input.cameraRotationWords.size(); ++word) {
+      input.cameraRotationWords[word] =
+          c->mem_r32(g_active.camera + kCameraRotation + word * sizeof(uint32_t));
+    }
+  }
   if (g_active.relativeTranslation != 0u) {
-    g_active.relativeX = static_cast<int32_t>(c->mem_r32(g_active.relativeTranslation));
-    g_active.relativeY = static_cast<int32_t>(c->mem_r32(g_active.relativeTranslation + 4u));
-    g_active.relativeZ = static_cast<int32_t>(c->mem_r32(g_active.relativeTranslation + 8u));
-  } else {
-    g_active.relativeX = 0;
-    g_active.relativeY = 0;
-    g_active.relativeZ = 0;
+    for (uint32_t axis = 0; axis < 3u; ++axis) {
+      input.passedRelative[axis] = signedWord(c->mem_r32(
+          g_active.relativeTranslation + axis * static_cast<uint32_t>(sizeof(uint32_t))));
+    }
+  }
+  g_active.transform = inspectMeshDirectTransform(input);
+  if (!g_active.transform.directPathMatches) {
+    ++g_transformMismatches;
   }
   ++g_meshCalls;
   gen_func_80077D64(c);
-  g_active.mesh = previousMesh;
-  g_active.relativeTranslation = previousTranslation;
-  g_active.relativeX = previousX;
-  g_active.relativeY = previousY;
-  g_active.relativeZ = previousZ;
+  g_active = previous;
 }
 
 void logFaceSample(Core *c,
@@ -262,21 +297,49 @@ void logFaceSample(Core *c,
                    bool layoutMatches) {
   lucent::debug(
       "meshprobe",
-      "faceCall={} frame={} object={:08X} objectFlags={:04X} field38={:08X} mesh={:08X} "
-      "relTrans={:08X} rel=({},{},{}) "
+      "faceCall={} frame={} listHead={:08X} owner={:08X} objectFlags={:04X} "
+      "returnAddress={:08X} mesh={:08X} camera={:08X} "
+      "objectPosition20p12=({},{},{}) objectRotation=({},{},{}) cameraPosition=({},{},{}) "
+      "relTrans={:08X} passedRel=({},{},{}) expectedRel=({},{},{}) "
+      "cameraRotation=[{},{},{};{},{},{};{},{},{}] transform={} "
       "headerCounts(v={}, secondary={}, faces={}) derived(vertices={:08X}, secondary={:08X}, "
       "faces={:08X}) args(secondary={:08X}, faces={:08X}, count={}) layout={} firstFace=[{:08X} "
       "{:08X}]",
       g_faceCalls,
       gpu_frame_no(c),
-      g_active.object,
-      g_active.object ? c->mem_r16(g_active.object) : 0u,
-      g_active.objectField38,
+      g_active.listHead,
+      g_active.owner,
+      g_active.transformInput.objectFlags,
+      g_active.returnAddress,
       g_active.mesh,
+      g_active.camera,
+      g_active.transformInput.objectPosition20p12[0],
+      g_active.transformInput.objectPosition20p12[1],
+      g_active.transformInput.objectPosition20p12[2],
+      g_active.transformInput.objectRotation[0],
+      g_active.transformInput.objectRotation[1],
+      g_active.transformInput.objectRotation[2],
+      g_active.transformInput.cameraPosition[0],
+      g_active.transformInput.cameraPosition[1],
+      g_active.transformInput.cameraPosition[2],
       g_active.relativeTranslation,
-      g_active.relativeX,
-      g_active.relativeY,
-      g_active.relativeZ,
+      g_active.transformInput.passedRelative[0],
+      g_active.transformInput.passedRelative[1],
+      g_active.transformInput.passedRelative[2],
+      g_active.transform.expectedRelative[0],
+      g_active.transform.expectedRelative[1],
+      g_active.transform.expectedRelative[2],
+      g_active.transform.cameraRotation[0],
+      g_active.transform.cameraRotation[1],
+      g_active.transform.cameraRotation[2],
+      g_active.transform.cameraRotation[3],
+      g_active.transform.cameraRotation[4],
+      g_active.transform.cameraRotation[5],
+      g_active.transform.cameraRotation[6],
+      g_active.transform.cameraRotation[7],
+      g_active.transform.cameraRotation[8],
+      g_active.mesh == 0u ? "NO-CONTEXT"
+                          : (g_active.transform.directPathMatches ? "MATCH" : "MISMATCH"),
       vertexCount,
       secondaryCount,
       headerFaceCount,
@@ -292,16 +355,18 @@ void logFaceSample(Core *c,
 }
 
 void logProgress() {
-  lucent::info("meshprobe",
-               "PROGRESS faceCalls={} contextual={} orphan={} layoutMismatches={} "
-               "objectCalls={} meshCalls={} uniqueContexts={}",
-               g_faceCalls,
-               g_contextualFaceCalls,
-               g_orphanFaceCalls,
-               g_layoutMismatches,
-               g_objectCalls,
-               g_meshCalls,
-               g_seenCount);
+  lucent::info(
+      "meshprobe",
+      "PROGRESS faceCalls={} contextual={} orphan={} layoutMismatches={} transformMismatches={} "
+      "objectCalls={} meshCalls={} uniqueContexts={}",
+      g_faceCalls,
+      g_contextualFaceCalls,
+      g_orphanFaceCalls,
+      g_layoutMismatches,
+      g_transformMismatches,
+      g_objectCalls,
+      g_meshCalls,
+      g_seenCount);
 }
 
 void buildFaces(Core *c) {
@@ -335,15 +400,21 @@ void buildFaces(Core *c) {
     ++g_orphanFaceCalls;
   }
 
-  const bool newContext = g_active.mesh != 0u && firstContext(g_active.object, g_active.mesh);
+  const bool newContext = g_active.mesh != 0u && firstContext(g_active.owner, g_active.mesh);
   const bool sampleOrphan = g_active.mesh == 0u && g_orphanLines < 8u;
+  const bool sampleTransformMismatch =
+      g_active.mesh != 0u && !g_active.transform.directPathMatches && g_transformMismatchLines < 8u;
   if (sampleOrphan) {
     ++g_orphanLines;
+  }
+  if (sampleTransformMismatch) {
+    ++g_transformMismatchLines;
   }
   // Print each object/mesh context once, a tiny bounded sample of calls from other builders, and
   // every mismatch. The periodic summary below carries the full denominator, so a quiet tail never
   // masquerades as a probe that stopped running.
-  if (newContext || sampleOrphan || (g_active.mesh != 0u && !layoutMatches)) {
+  if (newContext || sampleOrphan || sampleTransformMismatch ||
+      (g_active.mesh != 0u && !layoutMatches)) {
     logFaceSample(c,
                   faces,
                   secondary,
@@ -379,24 +450,30 @@ void spiderman_install_mesh_probe(Game *) {
   const bool guardsEmptyFaces =
       faceWord(nullptr, 0u, 1u, 0u) == 0u && faceWord(nullptr, 0x80100044u, 0u, 0u) == 0u;
   const bool decodesFaceFormat = meshFaceFormatSelftest();
-  if (!acceptsBaseline || !rejectsPerturbation || !guardsEmptyFaces || !decodesFaceFormat) {
+  const bool validatesTransform = meshDirectTransformSelftest();
+  if (!acceptsBaseline || !rejectsPerturbation || !guardsEmptyFaces || !decodesFaceFormat ||
+      !validatesTransform) {
     lucent::error("meshprobe",
-                  "SELFTEST FAILED (baseline={}, perturbed={}, emptyFaceGuard={}, faceFormat={}) "
-                  "— wrappers NOT installed",
+                  "SELFTEST FAILED (baseline={}, perturbed={}, emptyFaceGuard={}, faceFormat={}, "
+                  "directTransform={}) — wrappers NOT installed",
                   acceptsBaseline ? "accepted" : "rejected",
                   rejectsPerturbation ? "rejected" : "accepted",
                   guardsEmptyFaces ? "guarded" : "read",
-                  decodesFaceFormat ? "decoded" : "wrong");
+                  decodesFaceFormat ? "decoded" : "wrong",
+                  validatesTransform ? "validated" : "wrong");
     return;
   }
   lucent::info("meshprobe",
                "SELFTEST PASS: accepted the header-derived pointers and rejected a +4-byte "
                "face-stream perturbation; null and empty face streams were not read; executable-"
-               "derived face decoding passed");
+               "derived face decoding passed; the direct transform accepted exact source inputs "
+               "and rejected relative, rotation, scale, and callsite perturbations");
   engine_set_override_main(kRenderDisplayObject, renderDisplayObject, gen_func_80076480);
   engine_set_override_main(kSubmitMesh, submitMesh, gen_func_80077D64);
   engine_set_override_main(kBuildFaces, buildFaces, gen_func_8007C4D8);
-  lucent::info("meshprobe",
-               "ARMED observe-only wrappers on 80076480 -> 80077D64 -> 8007C4D8; no faceCall line "
-               "means this render chain never ran. Every wrapper super-calls the guest body.");
+  lucent::info(
+      "meshprobe",
+      "ARMED observe-only wrappers on 80076480 -> 80077D64 -> 8007C4D8; the owner is "
+      "captured from FUN_80076480 s3, not its outer list head. No faceCall line means this "
+      "render chain never ran. Every wrapper super-calls the guest body.");
 }

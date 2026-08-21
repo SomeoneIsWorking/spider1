@@ -74,6 +74,11 @@ add_subdirectory(${PSXPORT_DIR}/vendor/beetle-psx/deps/libchdr
 include(cmake/spiderman_port.cmake)
 
 if(BUILD_TESTING)
+  add_executable(mesh_transform_contract_test
+    tests/mesh_transform_contract_test.cpp
+    game/render/mesh_transform.cpp)
+  target_include_directories(mesh_transform_contract_test PRIVATE game/render)
+  add_test(NAME mesh_transform_contract COMMAND mesh_transform_contract_test)
   add_test(
     NAME launcher_policy
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/run.py --selftest

@@ -61,3 +61,6 @@ reaches the screen.
 
 ### Note (2026-08-21)
 2026-08-21 RE-21 advanced one dependency-ready step: executable disassembly plus the live source-boundary probe decoded the first observed mesh face as a 28-byte direct-textured quad with four source vertex indices, UVs, CLUT and texture page (C039; scratch/logs/gate-boot-20260821-025743.log). This does not close the issue: no display-list producer exists yet, so the dem1 pixel gate is still unavailable.
+
+### Note (2026-08-21)
+2026-08-21 RE-21 advanced its next dependency without adding a producer: retail disassembly and the source-boundary validator establish the zero-rotation/unscaled object-local-to-camera contract (C040/I034). The live log scratch/logs/gate-boot-20260821-032403.log matched (objectPosition20p12 sra 12)-cameraPosition at both direct FUN_80077D64 callsites under distinct matrices. It also corrected a prior probe attribution: 0x8018BB90/flags 0x9000 was the outer list head, while actual first owner 0x8018BBB4 has flags 0x0000. This issue remains open because no display-list producer or meaningful pixel A/B exists.

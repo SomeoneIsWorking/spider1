@@ -24,6 +24,14 @@ source vertices, UVs, CLUT, stored TPAGE `0x0008`, and effective TPAGE `0x0028` 
 the first contextual mesh face. A second contextual mesh independently decoded a 32-byte record
 with valid vertices and material fields. The installed self-test perturbs the scratchpad control
 word and checks the resulting effective flags and TPAGE blend bits.
+The transform extension captures the actual current object from `s3` at `FUN_80077D64`, separately
+from `FUN_80076480`'s outer list head. In `scratch/logs/gate-boot-20260821-032403.log` it reported
+`transform=MATCH` at both legal direct-path return addresses with distinct owners, relative vectors,
+and camera matrices. The first line corrected the old attribution: list head `0x8018BB90` is not the
+owner; owner `0x8018BBB4` has flags `0x0000`.
+The final eight-second PID-bounded replay, `scratch/logs/re21-transform-final.log`, repeated the
+in-band self-test and first contextual transform MATCH with zero transform mismatches; unrelated
+face-builder calls now label both transform and layout `NO-CONTEXT` instead of implying a mismatch.
 
 ## Known failure modes
 
@@ -33,6 +41,10 @@ extent of the wrapped `FUN_80077D64` is deliberately reported as `NO-CONTEXT`; t
 attribute those callers. Context is tracked with process-global nesting state and therefore assumes
 these guest render calls are serialized on one execution thread. A null relative-translation pointer
 is reported as `(0,0,0)` rather than dereferenced.
+The direct-transform result applies only inside the dynamic extent of wrapped `FUN_80077D64` and
+only to its two statically proven zero-rotation/unscaled callsites. It does not read live GTE
+registers and therefore cannot validate later GTE saturation/projection output. The source-vertex
+flag `0x10` branch remains a separate, unproved transform variant.
 An empty or null face stream reports zero sample words rather than being dereferenced.
 The source-record line is emitted only for a new contextual object/mesh pair whose derived layout
 matches. It therefore proves that sampled record, not every face format or every caller. Fields that
