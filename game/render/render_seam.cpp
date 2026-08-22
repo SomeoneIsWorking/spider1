@@ -40,6 +40,7 @@
 #include "frame_envelope.h"
 #include "game.h"
 #include "game_iface.h"
+#include "guest_frame_commit.h"
 #include "guest_frame_fallback.h"
 #include "recomp_iface.h"
 #include "render_substrate.h"
@@ -330,6 +331,9 @@ void RenderSeam::submitFrame(Core *c) {
       }
       GuestFrameFallbackModeScope pureGuestPackets(c->rsub.mode);
       superCall(c);
+      // Keep the Gte scope active through presentation: this debt path must not gain native
+      // enhancements merely because its guest packets have already been captured.
+      spiderman::render::commitCapturedGuestFrame(c);
       ++mFallbackSubmitted;
       if (mFallbackSubmitted <= 8 || mFallbackSubmitted % kReportEvery == 0) {
         lucent::info(
@@ -341,6 +345,7 @@ void RenderSeam::submitFrame(Core *c) {
       }
     } else {
       superCall(c);
+      spiderman::render::commitCapturedGuestFrame(c);
     }
     // THE EQUIVALENCE CHECK RUNS AFTER THE SUPER-CALL, and the ordering is the whole point: the
     // guest builds this frame's DR_ENV inside PutDrawEnv, so before the super-call the packet in

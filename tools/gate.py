@@ -115,6 +115,7 @@ FAIL_PATTERNS = [
     r'recomp[- ]MISS',
     r'rec_dispatch miss',
     r'\[watchdog\] STUCK',
+    r'Fps60::rq_capture OVERFLOW',
     r'Segmentation fault',
     r'std::bad_alloc',
     r'display_pass_write_guard|guest write during the display pass',
@@ -517,18 +518,23 @@ def selftest() -> int:
     cases.append(("frame watchdog STUCK",
                   GOOD_LOG + "\n[watchdog] STUCK: no frame presented within the timeout — backtrace:\n",
                   134, 1, 240))
-    # 10. an unexplained non-zero exit
+    # 10. the guest loop omitted the unified render queue's per-game-frame fence
+    cases.append(("captured render queue crossed frames until it overflowed",
+                  GOOD_LOG + "[fps60:error] Fps60::rq_capture OVERFLOW: 65291 captured + 312 "
+                             "this flush > FPS60_RQ_MAX 65536. Raise the cap; do not drop prims.\n",
+                  134, 1, 240))
+    # 11. an unexplained non-zero exit
     cases.append(("unexplained exit code", GOOD_LOG, 1, 1, 240))
-    # 11. GPU device loss must be its OWN verdict (exit 3), not a mere FAIL
+    # 12. GPU device loss must be its OWN verdict (exit 3), not a mere FAIL
     cases.append(("GPU device loss => exit 3",
                   GOOD_LOG + "radv/amdgpu: The CS has been cancelled because the context is lost.\n",
                   130, 3, 240))
-    # 12. no output at all must REFUSE (exit 2), never pass
+    # 13. no output at all must REFUSE (exit 2), never pass
     cases.append(("zero output => REFUSE", "", None, 2, 240))
-    # 13. too few progress lines to speak about advance must REFUSE, not pass
+    # 14. too few progress lines to speak about advance must REFUSE, not pass
     short = re.sub(r"\[rseam\] submitFrame calls=(?:1024|5120|5632)[^\n]*\n", "", GOOD_LOG)
     cases.append(("one progress line => REFUSE", short, 130, 2, 240))
-    # 14. A SHORT log that ALSO carries a real abort must FAIL, not refuse. This case exists because the
+    # 15. A SHORT log that ALSO carries a real abort must FAIL, not refuse. This case exists because the
     # first version of this gate got it wrong on a REAL log (scratch/re20/logs/pcleg_final.log): the
     # pc_render leg aborts at submitFrame call #2, i.e. long before a periodic progress line, and the
     # short-log refusal fired ahead of the pattern check and reported "nothing proven" over a FATAL it

@@ -70,7 +70,7 @@ INST-20 states exactly where its blindness starts.
 
 ---
 
-## INST-28 — `tools/gate.py` (THE RUN GATE) — **trusted for BOOT REACH, after being seen to fail 16 ways; blind to pixels and to the pc_render leg. Added 2026-08-12, launcher audited the same day**
+## INST-28 — `tools/gate.py` (THE RUN GATE) — **trusted for BOOT REACH, after being seen to fail 17 ways; blind to pixels and to the pc_render leg. Added 2026-08-12, extended 2026-08-22**
 
 *What it shows:* whether the already-built `scratch/bin/spiderman_port` still boots and keeps
 advancing. `gate.py boot` launches it headless under `gpuguard run --timeout N` (never `./run.sh`) and
@@ -84,10 +84,12 @@ that services the REPL (`game/core/game_hooks.cpp` rec_dispatches the guest main
 and the port's own cfg audit reports `PSXPORT_REPL` as a knob that "did NOTHING in this run". So the
 gate cannot step the game; it can only read what a capped launch printed. See issue 0014.
 
-*Validated in BOTH directions, which is the whole point:* `--selftest` runs 17 cases — 15 through the
+*Validated in BOTH directions, which is the whole point:* `--selftest` runs 18 cases — 16 through the
 SAME `analyse()` the real gate uses plus 2 through the REAL launcher — and 1 known-good capture PASSES
-while 16 broken variants are caught (11 FAIL, 4 REFUSE, 1 GPU-device-loss STOP), each keyed on exactly
-one changed line. It also fires on REAL logs, not just synthetic ones: `check-log scratch/re20/logs/pcleg_final.log` → exit 1 on the pc_render leg's
+while 17 broken variants are caught (12 FAIL, 4 REFUSE, 1 GPU-device-loss STOP), each keyed on exactly
+one changed line. The added case feeds the exact `Fps60::rq_capture OVERFLOW` that issue 0017's
+pre-fix live runs emitted; the analyser now fails it by name instead of returning an ambiguous
+short-run refusal. It also fires on REAL logs, not just synthetic ones: `check-log scratch/re20/logs/pcleg_final.log` → exit 1 on the pc_render leg's
 genuine `[FATAL:error] unimplemented native rendering` abort, and `check-log
 scratch/logs/gate_newpin.log` → exit 3 on a real `context is lost` line from an earlier run.
 

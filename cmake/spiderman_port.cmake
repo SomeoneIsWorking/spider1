@@ -40,6 +40,7 @@ set(GAME_SRC
   game/render/gpu_env.cpp         # DRAWENV/DISPENV lenses + the ported libgpu word builders
   game/render/frame_envelope.cpp  # THE FIRST NATIVE PRODUCER: page flip + draw area + clear
   game/render/guest_frame_fallback.cpp  # HACK-03 mutually exclusive guest-frame safety gate
+  game/render/guest_frame_commit.cpp  # game-owned queue fence at retail submitFrame
   game/render/render_seam.cpp)    # the render seam on the engine's submitFrame (RE-20)
 
 # ---- the recompiled substrate -----------------------------------------------------------------
