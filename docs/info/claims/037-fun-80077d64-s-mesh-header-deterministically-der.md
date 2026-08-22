@@ -5,8 +5,8 @@ status: holds
 created: 2026-08-20
 tags: re-21,render,mesh-layout
 depends: game/render/mesh_face_format.cpp#deriveMeshLayout, game/render/mesh_probe.cpp#buildFaces
-reconfirmed: 2026-08-21 12:52:51
-verified_at: 2026-08-21 12:52:51
+reconfirmed: 2026-08-22 19:16:22
+verified_at: 2026-08-22 19:16:22
 ---
 
 ## Claim
@@ -36,3 +36,7 @@ The duplicated layout arithmetic was moved without semantic change into mesh_fac
 ## Re-confirmed 2026-08-21 12:52:51
 
 Post-landing Clang CTest passed 6/6; the shared mesh layout derivation still produced the exact first-face layout and the live cook replay reported transform/layout MATCH with zero mismatches.
+
+## Re-confirmed 2026-08-22 19:16:22
+
+Post-commit af8a3c0 face-builder census and mesh tests pass; bounded dem1 run records 593 direct FUN_80077D64 calls and preserves the measured mesh-header relationship.

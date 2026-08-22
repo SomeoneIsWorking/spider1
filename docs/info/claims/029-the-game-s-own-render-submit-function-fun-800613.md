@@ -5,8 +5,8 @@ status: holds
 created: 2026-08-06
 tags: render,frame-loop,drawotag,re-12,re-19,re-20,seam
 depends: game/render/render_seam.cpp#RenderSeam::submitFrame, game/core/spider_runtime.cpp#SpiderRuntime::registerOverrides
-reconfirmed: 2026-08-22 14:22:52
-verified_at: 2026-08-22 14:22:52
+reconfirmed: 2026-08-22 19:16:22
+verified_at: 2026-08-22 19:16:22
 ---
 
 ## Claim
@@ -24,3 +24,7 @@ Run the port with an override installed at 0x80061308 that does NOT super-call. 
 ## Re-confirmed 2026-08-22 14:22:52
 
 2026-08-22 after SpiderRuntime migration: scratch/logs/gate-boot-20260822-141229.log reports render seam installed at 0x80061308 and fired on call 1/frame 2/ra 0x80061218, then advanced to 6144 calls across 10 scene changes with no failure pattern.
+
+## Re-confirmed 2026-08-22 19:16:22
+
+Post-commit af8a3c0 authoritative Clang CTest passes 8/8; SpiderRuntime still installs the game-owned FUN_80061308 submitFrame seam.

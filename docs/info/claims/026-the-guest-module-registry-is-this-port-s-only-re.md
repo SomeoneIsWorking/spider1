@@ -5,6 +5,8 @@ status: holds
 created: 2026-08-06
 tags: render,classifyScene,scene-identity,module-registry,re-13,tomba2-pattern
 depends: game/core/module_loader.cpp, external/psxport/runtime/recomp/overlay_router.cpp, docs/re-frontier.md
+reconfirmed: 2026-08-22 19:16:22
+verified_at: 2026-08-22 19:16:22
 ---
 
 ## Claim
@@ -18,3 +20,7 @@ The guest module registry is this port's ONLY RE'd scene-identity source, and it
 ## What would falsify it
 
 RE-13 landing a real scheduler/stage lens, OR anyone finding a guest field that separates the attract fly-through from live gameplay. Re-run the census and check whether any module event falls after present 780, and whether two visually distinct scenes ever differ in resident set.
+
+## Re-confirmed 2026-08-22 19:16:22
+
+Post-commit af8a3c0 bounded allocator/census A/B reaches dem1 on the healthy leg while module-loader auditing adds only first-write observation; scene registry ownership remains unchanged.

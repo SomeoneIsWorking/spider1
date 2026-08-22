@@ -3,8 +3,10 @@ id: C045
 kind: claim
 status: holds
 created: 2026-08-22
-tags:
+tags: []
 depends: game/render/guest_frame_commit.cpp#commitCapturedGuestFrame, game/render/render_seam.cpp#RenderSeam::submitFrame, tools/gate.py#FAIL_PATTERNS
+reconfirmed: 2026-08-22 19:16:22
+verified_at: 2026-08-22 19:16:22
 ---
 
 ## Claim
@@ -24,3 +26,7 @@ this agent's permitted measurement scope.
 ## What would falsify it
 
 Falsified if any bounded headless Gte or Native-fallback run reaches Fps60::rq_capture OVERFLOW, if FUN_80061308 ceases to be one complete game-frame submission, or if commitCapturedGuestFrame no longer runs once after each guest submission.
+
+## Re-confirmed 2026-08-22 19:16:22
+
+Post-commit af8a3c0 gate selftest passes 19/19 including allocator and memory error verdicts; authoritative Clang CTest passes 8/8.
