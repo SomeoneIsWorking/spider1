@@ -7,7 +7,7 @@ created: 2026-08-06
 
 ## Instrument
 
-PSXPORT_FNTRACE=<addr>,... AS A REACHABILITY + OVERRIDE-ABILITY census (external/psxport/runtime/recomp/fntrace.cpp, wired here by game/core/game_hooks.cpp fntrace_init)
+PSXPORT_FNTRACE=<addr>,... AS A REACHABILITY + OVERRIDE-ABILITY census (external/psxport/runtime/recomp/fntrace.cpp, wired last by SpiderRuntime::registerOverrides)
 
 ## Validated by
 

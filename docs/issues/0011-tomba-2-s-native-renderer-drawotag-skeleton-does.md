@@ -32,10 +32,10 @@ Both are inside `native_step_frame`, which is only reached from the frame loop i
 (`native_boot.cpp:452`). And this port never gets there:
 
     native_boot_run -> native_crt0 -> crt0_setup + game_main
-                     -> game_init  -> hooks->bootInit
-                                   -> spiderman_bootInit: rec_dispatch(c, cfg->gameMain)   <-- never returns
+                     -> game_init  -> runtime->bootInit
+                                   -> SpiderRuntime::bootInit: rec_dispatch(c, gameMain)   <-- never returns
 
-`spiderman_bootInit` (game/core/game_hooks.cpp) dispatches the guest's own `main()` at 0x8002C354,
+`SpiderRuntime::bootInit` (game/core/spider_runtime.cpp) dispatches the guest's own `main()` at 0x8002C354,
 which is the game's own infinite loop. Control never returns to `game_init`, so `game_main`'s frame
 loop below it never starts.
 

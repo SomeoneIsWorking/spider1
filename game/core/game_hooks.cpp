@@ -1,17 +1,20 @@
-// game_hooks.cpp — the Spider-Man GameHooks vtable: the behaviour the PSX-generic framework calls
-// into. At Phase 0 this port owns NO game behaviour natively — every guest function still runs on
-// the recompiled substrate — so this table is deliberately small.
+// game_hooks.cpp — bounded compatibility callbacks not yet represented by GameRuntime interfaces.
+//
+// SpiderRuntime owns boot and override orchestration. This table remains only for framework paths
+// whose callbacks have not yet migrated to narrow typed owners.
 //
 // There are exactly two kinds of member here, and the distinction is the point:
 //
-//   NEUTRAL   — the hook asks "what does the GAME's native code contribute here?", and the honest
+//   NEUTRAL   — the callback asks "what does the GAME's native code contribute here?", and the
+//   honest
 //               Phase-0 answer is "nothing, because nothing is owned yet". A neutral body is the
-//               CORRECT semantic, not a placeholder. (registerOverrides: no clusters exist.
-//               renderFadeState: mode 0 is the framework's own "no fade applied" — see gpu_vk.cpp
+//               CORRECT semantic, not a placeholder. (renderFadeState: mode 0 is the framework's
+//               own "no fade applied" — see gpu_vk.cpp
 //               dump_to, which only alters pixels for mode 1/2. renderBbFrameReset: no billboard
 //               records are kept because no native renderer records any.)
 //
-//   FAIL-FAST — the hook is only ever called from a framework path this port has NOT yet stood up
+//   FAIL-FAST — the callback is only ever called from a framework path this port has NOT yet stood
+//   up
 //               (the Tomba-shaped native frame loop, PcScheduler stage bodies, the dev-warp/REPL
 //               game commands). Being called means the run wandered into an un-RE'd path, and the
 //               only correct response is to say so loudly and abort. A silent stub here would let a
@@ -22,49 +25,12 @@
 // signature has no way to fail loudly (they are never called on the Phase-0 boot path).
 #include "cfg.h"
 #include "core.h"
-#include "fntrace.h" // fntrace_init — PSXPORT_FNTRACE guest-function reach tracing
 #include "game_iface.h"
-#include "memcard.h" // card_overrides_init
+#include "legacy_game_interface.h"
 #include "str_skip_oracle.h"
 #include <stdlib.h>
 
-// ── boot ────────────────────────────────────────────────────────────────────────────────────────
-// The framework's crt0_setup (native_boot.cpp) has already reproduced Spider-Man's crt0 prologue
-// (BSS-zero, sp/gp, heap globals, InitHeap) — see game_config.cpp for the instruction-level
-// mapping. bootInit is what runs after it. Tomba!2 transcribes its guest boot prologue here because
-// it owns that code natively; this port owns none of it, so the honest Phase-0 body is the whole of
-// it: dispatch the guest's own main() and let the substrate run the game.
-//
-// This is Phase 0 of docs/re-frontier.md ("everything on substrate"), NOT a stopgap standing in for
-// a native boot — there is no native boot to stand in for yet.
-static void spiderman_bootInit(Core *c) {
-  cfg_logi("boot",
-           "Phase 0: dispatching guest main() 0x%08X on the recompiled substrate",
-           c->cfg->gameMain);
-  rec_dispatch(c, c->cfg->gameMain);
-}
-
 // ── neutral ─────────────────────────────────────────────────────────────────────────────────────
-extern void spiderman_install_diag_overrides(Game *); // game/core/diag_overrides.cpp
-extern void spiderman_install_cd_stream(Game *);      // game/core/cd_stream.cpp
-extern void spiderman_install_module_loader(Game *);  // game/core/module_loader.cpp
-
-static void spiderman_registerOverrides(Game *g) {
-  // No native BEHAVIOUR overrides exist yet — this port owns no game function. The only thing
-  // installed here is diagnostic, and only when its channel is on: a wrapper that logs and then
-  // super-calls the original body, so a run with it enabled executes what a run without it does.
-  spiderman_install_cd_stream(g);     // continuous-read (XA/STR) pump — see that file
-  spiderman_install_module_loader(g); // watch where the game places its CD.WAD code modules
-  // Memory card. The BIOS dispatch already ROUTES libcard calls (hle.cpp -> card_hle_a0/b0), but
-  // the device is only opened by card_overrides_init — without this the card is absent, and the
-  // game's "CHECKING MEMORY CARD" screen has nothing to answer it.
-  card_overrides_init(g);
-  spiderman_install_diag_overrides(g);
-  // PSXPORT_FNTRACE=<addr>,... — "did control REACH this guest function?". Off unless asked for,
-  // and it MUST be installed last: it claims the override slot, so anything registered after it
-  // would displace it silently and the tracer would report "never called" for a function that runs.
-  fntrace_init();
-}
 
 static void spiderman_renderFadeState(Core *, FadeState *out) {
   out->mode = 0; // 0 == no fade; the present path leaves pixels untouched
@@ -134,10 +100,8 @@ static bool spiderman_devWarpAllowed(Core *) {
 static const GameHooks g_spiderman_hooks = {
     .frameUpdate = spiderman_frameUpdate,
     .drawOTag = spiderman_drawOTag,
-    .bootInit = spiderman_bootInit,
     .schedFreshEntry = spiderman_schedFreshEntry,
     .hasNativeHandlerForEntry = spiderman_hasNativeHandlerForEntry,
-    .registerOverrides = spiderman_registerOverrides,
     .renderFadeState = spiderman_renderFadeState,
     .renderBbFrameReset = spiderman_renderBbFrameReset,
     .devWarp = spiderman_devWarp,
@@ -148,6 +112,4 @@ static const GameHooks g_spiderman_hooks = {
     .selftestGame = spiderman_str_skip_selftest,
 };
 
-const GameHooks *spiderman_game_hooks() {
-  return &g_spiderman_hooks;
-}
+const GameHooks &spider::legacy::compatibilityHooks = g_spiderman_hooks;

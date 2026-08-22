@@ -96,6 +96,14 @@ if(BUILD_TESTING)
     game/render
     ${PSXPORT_DIR}/runtime/recomp)
   add_test(NAME guest_frame_fallback COMMAND guest_frame_fallback_test)
+  add_executable(spider_runtime_test
+    tests/spider_runtime_test.cpp
+    game/core/game_config.cpp
+    game/core/game_hooks.cpp
+    game/core/spider_runtime.cpp)
+  target_include_directories(spider_runtime_test PRIVATE game game/core game/render generated)
+  target_link_libraries(spider_runtime_test PRIVATE psxport)
+  add_test(NAME spider_runtime COMMAND spider_runtime_test)
   add_test(
     NAME launcher_policy
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/run.py --selftest

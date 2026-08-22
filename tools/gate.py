@@ -11,8 +11,9 @@ ALREADY-BUILT binary.
     cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build --target spiderman_port -j$(nproc)
 
 WHY IT IS NOT A COPY OF Tomba2Engine/tools/gate.py. That gate drives the game over the framework
-REPL. THIS PORT NEVER ENTERS THE FRAMEWORK FRAME LOOP THAT SERVICES THE REPL: game/core/game_hooks.cpp
-rec_dispatches the guest main, which never returns, and its frameUpdate/drawOTag hooks are deliberate
+REPL. THIS PORT NEVER ENTERS THE FRAMEWORK FRAME LOOP THAT SERVICES THE REPL:
+SpiderRuntime::bootInit rec_dispatches the guest main, which never returns, and the legacy
+frameUpdate/drawOTag callbacks are deliberate
 abort() fail-fasts. `PSXPORT_REPL=1` is reported by the port's own cfg audit as an UNKNOWN knob that
 "did NOTHING in this run". So this gate cannot step the game; it launches it capped and keys on the
 PORT'S OWN LOG LINES. Every assertion below quotes the line it reads.

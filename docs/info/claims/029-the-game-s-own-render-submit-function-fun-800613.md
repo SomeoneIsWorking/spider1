@@ -4,7 +4,9 @@ kind: claim
 status: holds
 created: 2026-08-06
 tags: render,frame-loop,drawotag,re-12,re-19,re-20,seam
-depends: game/core/game_config.cpp
+depends: game/render/render_seam.cpp#RenderSeam::submitFrame, game/core/spider_runtime.cpp#SpiderRuntime::registerOverrides
+reconfirmed: 2026-08-22 14:22:52
+verified_at: 2026-08-22 14:22:52
 ---
 
 ## Claim
@@ -18,3 +20,7 @@ MEASURED 2026-08-06, headless, 100 s, no input, PSXPORT_FNTRACE on 8 guest addre
 ## What would falsify it
 
 Run the port with an override installed at 0x80061308 that does NOT super-call. If the presented picture does not collapse (distinct-colour count per present, tools/present_flicker.py — NOT non-black %, which reads ~99.8% on both classes), then this function is not what puts the guest's geometry on screen and the claim is wrong. Also falsified if a run that reaches a screen this measurement never covered (a loaded level, a pause menu, a cutscene) shows engine-rendered frames while the 0x80061308 counter stays flat.
+
+## Re-confirmed 2026-08-22 14:22:52
+
+2026-08-22 after SpiderRuntime migration: scratch/logs/gate-boot-20260822-141229.log reports render seam installed at 0x80061308 and fired on call 1/frame 2/ra 0x80061218, then advanced to 6144 calls across 10 scene changes with no failure pattern.

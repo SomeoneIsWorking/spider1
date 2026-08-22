@@ -95,9 +95,10 @@ Every guest address that enters this repo carries, at its definition: the instru
 from, and the command that reproduces the disassembly
 (`tools/redump_ram.py`, then `external/psxport/tools/disasm.py <ram.bin> <lo> <hi>`).
 
-An address with no provenance is a guess, and guesses are how a port acquires magic constants.
-`GameConfig` fields that have not been RE'd stay **zero**, with the frontier step named — zero means
-"not yet known", never "not needed".
+An address with no provenance is a guess, and guesses are how a port acquires magic constants. The
+remaining legacy configuration facts that have not been RE'd stay **zero**, with the frontier step
+named — zero means "not yet known", never "not needed". New behavior and policy belong on the
+derived `SpiderRuntime`; do not grow `GameConfig` or `GameHooks`.
 
 Prefer ground truth over inference. The single most useful identification in this port so far came
 from a diagnostic string the binary itself emits, not from pattern-matching control flow.
@@ -133,18 +134,20 @@ map is `external/psxport/docs/workspace/WORKSPACE.md`.
 ## Keep the framework game-agnostic
 
 psxport carries no game code and must keep compiling standalone (`psxport_smoke`). When the framework
-needs a game-specific value, route it through `GameConfig` — do not `#include` anything from
-`generated/` into framework code, and do not bake an address into `runtime/`.
+needs a game-specific value, expose a narrow typed runtime fact interface and implement it in
+`SpiderRuntime`; do not `#include` anything from `generated/` into framework code, bake an address
+into `runtime/`, or add another field to the legacy configuration bag.
 
 Where the framework already bakes one in, that is a **wart**: record it in
 `docs/issues/framework-agnosticism-warts.md`, work around it through a public seam, and fix it
 upstream rather than patching the submodule from here.
 
 **Never edit, build, commit to, or bump the pin of a SIBLING consumer** (Tomba2Engine) from this
-repo — not even to keep a positional `GameConfig` initialiser compiling. Each consumer pins its own
+repo — not even to keep a legacy compatibility table compiling. Each consumer pins its own
 psxport commit, so a framework change cannot break a sibling until that sibling chooses to move; the
-lockstep feels obligatory and is not. Add the field, update this port, push psxport, and say in the
-commit message that other consumers must add the field when they bump. Their schedule, their call.
+lockstep feels obligatory and is not. Add the typed interface, update this port, push psxport, and
+say in the commit message that other consumers must implement the interface when they bump. Their
+schedule, their call.
 (USER directive, 2026-07-28.)
 
 ## The PC owns subsystems — it does not emulate interrupts
@@ -154,8 +157,9 @@ natively, not to reproduce the hardware faithfully enough that the guest's own I
 interrupt controller so a guest ISR can set a completion byte is the long way round to a value the
 host already knows.
 
-Concretely: HLE the LIBRARY at a `GameConfig` chokepoint, do the real work natively (serve the read
-from the disc image), and drive whatever completion the guest is waiting on. Hardware modelling is
+Concretely: let `SpiderRuntime` install the native owner at a binary-proven library chokepoint, do
+the real work natively (serve the read from the disc image), and drive whatever completion the guest
+is waiting on. Hardware modelling is
 still worth having where it is genuinely simpler or serves other consumers — but it is not the
 default answer to "the guest is waiting". (USER directive, 2026-07-28.)
 

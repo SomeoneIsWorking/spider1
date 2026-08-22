@@ -1,16 +1,17 @@
 // main.cpp — the Spider-Man port's process entry point.
 //
-// Installs the game seam (GameConfig + GameHooks + RecompRegistry), brings up the framework's PSX
+// Installs SpiderRuntime + RecompRegistry, brings up the framework's PSX
 // hardware backends, loads the retail executable, and enters the native boot. After the install
 // nothing here names anything but framework symbols.
 //
 // Phase 0 (see docs/re-frontier.md): every guest function runs on the recompiled substrate. The
-// native boot reproduces crt0 and then the bootInit hook dispatches the guest's own main().
+// native boot reproduces crt0 and then SpiderRuntime dispatches the guest's own main().
 #include "cfg.h"
 #include "core.h"
 #include "disc.h"
 #include "fs_util.h"
 #include "game.h"
+#include "spider_runtime.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -26,10 +27,7 @@ void native_boot_run(Core *c);            // runtime/recomp/native_boot.cpp (fra
 void gte_init(void);
 int selftest_run(const char *path); // runtime/recomp/selftest.cpp (framework harness)
 
-extern void spiderman_install_game_config();        // game/core/game_config.cpp
-extern void spiderman_install_recomp();             // game/core/recomp_register.cpp
-extern void spiderman_install_sync_natives(Game *); // game/core/sync_native.cpp
-extern void spiderman_install_render_seam(Game *);  // game/render/render_seam.cpp
+extern void spiderman_install_recomp(); // game/core/recomp_register.cpp
 
 // The retail US executable, as it is named on the disc. There is no separate PSX boot stub to run:
 // SYSTEM.CNF boots SLUS_008.75 directly (BOOT=cdrom:\SLUS_008.75;1), unlike Tomba!2's
@@ -38,8 +36,9 @@ static const char *kDefaultExe = "scratch/bin/spiderman/SLUS_008.75";
 static const char *kDiscExePath = "\\SLUS_008.75";
 
 int main(int argc, char **argv) {
-  // Must precede the first Core: Core's ctor snapshots psxport_game_config()/psxport_game_hooks().
-  spiderman_install_game_config();
+  // Process-lifetime derived owner. Installation must precede the first Core, which snapshots it.
+  static spider::SpiderRuntime runtime;
+  psxport_install_game(runtime);
   spiderman_install_recomp();
 
   const char *path = argc > 1 ? argv[1] : kDefaultExe;
@@ -83,17 +82,11 @@ int main(int argc, char **argv) {
   // of its own, so it can no longer install another game's addresses over ours. Today that group is
   // all zero (nothing but VSync has been RE'd), so this registers nothing and says so.
   game->platform_hle.initBuiltins();
-  // Then this game's own faithfully reimplemented primitives, which have no generic form.
-  spiderman_install_sync_natives(game);
   game->pad.overridesInit(); // native controller input
-  // The render seam on the engine's own submitFrame (guest FUN_80061308). MUST precede
-  // native_boot_run(), which is where PSXPORT_RENDER_PSX is read: the seam sets this port's default
-  // leg and an explicit env value has to be able to win over it.
-  spiderman_install_render_seam(game);
   c->r[4] = 1;
   c->r[5] = 0; // a0/a1 as the BIOS leaves them
 
-  c->hooks->registerOverrides(game); // Phase 0: no clusters yet, but keep the wiring honest
+  c->runtime->registerOverrides(*game);
   native_boot_run(c);
   cfg_logi("boot", "native boot returned");
   return 0;

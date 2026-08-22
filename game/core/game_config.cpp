@@ -1,5 +1,8 @@
-// game_config.cpp — the Spider-Man (SLUS_008.75, USA) GameConfig: the guest-address literals the
-// PSX-generic framework reads through `c->cfg->field`.
+// game_config.cpp — measured Spider-Man (SLUS_008.75, USA) compatibility facts.
+//
+// SpiderRuntime is the title's ownership seam. This legacy GameConfig remains only because generic
+// psxport algorithms still read `c->cfg->field`; each typed framework extraction must delete its
+// corresponding fields here rather than growing this bag.
 //
 // EVERY value here is REVERSE-ENGINEERED from the retail executable and cited with the instruction
 // it came from. Nothing is guessed. Fields whose RE has NOT been done are left ZERO and are tracked
@@ -11,6 +14,7 @@
 //   python3 tools/redump_ram.py            # SLUS_008.75 -> a 2 MB RAM image
 //   python3 external/psxport/tools/disasm.py scratch/bin/spiderman/ram.bin 0x8008739C 0x80087440
 #include "game_iface.h"
+#include "legacy_game_interface.h"
 #include "overlay_table.h" // generated: REC_MAIN_LO / REC_MAIN_HI (this game's recompiled .text range)
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
@@ -545,9 +549,4 @@ static const GameConfig g_spiderman_cfg = {
     /* stackBias       */ {1, -8},
 };
 
-extern void spiderman_install_game_hooks(); // game/core/game_hooks.cpp
-
-void spiderman_install_game_config() {
-  extern const GameHooks *spiderman_game_hooks();
-  psxport_install_game(&g_spiderman_cfg, spiderman_game_hooks());
-}
+const GameConfig &spider::legacy::measuredConfig = g_spiderman_cfg;

@@ -5,7 +5,7 @@ status: investigating
 symptom: python3 tools/gate.py boot reaches dem1/l1a1 and keeps emitting frame progress, but neither the supervisor cap nor frame watchdog ends it; gate refuses and reports one process alive immediately after group kill
 tags: gate,supervisor,hang,verification
 created: 2026-08-20
-updated: 2026-08-21
+updated: 2026-08-22
 ---
 
 ## Evidence
@@ -31,3 +31,12 @@ advanced through a live mesh `MATCH` at frame 482 and into scene `l1a1`, but `to
 after group termination. No `spiderman_port` process remained when checked immediately afterward.
 Log: `scratch/logs/gate-boot-20260821-010831.log`. This is the known gate-lifecycle baseline, not a
 mesh-probe failure.
+
+### Note (2026-08-22)
+
+Reproduced unchanged after the `SpiderRuntime` inheritance migration against psxport `7f5d3f13`.
+The default 120-second run continued until the gate's 240-second refusal, reached frame 19889 / 6144
+submitFrame calls / 10 scene changes, then reported one child alive after process-group signalling.
+The exact PID had already exited when checked for scoped cleanup. Re-judging the 93 captured lines
+with the same analyzer reports PASS and no game failure pattern; only supervisor lifecycle refused.
+Log: `scratch/logs/gate-boot-20260822-141229.log`.

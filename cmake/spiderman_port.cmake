@@ -21,8 +21,9 @@ endif()
 # substrate. Ported subsystems get added here as they land (see docs/codemap.md).
 set(GAME_SRC
   game/core/main.cpp              # process entry point
-  game/core/game_config.cpp       # the RE'd GameConfig (guest address literals)
-  game/core/game_hooks.cpp        # the GameHooks vtable
+  game/core/spider_runtime.cpp    # derived game runtime: boot, policy, override ownership
+  game/core/game_config.cpp       # measured legacy address facts awaiting typed interfaces
+  game/core/game_hooks.cpp        # bounded compatibility callbacks awaiting typed interfaces
   game/core/recomp_register.cpp   # the generated-substrate seam
   game/core/sync_native.cpp       # RE'd PSX hardware-sync primitives (libetc VSync)
   game/core/cd_stream.cpp         # continuous-read (XA/STR) pump, driven from StGetNext

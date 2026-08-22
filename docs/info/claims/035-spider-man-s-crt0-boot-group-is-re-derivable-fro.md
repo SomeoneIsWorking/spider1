@@ -4,7 +4,9 @@ kind: claim
 status: holds
 created: 2026-08-12
 tags: boot,crt0,heap,re-01
-depends: game/core/game_config.cpp,external/psxport/runtime/recomp/crt0_boot.h
+depends: game/core/game_config.cpp, external/psxport/runtime/recomp/crt0_boot.h
+reconfirmed: 2026-08-22 14:22:52
+verified_at: 2026-08-22 14:22:52
 ---
 
 ## Claim
@@ -18,3 +20,7 @@ Measured 2026-08-12: `$PSX/psxport/build/tools/crt0_extract scratch/bin/SLUS_008
 ## What would falsify it
 
 crt0_extract resolving fewer than 8 fields, reporting a prologue that is not COMPLETE, or disagreeing with game_config.cpp on the same SLUS_008.75; or crt0_audit refusing a boot, which would mean the static derivation and the running guest disagree. The claim does NOT pin the executable by hash, so a re-extraction from a different disc region would falsify it silently.
+
+## Re-confirmed 2026-08-22 14:22:52
+
+2026-08-22 after exporting the unchanged boot facts through SpiderRuntime's bounded legacy adapter: scratch/logs/gate-boot-20260822-141229.log reports guest-crt0 AUDIT 10 AGREE, 0 DISAGREE, 0 unresolved and dispatches gameMain 0x8002C354.
