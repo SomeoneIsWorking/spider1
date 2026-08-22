@@ -112,6 +112,7 @@ RE_RENDER_PATH = re.compile(r'\[render\] render path = (\S+)')
 # timeout-kill line contains the word "stuck" in prose ("where it was stuck").
 FAIL_PATTERNS = [
     r'\[FATAL:error\]',
+    r'\[(?:allocaudit|mem):error\]',
     r'unimplemented native rendering',
     r'recomp[- ]MISS',
     r'rec_dispatch miss',
@@ -543,6 +544,11 @@ def selftest() -> int:
     cases.append(("short log WITH a real abort => FAIL, not REFUSE",
                   short + "[FATAL:error] \nunimplemented native rendering: no native producer exists "
                           "for this scene\n", 134, 1, 240))
+    # 16. Allocator/free-list corruption is a first-class failure even when it occurs before enough
+    # periodic render progress exists for the ordinary advancement assertions.
+    cases.append(("short log WITH allocator audit failure => FAIL, not REFUSE",
+                  short + "[allocaudit:error] FIRST EXTERNAL WRITE TO A LIVE FREE-NODE LINK\n",
+                  134, 1, 240))
 
     print("=" * 96)
     print("SELFTEST — every case below is judged by the SAME analyse() the real gate uses.")

@@ -45,17 +45,22 @@
 #include "game_iface.h"
 #include "overlay_router.h" // overlay_place / overlay_evict_at — the live module registry
 #include "override_registry.h"
+#include "spider_context.h"
 #include <lucent/log.h>
 
 extern void gen_func_8001B990(Core *); // the module loader
+extern void gen_func_800650C8(Core *); // initialize both allocator free lists
 extern void gen_func_800651C8(Core *); // allocator:  (size, arena, flag) -> block
 extern void gen_func_800654E8(Core *); // free:       (block)
+extern void gen_func_80065584(Core *); // resize allocation in place: (block, size)
 
 namespace {
 
 constexpr uint32_t kModuleLoader = 0x8001B990u;
+constexpr uint32_t kHeapInit = 0x800650C8u;
 constexpr uint32_t kAlloc = 0x800651C8u;
 constexpr uint32_t kFree = 0x800654E8u;
+constexpr uint32_t kResize = 0x80065584u;
 
 // Allocation counter and module name per active FUN_8001B990 invocation. Depth > 1 happens when a
 // module's entry point loads another module, which is legal and is why each level keeps its own
@@ -159,11 +164,21 @@ void module_load(Core *c) {
   --s_depth;
 }
 
+void heap_init(Core *c) {
+  spider::context(*c).allocatorAudit.heapInitEnter(*c);
+  gen_func_800650C8(c);
+  spider::context(*c).allocatorAudit.heapInitLeave(*c);
+}
+
 // FUN_800651C8(size, arena, flag) — run the guest allocator, then note whether what it just handed
 // back is a module body. Nothing is redirected: the address is the game's own choice.
 void alloc(Core *c) {
   const uint32_t size = c->r[4];
+  const uint32_t arena = c->r[5];
+  const uint32_t flag = c->r[6];
+  spider::context(*c).allocatorAudit.allocatorEnter(*c, size, arena, flag);
   gen_func_800651C8(c);
+  spider::context(*c).allocatorAudit.allocatorLeave(*c, c->r[2]);
   if (s_depth == 0 || s_depth > kMaxDepth) {
     return;
   }
@@ -182,8 +197,16 @@ void alloc(Core *c) {
 // dispatch into it. Evict first, then let the free run: the registry must be right before the
 // memory can be handed to something else.
 void free_(Core *c) {
+  spider::context(*c).allocatorAudit.freeEnter(*c, c->r[4]);
   overlay_evict_at(c, c->r[4]);
   gen_func_800654E8(c);
+  spider::context(*c).allocatorAudit.freeLeave(*c);
+}
+
+void resize_(Core *c) {
+  spider::context(*c).allocatorAudit.resizeEnter(*c, c->r[4], c->r[5]);
+  gen_func_80065584(c);
+  spider::context(*c).allocatorAudit.resizeLeave(*c);
 }
 
 } // namespace
@@ -192,6 +215,10 @@ void spiderman_install_module_loader(Game *g) {
   engine_set_override_main(kModuleLoader, module_load, gen_func_8001B990);
   engine_set_override_main(kAlloc, alloc, gen_func_800651C8);
   engine_set_override_main(kFree, free_, gen_func_800654E8);
+  if (cfg_dbg("allocaudit")) {
+    engine_set_override_main(kHeapInit, heap_init, gen_func_800650C8);
+    engine_set_override_main(kResize, resize_, gen_func_80065584);
+  }
   lucent::info("module",
                "module placement watcher installed (loader 0x{:08X}, alloc 0x{:08X}, "
                "free 0x{:08X})",

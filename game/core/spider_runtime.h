@@ -11,6 +11,8 @@ class SpiderRuntime final : public LegacyGameRuntimeAdapter {
 public:
   SpiderRuntime();
 
+  void *createContext(Core &core) override;
+  void destroyContext(void *context) override;
   void registerOverrides(Game &game) override;
   void bootInit(Core &core) override;
 };

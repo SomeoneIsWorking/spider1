@@ -40,3 +40,9 @@ submitFrame calls / 10 scene changes, then reported one child alive after proces
 The exact PID had already exited when checked for scoped cleanup. Re-judging the 93 captured lines
 with the same analyzer reports PASS and no game failure pattern; only supervisor lifecycle refused.
 Log: `scratch/logs/gate-boot-20260822-141229.log`.
+
+### Note (2026-08-22)
+2026-08-22 reproduced twice during the face-builder census. Both 15s/10s progressing dem1 runs refused after the gate grace window and reported one survivor after group signalling; exact-path ps checks immediately afterward found no spiderman_port or gate process. Logs: scratch/logs/gate-boot-20260822-174218.log and gate-boot-20260822-174725.log. The latter captured 20,480 classified calls with zero unknown sites/mismatches before refusal, so the analyzer evidence is useful but the boot gate is still not a passing lifecycle verifier.
+
+### Note (2026-08-22)
+On recorded psxport pin ad5cf802, scratch/logs/gate-boot-20260822-181035.log reached dem1 and 16,384 classified face calls with zero census mismatches, then reproduced the same supervisor refusal after the 10-second cap. Exact executable-path ps immediately afterward found no surviving gate or Spider process. A separate first run on this pin aborted earlier in the allocator and is tracked independently as issue 0018 rather than being folded into this lifecycle defect.

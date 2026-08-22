@@ -74,6 +74,11 @@ add_subdirectory(${PSXPORT_DIR}/vendor/beetle-psx/deps/libchdr
 include(cmake/spiderman_port.cmake)
 
 if(BUILD_TESTING)
+  add_executable(face_builder_census_test
+    tests/face_builder_census_test.cpp
+    game/render/face_builder_census.cpp)
+  target_include_directories(face_builder_census_test PRIVATE game/render)
+  add_test(NAME face_builder_census COMMAND face_builder_census_test)
   add_executable(mesh_transform_contract_test
     tests/mesh_transform_contract_test.cpp
     game/render/mesh_transform.cpp)
@@ -100,7 +105,9 @@ if(BUILD_TESTING)
     tests/spider_runtime_test.cpp
     game/core/game_config.cpp
     game/core/game_hooks.cpp
-    game/core/spider_runtime.cpp)
+    game/core/spider_runtime.cpp
+    game/core/spider_context.cpp
+    game/core/allocator_audit.cpp)
   target_include_directories(spider_runtime_test PRIVATE game game/core game/render generated)
   target_link_libraries(spider_runtime_test PRIVATE psxport)
   add_test(NAME spider_runtime COMMAND spider_runtime_test)

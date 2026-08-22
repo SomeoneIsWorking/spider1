@@ -32,13 +32,20 @@ owner; owner `0x8018BBB4` has flags `0x0000`.
 The final eight-second PID-bounded replay, `scratch/logs/re21-transform-final.log`, repeated the
 in-band self-test and first contextual transform MATCH with zero transform mismatches; unrelated
 face-builder calls now label both transform and layout `NO-CONTEXT` instead of implying a mismatch.
+The 2026-08-22 extension wraps the binary-proven animated mesh boundary `FUN_80077C08` as well as
+the direct boundary. `scratch/logs/gate-boot-20260822-174725.log` observed 14,793 animated calls by
+the 20,480-call checkpoint, preserved the `FUN_80077198` display owner from `s2`, derived every mesh
+layout exactly, and reported zero layout mismatches. This was an opposite result to the prior
+`NO-CONTEXT` classification for the same `ra=0x80077CA8` family.
 
 ## Known failure modes
 
 The unique-context roster is capped at 64 object/mesh pairs, so `uniqueContexts=64` means at least
 64 were observed, not that the run contained exactly 64. A `FUN_8007C4D8` call outside the dynamic
-extent of the wrapped `FUN_80077D64` is deliberately reported as `NO-CONTEXT`; the probe cannot
-attribute those callers. Context is tracked with process-global nesting state and therefore assumes
+extent of the wrapped `FUN_80077D64` and `FUN_80077C08` mesh-header builders is deliberately
+reported as `NO-CONTEXT`; the exact return-address census still attributes its owning function, but
+the probe cannot claim a mesh layout for it. Context is tracked with process-global nesting state and
+therefore assumes
 these guest render calls are serialized on one execution thread. A null relative-translation pointer
 is reported as `(0,0,0)` rather than dereferenced.
 The direct-transform result applies only inside the dynamic extent of wrapped `FUN_80077D64` and

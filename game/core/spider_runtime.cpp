@@ -7,6 +7,7 @@
 #include "legacy_game_interface.h"
 #include "memcard.h"
 #include "render_seam.h"
+#include "spider_context.h"
 
 #include <cstdlib>
 
@@ -19,6 +20,14 @@ namespace spider {
 
 SpiderRuntime::SpiderRuntime()
     : LegacyGameRuntimeAdapter(legacy::measuredConfig, legacy::compatibilityHooks) {}
+
+void *SpiderRuntime::createContext(Core &) {
+  return new SpiderContext;
+}
+
+void SpiderRuntime::destroyContext(void *context) {
+  delete static_cast<SpiderContext *>(context);
+}
 
 void SpiderRuntime::registerOverrides(Game &game) {
   // Generic HLE is installed by main first, then this title's measured native handlers.

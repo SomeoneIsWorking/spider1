@@ -7,6 +7,8 @@
 #   ./scratch/bin/spiderman_port scratch/bin/spiderman/SLUS_008.75
 
 option(PSXPORT_BUILD_PORT "Build the Spider-Man native port binary (spiderman_port)" ON)
+option(SPIDER_BUILD_IRQ_POLL_AUDIT
+       "Link the full-R3000 deferred-work preservation discriminator" OFF)
 
 # The framework static library + its psxport_smoke agnosticism proof. Always included so `psxport`
 # and `psxport_smoke` stay buildable even when the game target is off.
@@ -22,6 +24,9 @@ endif()
 set(GAME_SRC
   game/core/main.cpp              # process entry point
   game/core/spider_runtime.cpp    # derived game runtime: boot, policy, override ownership
+  game/core/spider_context.cpp    # per-Core Spider runtime subsystem aggregate
+  game/core/allocator_audit.cpp   # opt-in retail allocator first-corruption discriminator
+  game/core/irq_poll_audit.cpp    # compile-time full-R3000 deferred-work discriminator
   game/core/game_config.cpp       # measured legacy address facts awaiting typed interfaces
   game/core/game_hooks.cpp        # bounded compatibility callbacks awaiting typed interfaces
   game/core/recomp_register.cpp   # the generated-substrate seam
@@ -32,6 +37,7 @@ set(GAME_SRC
   game/core/module_loader.cpp     # pins runtime-loaded CD.WAD modules to one canonical slot (RE-09)
   game/render/scene_id.cpp        # the game's own level-name -> scene-id lens (RE-23)
   game/render/frame_census.cpp    # RE-21 display-list inventory instrument (diagnostic only)
+  game/render/face_builder_census.cpp  # RE-21 exact FUN_8007C4D8 input-owner census
   game/render/mesh_face_format.cpp  # RE-21 executable-derived source face semantics
   game/render/mesh_transform.cpp  # RE-21 object-local-to-camera source transform contract
   game/render/asset_upload_ledger.cpp  # RE-21 authored texture/CLUT ownership ledger
@@ -78,4 +84,8 @@ target_include_directories(spiderman_port PRIVATE game game/core game/render)
 target_compile_options(spiderman_port PRIVATE -w -O2 -g
   ${SDL3_CFLAGS_OTHER} ${FREETYPE_CFLAGS_OTHER})
 
+if(SPIDER_BUILD_IRQ_POLL_AUDIT)
+  target_compile_definitions(spiderman_port PRIVATE SPIDER_IRQ_POLL_AUDIT_ENABLED=1)
+  target_link_options(spiderman_port PRIVATE -Wl,--wrap=rec_irq_poll)
+endif()
 target_link_libraries(spiderman_port PRIVATE psxport)

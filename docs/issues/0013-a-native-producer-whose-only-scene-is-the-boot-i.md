@@ -5,7 +5,7 @@ status: open
 symptom: producer-enabled vs producer-disabled A/B reports 0 pixels differing even though the producer provably ran (produced=2 clears=2 in band)
 tags: render,producer,gate,negative-control,envelope
 created: 2026-08-06
-updated: 2026-08-21
+updated: 2026-08-22
 ---
 
 ## What happened
@@ -77,3 +77,6 @@ HACK-03 adds only a mutually-exclusive whole guest-frame path. A bounded Native 
 and `l1a1` with `nativeSubmitted=0 interpolation=0`; the disabled and FPS60 controls refused at the
 same `dem1` boundary as `DISABLED` and `INTERPOLATION_FORBIDDEN`. This does not close the issue: the
 fallback deliberately skips the envelope, so it cannot supply an attributable dem1 envelope A/B.
+
+### Note (2026-08-22)
+2026-08-22 corrected the producer dependency from a single direct backdrop chain to the complete common-face-builder ownership graph. SLUS_008.75 has 12 static FUN_8007C4D8 callsites; the bounded dem1 run classified all 24,576 calls with unknown=0. Animated FUN_80077C08 dominated at 18,355 calls / 306,027 of 314,238 faces, while direct FUN_80077D64 contributed only 593 calls. The first direct 28-byte record advanced the primitive cursor by 480 bytes, proving a one-FT4 producer would skip retail clipping/expansion. game/render/face_builder_census.cpp and the animated FUN_80077C08 context wrapper implement the missing ownership stage; scratch/logs/gate-boot-20260822-174725.log then observed 14,793 animated layout matches with zero mismatches. Issue stays open: animated vertex semantics and common clip/cull/lighting/colour still precede the first native display-list producer.

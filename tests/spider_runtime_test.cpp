@@ -27,7 +27,7 @@ int main() {
   psxport_install_game(runtime);
   auto core = std::make_unique<Core>();
   const GameHooks *legacyHooks = runtime.legacyHooksForMigration();
-  if (psxport_game_runtime() != &runtime || core->runtime != &runtime ||
+  if (psxport_game_runtime() != &runtime || core->runtime != &runtime || core->gameCtx == nullptr ||
       runtime.legacyConfigForMigration() == nullptr || legacyHooks == nullptr) {
     std::fprintf(stderr, "SpiderRuntime did not own the installed compatibility seam\n");
     return 1;
