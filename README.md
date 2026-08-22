@@ -4,8 +4,18 @@ A work-in-progress multi-title native PC port for PlayStation *Spider-Man* and *
 Electro*, built on the
 [**psxport**](https://github.com/SomeoneIsWorking/psxport) framework.
 
-The current implementation is Spider-Man (`SLUS_008.75`, USA). Enter Electro has an explicit title
-slot under `titles/` but is not implemented yet; the status below describes Spider-Man 1 only.
+The serial/boot executable is the canonical title key:
+
+| title | key | implementation status |
+|---|---|---|
+| Spider-Man | `SLUS_008.75` | current implementation |
+| Spider-Man 2: Enter Electro | `SLUS_013.78` | identity/status slot only; not implemented |
+
+Names are descriptive labels, not selectors. A target must bind to one recognized serial and refuse
+a mismatched disc rather than loading the other game's runtime facts. The current repository-level
+`game/` and `generated/` directories belong to `SLUS_008.75`. When Enter Electro implementation
+begins, the repo will convert to per-title `titles/<id>/` seams and substrates over measured shared
+lineage code; see [`docs/plans/spider2-multi-title.md`](docs/plans/spider2-multi-title.md).
 
 psxport **statically recompiles** the game's MIPS R3000A machine code into native C, then runs it
 under a native platform layer — so the result behaves like a PC program, not an emulator. On top of
@@ -19,23 +29,14 @@ legally-obtained copy.
 
 ## Status — honest
 
-The port **provisions, recompiles, builds, and boots**. It runs the game's real translated code
-through crt0 into the guest's own `main` and through graphics init, then **stops in the game's own
-disc-init retry loop**, because libcd `CdInit` has not been reverse-engineered yet.
+`SLUS_008.75` provisions, recompiles, builds, boots, and reaches gameplay. Its retail guest-GTE frame
+path is runnable, but native display-list production is still incomplete (RE-21), so this is not a
+complete native renderer or finished port. The explicitly recorded whole-guest-frame fallback is
+visible debt; it does not count as a native producer.
 
-It is not playable, and there is no picture. Nothing stands in for the missing reverse-engineering:
-where the RE is not done, the port hangs or aborts loudly rather than fabricating behaviour. The
-`⛔ hack` list in [`docs/re-frontier.md`](docs/re-frontier.md) is empty, and keeping it empty is the
-point.
-
-| | |
-|---|---|
-| Static recompilation | 1561 functions, 8 shards, 0 overlays — hash-gated, reproducible, seeded only from the binary |
-| Build | configures and links clean |
-| crt0 / boot seam | reverse-engineered and verified live |
-| libetc `VSync` | reverse-engineered and reimplemented natively |
-| libcd `CdInit` | **the current stopping point** |
-| Frame loop, scheduler, input, renderer | not started — blocked behind libcd |
+`SLUS_013.78` has no executable substrate, game seam, runtime facts, native producers, build target,
+or real-disc run verification in this repo. The presence of `titles/spiderman2/` does not mean Enter
+Electro runs.
 
 See [`docs/codemap.md`](docs/codemap.md) for the full subsystem map and
 [`docs/re-frontier.md`](docs/re-frontier.md) for the ordered work queue.
@@ -84,8 +85,8 @@ wiring. There is no pre-commit hook.
 ## Layout
 
 ```
-game/core/           the framework↔game seam — this repo's entire hand-written surface
-titles/              per-title identity and status (Spider-Man 1/2)
+game/core/           current SLUS_008.75 framework↔game seam
+titles/              per-title identity/status now; future per-title seams and substrates
 external/psxport/    resolved framework checkout: recompiler, runtime, PSX hardware, harness, renderer
 generated/           the recompiled substrate — regenerated, never committed, never hand-edited
 tools/               provisioning + reverse-engineering helpers

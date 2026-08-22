@@ -12,22 +12,27 @@ is marked done to look better — an honest "missing" is what makes this file wo
 
 | title | status |
 |---|---|
-| Spider-Man | 🟡 boots and reaches gameplay; native display-list production is RE-partial (RE-21) |
-| Spider-Man 2: Enter Electro | ⬜ title slot only; executable identity and seam not yet derived |
+| Spider-Man (`SLUS_008.75`) | 🟡 boots and reaches gameplay; native display-list production is RE-partial (RE-21) |
+| Spider-Man 2: Enter Electro (`SLUS_013.78`) | ⬜ identity/status slot only; executable seam and runtime are not implemented |
 
-The repository-level `game/` currently implements Spider-Man 1. Shared lineage code must be based on
-measured common behavior when Enter Electro work begins.
+The boot executable/serial is the canonical title key; names are descriptive labels and must not be
+used to select runtime facts. The repository-level `game/` currently implements only `SLUS_008.75`.
+The existing `titles/` entries are placeholders. When `SLUS_013.78` implementation begins, convert
+to per-title `titles/<id>/` seams and substrates over shared `game/` code, sharing only behavior
+measured common to both executables. See `docs/plans/spider2-multi-title.md`.
 
 ## What this project is
 
-A native PC port of the PSX Spider-Man (`SLUS_008.75`, USA) built on
+A native PC port of the two Neversoft PSX Spider-Man titles, keyed by their boot executables
+(`SLUS_008.75` and `SLUS_013.78`), built on
 [psxport](https://github.com/SomeoneIsWorking/psxport): the game's MIPS code is **statically
 recompiled** into C (the "substrate"), which runs under a native platform layer — so the result is a
 PC program, not an emulator. Native reimplementation then grows function by function on top, each
 step gated against the recompiled reference.
 
 The framework is a resolved checkout (a workspace symlink or private pinned clone) and carries no
-game code. This repo adds only the game seam and the recompiled substrate.
+game code. This repo currently supplies only the `SLUS_008.75` seam and substrate; the
+`SLUS_013.78` slot is not an implementation claim.
 
 ## Repo layout
 

@@ -1,8 +1,16 @@
 # PLAN — Spider-Man 2: Enter Electro joins this repo (multi-title split)
 
-Status: **PLAN ONLY. Nothing in this plan has been executed.** Written 2026-08-12. Every number below
-was measured in the session that wrote this file, with the command that produced it; nothing is
-estimated. No repo file was restructured.
+Status: **PLAN ONLY; the multi-title source split has not begun.** Written 2026-08-12 and corrected
+for inherited runtime ownership on 2026-08-22. The measurements below are reproducible historical
+baselines from the original planning session, not current tree counts; refresh them before executing
+the plan. The existing identity/status directories and current single-title `SpiderRuntime` do not
+constitute the split.
+
+The boot executable/serial is the canonical title key throughout this plan: Spider-Man is
+`SLUS_008.75`; Spider-Man 2: Enter Electro is `SLUS_013.78`. Names are labels, not runtime selectors.
+Each product target must bind to exactly one key and refuse a mismatched disc. The current
+`titles/spiderman1/` and `titles/spiderman2/` directories are placeholders; the `titles/<id>/` seams
+and substrates described below are created when title 2 implementation begins.
 
 ---
 
@@ -136,11 +144,12 @@ Plus 9 live references to the `generated/` path (`cmake/spiderman_port.cmake:47,
 `tools/ensure_recomp.py:73,74,75`; `callee_contract.py:34`; `ra_classes.py:39`;
 `check_resume_switch.py:28`; `ghidra_seed.py:35`).
 
-**D. Registry state consulted (not re-derived).**
+**D. Registry state at the 2026-08-12 plan capture (historical, not current).**
 `python3 tools/re_frontier.py check` → 30 entries parsed, no unknown deps, no cycles.
 `next` → RE-13 (scheduler task layout), RE-08 (native per-vertex depth), RE-21 (render-walk
-inventory). `⛔ hack` list empty. `docs/codemap.md` supplied the subsystem status quoted above.
-Two brief/doc defects found while doing this — see §6.
+inventory). The `⛔ hack` list was empty then; HACK-03 exists now. Consult the live frontier and
+codemap before work rather than treating this capture as current. Two brief/doc defects found while
+doing the original measurement are recorded in §6.
 
 ---
 
@@ -148,12 +157,12 @@ Two brief/doc defects found while doing this — see §6.
 
 ```
 game/                     SHARED — lineage code. MUST hold 0 guest-address literals and 0 gen_func_ names.
-  core/  main.cpp game_hooks.cpp recomp_register.cpp sync_native.cpp cd_stream.cpp
-         module_loader.cpp diag_overrides.cpp  spider_title.h  (NEW: the binding struct)
+  core/  main.cpp spider_runtime.cpp sync_native.cpp cd_stream.cpp
+         module_loader.cpp diag_overrides.cpp
   render/ render_seam.cpp frame_envelope.cpp gpu_env.cpp frame_census.cpp scene_id.cpp
 titles/
-  spider1/  title.json  game_config.cpp  bindings.cpp  recomp_seeds.json  port.cmake
-  spider2/  title.json  game_config.cpp  bindings.cpp  recomp_seeds.json  port.cmake
+  spider1/  title.json  spider1_runtime.cpp  recomp_seeds.json  port.cmake
+  spider2/  title.json  enter_electro_runtime.cpp  recomp_seeds.json  port.cmake
 generated/
   spider1/  ...135 files, 16 MB...        PER TITLE. Sharing one dir is impossible — see below.
   spider2/
@@ -170,53 +179,28 @@ dispatch symbols (`ov_shell_dispatch`), and across the whole MAIN text range on 
 titles link at `0x80010000`). Two separate executables, two separate substrate directories. There is
 no variant of "one binary, both titles" that links.
 
-### `GameConfig` per title
+### One inherited runtime per title; no title configuration bag
 
-Stays exactly what it is today — one `static const GameConfig` per title in
-`titles/<t>/game_config.cpp`, exposed as `void title_install_game_config()` and called from the shared
-`main.cpp` before the first `Core`. `psxport_install_game()` is process-global and single-valued
-(`game_iface.h:404`), which is right: one binary, one title. **Every un-RE'd field in
-`titles/spider2/game_config.cpp` starts ZERO**, per this repo's standing rule — zero means "not yet
-RE'd", and RE-13/RE-08/RE-21 style frontier steps get filed for title 2 rather than values copied
-from title 1.
-
-### The binding struct — how shared code reaches a title's addresses AND its gen thunks
-
-`game/core/spider_title.h` (new, shared):
+Each binary installs one process-lifetime derived runtime before constructing `Game` or `Core`:
 
 ```cpp
-struct GuestFn { uint32_t addr; void (*gen)(Core*); };   // 0/nullptr = NOT YET RE'd
-struct SpiderTitle {
-  const char* name;                 // "spider1" / "spider2"
-  const char* bootExe;              // "SLUS_008.75"
-  uint32_t    textLo, textHi;       // ra-is-code bounds (diag_overrides)
-  GuestFn     submitFrame, stGetNext, moduleLoader, alloc, free, vsync, vsyncCallback, vblankWait;
-  uint32_t    currentDb, sceneNameAddr, vblankCount, gameVblankCount;
-  uint32_t    gpuStatPtr, hCounterPtr, hBaseline, lastSyncVbl;
-  uint32_t    libgpuVramW, libgpuVramH, libgpuVideoMode, libgpuReverse;
-  uint32_t    ringBase, ringWriteIdx, ringFrameStart, ringConsIdx, ringSlotCount;
-  const GuestFn* diagProbes; int diagProbeCount;    // the 16 observe-only installs
-};
-const SpiderTitle* spider_title();                   // defined per title, in titles/<t>/bindings.cpp
+class SpiderRuntime : public GameRuntime { /* measured shared lineage behavior only */ };
+class Spider1Runtime final : public SpiderRuntime { /* SLUS_008.75 facts and overrides */ };
+class EnterElectroRuntime final : public SpiderRuntime { /* SLUS_013.78 facts and overrides */ };
 ```
 
-`titles/spider1/bindings.cpp` is the ONLY place `gen_func_*` may be named — it is the file that
-`#include`s `generated/spider1/rec_decls.h`. Shared installers become
-`install_override(t->submitFrame, native_submit_frame)` where `install_override` refuses a zero
-binding:
+The current `SpiderRuntime : LegacyGameRuntimeAdapter` is migration debt for framework consumers
+that still read `Core::cfg`; it is not the multi-title design and must not be copied into title 2.
+During the split, extract those remaining fields into narrow typed virtual runtime interfaces, then
+make the shared lineage base derive directly from `GameRuntime`. Title-specific guest addresses and
+`gen_func_*` thunks live in the derived title runtime or the cohesive title subsystem that owns the
+operation. Do not replace `GameConfig` with a differently named all-fields binding struct.
 
-```cpp
-// shared, game/core/spider_title.cpp
-void require_binding(const GuestFn& f, const char* what, const char* frontier_step) {
-  if (!f.addr || !f.gen)
-    fatal("{} is NOT RE'd for title '{}' — zero binding. Work {} first; nothing is faked here.",
-          what, spider_title()->name, frontier_step);
-}
-```
-
-That refusal is the load-bearing part: for title 2 the honest state of nearly every field is zero, and
-a shared installer that no-opped on zero would produce a port that boots and lies. It must abort
-naming the frontier step, per this repo's "if the RE isn't done, say so and stop".
+An unimplemented title operation is an explicit derived override that aborts naming its frontier
+step. It is never a zero-filled configuration row and never a silent no-op. This keeps incomplete
+Enter Electro work honest while letting shared code use ordinary virtual dispatch. The build target,
+not a human-facing name, installs the derived runtime for its canonical boot serial; disc validation
+then refuses a serial mismatch before guest execution.
 
 ### One cmake build, two binaries
 
@@ -238,7 +222,7 @@ every command in `docs/codemap.md` and every gate script); `titles/spider2/port.
 ```cmake
 include(${CMAKE_SOURCE_DIR}/generated/${t}/rec_sources.cmake)
 list(TRANSFORM GEN_REC_SRCS PREPEND generated/${t}/)
-add_executable(<target> ${SHARED_GAME_SRC} titles/${t}/game_config.cpp titles/${t}/bindings.cpp ${GEN_REC_SRCS})
+add_executable(<target> ${SHARED_GAME_SRC} titles/${t}/${TITLE_RUNTIME_SRC} ${GEN_REC_SRCS})
 ```
 
 with the existing per-source `-O1 -foptimize-sibling-calls -fno-strict-aliasing -fwrapv` properties
@@ -285,7 +269,7 @@ needs two rules where the framework needs one:
   made spyro/spider1 report "no spans", indistinguishable from "the guest submitted no packets") — except
   a mis-bound *override* executes rather than merely observing. Rule A + Rule B are the only mechanical
   defence; a paragraph in a doc is not one.
-* **Copying spider1's `GameConfig` into spider2 to "get it booting".** The two link differently
+* **Copying Spider-Man 1 runtime facts into Enter Electro to "get it booting".** The two link differently
   (`STACK=801fff00` vs `801FFFF0`, text 0xB6800 vs ~0xC0000 bytes). 74.2% shingle similarity is
   address-INDEPENDENT by construction — the tool masks immediates and jump targets precisely so link
   addresses cannot matter. It is therefore *no evidence at all* that any single address transfers. A
@@ -295,7 +279,8 @@ needs two rules where the framework needs one:
 * **Assuming a native module reimplementation ports.** `training` measures 1.6% and `lizard` 7.8%
   between titles. Native behaviour code belongs in `titles/<t>/` unless a measurement says otherwise.
 * **Renaming `spiderman_port` or making title 2 build by default.** Every gate command and doc
-  reference breaks, and title 2's zero-filled config would abort the default build's smoke run.
+  reference breaks, and title 2's intentionally incomplete derived runtime would abort the default
+  product run.
 
 ---
 
@@ -324,11 +309,11 @@ drift with host timing; call numbers and the scene sequence must not.)
 | step | work | verification |
 |---|---|---|
 | **1** | Add `tools/check_title_literals.py` with today's counts as baseline. No code moves. | `python3 tools/check_title_literals.py` exits 0 on HEAD; `--selftest` yields 2 findings on the dirty synthetic and 0 on the clean one; adding `0x80061308` to `game/render/frame_census.cpp` in a throwaway edit makes it FAIL "NEW". No rebuild needed. |
-| **2** | `game/core/spider_title.h` + `titles/spider1/{game_config.cpp,bindings.cpp}`; move literals **file by file**, cheapest first: `scene_id.h` (1) → `render_seam.cpp` (2) → `module_loader.cpp` (3) → `gpu_env.cpp` (4) → `cd_stream.cpp` (6) → `sync_native.cpp` (9) → `diag_overrides.cpp` (17) → `game_config.cpp` (whole file moves). Shrink the baseline in the same commit as each move. | After **each** file: `cmake --build build --target spiderman_port -j$(nproc)`, then the Step-0 gate. Lint baseline must be strictly smaller each time (a STALE failure means a move landed without its baseline edit). End state: Rule A and Rule B baselines both **0**. |
+| **2** | Introduce the shared `SpiderRuntime` base and `titles/spider1/Spider1Runtime`; move title literals and substrate thunks **subsystem by subsystem**, cheapest first: scene identity → render seam → module loader → GPU environment → CD stream → sync → diagnostics → remaining legacy facts. Each operation becomes a narrow virtual/runtime-owned interface, not one replacement binding bag. Shrink the baseline in the same commit as each move. | After **each** subsystem: `cmake --build build --target spiderman_port -j$(nproc)`, then the Step-0 gate. Lint baseline must be strictly smaller each time (a STALE failure means a move landed without its baseline edit). End state: Rule A and Rule B baselines both **0**, `Spider1Runtime` derives through the shared lineage runtime, and no legacy config/hooks adapter remains. |
 | **3** | `generated/` → `generated/spider1/`; update the 9 live path references. | `PSXPORT_FORCE_RECOMP=1 python3 tools/ensure_recomp.py` regenerates the same **135** files under the new path and the same `.recomp.hash` content; rebuild; Step-0 gate. |
 | **4** | `titles/<t>/title.json` (boot-exe name, disc env var, module list, link base); teach `ensure_recomp.py --title` (14 hardcodes), `redump_ram.py` (3), `run.sh` (9). | `python3 tools/ensure_recomp.py --title spider1` reproduces the identical hash from step 3 (byte-compare `generated/spider1/.recomp.hash`). |
 | **5** | cmake split: `PSXPORT_TITLES` + `titles/<t>/port.cmake`, default `spider1`. | Fresh `cmake -S . -B build-fresh && cmake --build build-fresh --target spiderman_port` produces a binary that passes the Step-0 gate; `psxport_smoke` still builds; `-DPSXPORT_TITLES=spider1` (the default) is what a bare clone uses. |
-| **6** | **First Enter Electro content — provisioning only.** `titles/spider2/title.json`, empty `recomp_seeds.json` (empty on purpose, same reasoning as title 1's), `game_config.cpp` with **every field zero** except `bootExe`/`discEnvVar`; a `.env` key `PSXPORT_SPIDERMAN2_DISC`. | `ensure_recomp.py --title spider2` extracts `SLUS_013.78` and relocates **28/28** modules (already proven offline this session: 28 clean, 0 failures) and emit.py produces a substrate; `cmake --build build --target spider2_port` links. Then: **running `spider2_port` must ABORT** on the first zero binding, naming the frontier step. That abort is the pass — a boot would mean something was faked. |
+| **6** | **First Enter Electro content — provisioning only.** Add `titles/spider2/title.json`, an empty `recomp_seeds.json` (empty on purpose, same reasoning as title 1's), and `EnterElectroRuntime`, whose only established identity is `SLUS_013.78` and whose first unresolved operation explicitly aborts naming its frontier step; add `.env` key `PSXPORT_SPIDERMAN2_DISC`. | `ensure_recomp.py --title spider2` extracts `SLUS_013.78` and relocates **28/28** modules (already proven offline this session: 28 clean, 0 failures) and emit.py produces a substrate; `cmake --build build --target spider2_port` links. Then: **running `spider2_port` must ABORT** at that explicit unresolved runtime operation. That abort is the pass — a boot would mean something was faked. A `SLUS_008.75` disc must be rejected as a serial mismatch. |
 | **7** | RE title 2 for real, starting where title 1 started: the crt0 group (`tools/redump_ram.py --title spider2` then the framework's `disasm.py` at the PS-EXE entry). File title-2 frontier steps in `docs/re-frontier.md` with a `spider2:` prefix. | Each field cited with the instruction it came from, per this repo's standing rule. **No address copied from title 1** — the shingle metric is address-independent and cannot license one. |
 
 Nothing before step 6 touches Enter Electro at all, and every step before it is verifiable on the
@@ -342,9 +327,9 @@ binary that exists today.
 |---|---|
 | shared `game/` today | 18 files / 3,460 lines; **10 files already title-clean** |
 | literals to relocate | **69** live game-address literals in 8 files (raw grep says 373 — 304 are comments) |
-| substrate symbols to route through a binding | **20** distinct `gen_func_*` in **60** references; **19** `engine_set_override_main` sites |
-| new shared code | 1 header + 1 small `.cpp` (`spider_title.h/.cpp`) |
-| new per-title code | `title.json`, `game_config.cpp` (title 1: the existing 457-line file, moved), `bindings.cpp` (~19 GuestFn rows), `port.cmake` (~20 lines) |
+| substrate symbols to move behind title runtime ownership | **20** distinct `gen_func_*` in **60** references; **19** `engine_set_override_main` sites |
+| new shared code | one small inherited lineage runtime base plus narrow subsystem interfaces as required |
+| new per-title code | `title.json`, one derived runtime, `recomp_seeds.json`, and `port.cmake`; no title configuration bag |
 | cmake edits | 2 live lines in `cmake/spiderman_port.cmake` + 1 `foreach` in `CMakeLists.txt` |
 | path edits | 9 live `generated/` references; 33 title-name occurrences in 8 tool/script files |
 | new lint | ~250 lines + selftest; repo's **first** `add_test` |

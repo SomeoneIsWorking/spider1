@@ -1,10 +1,29 @@
-# spider1 — working rules
+# spider — working rules
 
-A native PC port of the PSX Spider-Man (`SLUS_008.75`, USA) on the psxport framework
-(`external/psxport` — a symlink to the shared framework clone, pinned via `psxport.pin`). psxport
-statically recompiles the game's MIPS code into C — the "substrate" — and provides the PSX platform
-layer, hardware backends, differential harness, and renderer. This repo adds only the game seam plus
-the recompiled substrate.
+A native PC port of both Neversoft PSX Spider-Man games on the psxport framework:
+
+- Spider-Man (`SLUS_008.75`, USA)
+- Spider-Man 2: Enter Electro (`SLUS_013.78`, USA)
+
+`external/psxport` is a symlink to the shared framework clone, pinned via `psxport.pin`. psxport
+statically recompiles each game's MIPS code into C — the "substrate" — and provides the PSX platform
+layer, hardware backends, differential harness, and renderer. This repo adds only the game seams plus
+the recompiled substrates.
+
+## Two-title product contract
+
+The disc boot executable/serial is the canonical title key: `SLUS_008.75` means Spider-Man and
+`SLUS_013.78` means Enter Electro. Human-facing names are labels, never selectors; do not infer a
+title from a generic "Spider-Man" string, asset shape, or whichever substrate happens to exist.
+A product target binds to exactly one recognized serial and must refuse an unknown or mismatched
+disc instead of silently running the other title's configuration.
+
+Only `SLUS_008.75` is implemented today. The existing `titles/spiderman1/` and
+`titles/spiderman2/` directories are identity/status placeholders, not the completed multi-title
+layout. When implementation of `SLUS_013.78` begins, convert the repo to per-title
+`titles/<id>/` seams and substrates over measured shared lineage code in `game/`, as specified in
+`docs/plans/spider2-multi-title.md`. Do not claim Enter Electro support before its own executable,
+seam, runtime facts, native producers, build, and real-disc verification exist.
 
 This file holds durable **directives**. Findings go to `docs/issues/`, status to `docs/codemap.md`,
 progress to `docs/re-frontier.md`, proven results to `docs/info/`.
