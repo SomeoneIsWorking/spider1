@@ -3,7 +3,7 @@ id: C045
 kind: claim
 status: holds
 created: 2026-08-22
-tags: 
+tags:
 depends: game/render/guest_frame_commit.cpp#commitCapturedGuestFrame, game/render/render_seam.cpp#RenderSeam::submitFrame, tools/gate.py#FAIL_PATTERNS
 ---
 
