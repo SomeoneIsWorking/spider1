@@ -1,12 +1,13 @@
 ---
 id: C038
 kind: claim
-status: holds
+status: falsified
 created: 2026-08-21
 tags:
 depends: run.sh, tools/run.py#launch, tools/run.py#port_commands
 reconfirmed: 2026-08-21 14:15:27
 verified_at: 2026-08-21 14:15:27
+falsified_on: 2026-08-24
 ---
 
 ## Claim
@@ -40,3 +41,9 @@ Final 2026-08-21 verification after recording psxport 692b9b20e3d4a6194452522060
 ## Re-confirmed 2026-08-21 14:15:27
 
 Final 2026-08-21 verification at psxport 3418a79b624765614f3f198dc1e89632e1e650f0: a fresh CMake configure selected Clang 22.1.8, spiderman_port built, all six CTests passed, cpp_policy checked format 39/39 and clang-tidy 25/25, and psxport_sync --check matched build metadata to the pin. The real zero-argument ./run.sh route rebuilt the required target, selected PSXPORT_RENDER_PATH=gte from its Default layer, and reached dem1 then l1a1 before the separately catalogued FPS60 queue-overflow boundary.
+
+## FALSIFIED 2026-08-24
+
+The 2026-08-24 player-launcher contract explicitly permits compatible GCC, Clang, and AppleClang and forbids compiler identity whitelists/blacklists. The shipping launcher now checks only that CC/CXX resolve to executables; Clang remains the separate maintainer verification toolchain.
+
+> Anything that cited this claim as proof must be re-checked. Grep the repo for it.

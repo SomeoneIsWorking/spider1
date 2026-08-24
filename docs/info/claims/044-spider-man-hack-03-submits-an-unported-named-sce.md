@@ -5,8 +5,8 @@ status: holds
 created: 2026-08-21
 tags: render,re-21,hack-03
 depends: game/render/guest_frame_fallback.cpp#decideGuestFrameFallback, game/render/render_seam.cpp#RenderSeam::submitFrame, game/render/render_seam.cpp#RenderSeam::seamPass
-reconfirmed: 2026-08-21 14:15:27
-verified_at: 2026-08-21 14:15:27
+reconfirmed: 2026-08-24 20:28:47
+verified_at: 2026-08-24 20:28:47
 ---
 
 ## Claim
@@ -40,3 +40,7 @@ Post-landing guest_frame_fallback test passed; live Native-path evidence retaine
 ## Re-confirmed 2026-08-21 14:15:27
 
 Final psxport 3418a79b Clang rebuild passed guest_frame_fallback and all five other CTests. Bounded retail Native log scratch/logs/re21-guest-fallback-3418a79b.log submitted six dem1 and two l1a1 guest frames; every SELECTED/SUBMITTED record says nativeSubmitted=0, nativeEnvelopeDelta=0, and interpolation=0. The run crossed the repaired FIFO 70 + controller-zero 434 DMA boundary and only later reached the separately catalogued FPS60 queue overflow; DISABLED, INTERPOLATION_FORBIDDEN, and NATIVE_OVERLAP_FORBIDDEN remain the opposite-answer gates.
+
+## Re-confirmed 2026-08-24 20:28:47
+
+2026-08-24 structural/hermetic re-verification without a game launch: the current RenderSeam decides ownership before FrameEnvelope, returns FallbackGuest before every native producer, refuses when fps60(*game).active(), checks envelope delta before submission, holds GuestFrameFallbackModeScope(RenderPath::Gte) across the retail super-call and FramePresenter commit, and the guest_frame_fallback CTest passed all five opposite-answer decisions plus Gte-mode restoration. This reconfirms the shipping ownership invariant; no new pixel or runtime-reach evidence is claimed.

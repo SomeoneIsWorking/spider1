@@ -5,8 +5,8 @@ status: holds
 created: 2026-08-12
 tags: boot,crt0,heap,re-01
 depends: game/core/game_config.cpp, external/psxport/runtime/recomp/crt0_boot.h
-reconfirmed: 2026-08-22 14:22:52
-verified_at: 2026-08-22 14:22:52
+reconfirmed: 2026-08-24 20:28:47
+verified_at: 2026-08-24 20:28:47
 ---
 
 ## Claim
@@ -24,3 +24,7 @@ crt0_extract resolving fewer than 8 fields, reporting a prologue that is not COM
 ## Re-confirmed 2026-08-22 14:22:52
 
 2026-08-22 after exporting the unchanged boot facts through SpiderRuntime's bounded legacy adapter: scratch/logs/gate-boot-20260822-141229.log reports guest-crt0 AUDIT 10 AGREE, 0 DISAGREE, 0 unresolved and dispatches gameMain 0x8002C354.
+
+## Re-confirmed 2026-08-24 20:28:47
+
+2026-08-24 no-runtime re-verification: external/psxport/build/tools/crt0_extract scratch/bin/spiderman/SLUS_008.75 decoded the complete 35-instruction prologue, resolved 8/8 fields, stackBias -8, heap globals 0x800B1240/0x800B123C, and the A(39h) InitHeap/live-a1/delay-slot checks all YES; the green spider_runtime CTest checks the same title runtime against its measured program image.

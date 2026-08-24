@@ -1,16 +1,18 @@
 # PLAN — Spider-Man 2: Enter Electro joins this repo (multi-title split)
 
-Status: **PLAN ONLY; the multi-title source split has not begun.** Written 2026-08-12 and corrected
-for inherited runtime ownership on 2026-08-22. The measurements below are reproducible historical
-baselines from the original planning session, not current tree counts; refresh them before executing
-the plan. The existing identity/status directories and current single-title `SpiderRuntime` do not
-constitute the split.
+Status: **IN PROGRESS.** Written 2026-08-12, corrected for inherited runtime ownership, and advanced
+through the serial/provisioning/crt0 boundary on 2026-08-22. The measurements below remain
+reproducible historical baselines from the original planning session, not current tree counts.
+Implemented: per-title manifests, serial-driven launcher selection, isolated generated namespaces,
+an address-free `SpiderRuntime : GameRuntime` base, `Spider1Runtime`, and a direct
+`EnterElectroRuntime` with 8/8 measured crt0 facts. Enter Electro deliberately refuses at EE-02;
+the remaining title-address extraction from shared `game/` and all rendering/gameplay work are open.
 
 The boot executable/serial is the canonical title key throughout this plan: Spider-Man is
 `SLUS_008.75`; Spider-Man 2: Enter Electro is `SLUS_013.78`. Names are labels, not runtime selectors.
-Each product target must bind to exactly one key and refuse a mismatched disc. The current
-`titles/spiderman1/` and `titles/spiderman2/` directories are placeholders; the `titles/<id>/` seams
-and substrates described below are created when title 2 implementation begins.
+Each product target binds to exactly one key and refuses a mismatched disc. The
+`titles/spiderman1/` and `titles/spiderman2/` seams are now implemented through EE-02; later steps in
+this plan describe the remaining extraction and title behavior, not placeholder creation.
 
 ---
 
@@ -161,11 +163,11 @@ game/                     SHARED — lineage code. MUST hold 0 guest-address lit
          module_loader.cpp diag_overrides.cpp
   render/ render_seam.cpp frame_envelope.cpp gpu_env.cpp frame_census.cpp scene_id.cpp
 titles/
-  spider1/  title.json  spider1_runtime.cpp  recomp_seeds.json  port.cmake
-  spider2/  title.json  enter_electro_runtime.cpp  recomp_seeds.json  port.cmake
+  spiderman1/  title.json  spider1_runtime.cpp
+  spiderman2/  title.json  enter_electro_runtime.cpp  recomp_seeds.json  port.cmake
 generated/
-  spider1/  ...135 files, 16 MB...        PER TITLE. Sharing one dir is impossible — see below.
-  spider2/
+  ...Spider-Man 1 files...                 historical default namespace
+  spiderman2/                              Enter Electro namespace
 tools/                    unchanged engines, parameterised by --title
 docs/                     codemap / re-frontier / issues / info — SHARED, with per-title status rows
 ```
@@ -189,12 +191,16 @@ class Spider1Runtime final : public SpiderRuntime { /* SLUS_008.75 facts and ove
 class EnterElectroRuntime final : public SpiderRuntime { /* SLUS_013.78 facts and overrides */ };
 ```
 
-The current `SpiderRuntime : LegacyGameRuntimeAdapter` is migration debt for framework consumers
-that still read `Core::cfg`; it is not the multi-title design and must not be copied into title 2.
-During the split, extract those remaining fields into narrow typed virtual runtime interfaces, then
-make the shared lineage base derive directly from `GameRuntime`. Title-specific guest addresses and
-`gen_func_*` thunks live in the derived title runtime or the cohesive title subsystem that owns the
-operation. Do not replace `GameConfig` with a differently named all-fields binding struct.
+The split now has an address-free `SpiderRuntime : GameRuntime`. `Spider1Runtime` alone composes the
+bounded legacy adapter for framework consumers that still read `Core::cfg`; that debt was not copied
+into title 2. Remaining Spider-Man 1 fields must move into narrow typed runtime interfaces over later
+steps. Title-specific guest addresses and `gen_func_*` thunks live in the derived title runtime or
+the cohesive title subsystem that owns the operation. Do not replace `GameConfig` with a differently
+named all-fields binding struct.
+
+Executable identity is likewise inherited policy, not filename convention: each derived runtime
+publishes its manifest-bound serial, measured file size, and SHA-256 through `ExecutableIdentity`.
+The shared boot authenticates those bytes before runtime installation and `Game` construction.
 
 An unimplemented title operation is an explicit derived override that aborts naming its frontier
 step. It is never a zero-filled configuration row and never a silent no-op. This keeps incomplete
@@ -204,20 +210,20 @@ then refuses a serial mismatch before guest execution.
 
 ### One cmake build, two binaries
 
-`CMakeLists.txt` gains `set(PSXPORT_TITLES "spider1" CACHE STRING …)` — **default spider1 only**, so a
+`CMakeLists.txt` uses `set(SPIDER_TITLES "spiderman1" CACHE STRING …)` — **default Spider-Man 1 only**, so a
 bare clone and every existing gate command keep working and an incomplete title 2 can never break
 title 1's build. Then:
 
 ```cmake
 include(${PSXPORT_DIR}/cmake/psxport.cmake)          # once: libpsxport + psxport_smoke
-foreach(t IN LISTS PSXPORT_TITLES)
+foreach(t IN LISTS SPIDER_TITLES)
   include(titles/${t}/port.cmake)                    # defines one executable
 endforeach()
 ```
 
-`titles/spider1/port.cmake` keeps the target name **`spiderman_port`** (renaming it would invalidate
-every command in `docs/codemap.md` and every gate script); `titles/spider2/port.cmake` defines
-`spider2_port`. Each does:
+`cmake/spiderman_port.cmake` keeps the target name **`spiderman_port`** (renaming it would invalidate
+every command in `docs/codemap.md` and every gate script); `titles/spiderman2/port.cmake` defines
+`enter_electro_port`. Each does:
 
 ```cmake
 include(${CMAKE_SOURCE_DIR}/generated/${t}/rec_sources.cmake)
@@ -286,7 +292,7 @@ needs two rules where the framework needs one:
 
 ## 4. Order of work, with the gate for each step
 
-**Step 0 — the refactor gate, already captured.** `gpuguard run --timeout 90 --
+**Step 0 — the refactor gate, already captured.** `python3 tools/gate.py boot --seconds 90 --
 ./scratch/bin/spiderman_port scratch/bin/spiderman/SLUS_008.75` (headless, `PSXPORT_NOAUDIO=1`) on the
 binary built 2026-08-12 11:01 produced, in `scratch/logs/s2plan/baseline.log`:
 

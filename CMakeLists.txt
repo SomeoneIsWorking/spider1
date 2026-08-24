@@ -64,14 +64,26 @@ if(NOT TARGET zstd::libzstd_shared)
   set_target_properties(zstd::libzstd_shared PROPERTIES IMPORTED_LOCATION "${ZSTD_LIBRARY}")
 endif()
 find_package(Threads REQUIRED)
+find_package(OpenSSL REQUIRED COMPONENTS Crypto)
 
 # libchdr (CHD access) comes from the Beetle PSX submodule NESTED under the psxport submodule.
 add_subdirectory(${PSXPORT_DIR}/vendor/beetle-psx/deps/libchdr
                  ${CMAKE_BINARY_DIR}/libchdr_build EXCLUDE_FROM_ALL)
 
-# The game binary (spiderman_port): game/** + generated/** linking libpsxport.
-# (cmake/spiderman_port.cmake includes the framework's psxport.cmake itself.)
-include(cmake/spiderman_port.cmake)
+# The framework is configured once. Each selected title contributes one derived runtime and one
+# generated substrate; no executable links two substrates whose address-derived symbols collide.
+include(${PSXPORT_DIR}/cmake/psxport.cmake)
+include(cmake/title_manifest.cmake)
+set(SPIDER_TITLES "spiderman1" CACHE STRING "Spider title targets to configure")
+foreach(SPIDER_TITLE IN LISTS SPIDER_TITLES)
+  if(SPIDER_TITLE STREQUAL "spiderman1")
+    include(cmake/spiderman_port.cmake)
+  elseif(SPIDER_TITLE STREQUAL "spiderman2")
+    include(titles/spiderman2/port.cmake)
+  else()
+    message(FATAL_ERROR "unknown SPIDER_TITLES entry '${SPIDER_TITLE}'")
+  endif()
+endforeach()
 
 if(BUILD_TESTING)
   add_executable(face_builder_census_test
@@ -103,14 +115,49 @@ if(BUILD_TESTING)
   add_test(NAME guest_frame_fallback COMMAND guest_frame_fallback_test)
   add_executable(spider_runtime_test
     tests/spider_runtime_test.cpp
+    game/core/spider_runtime.cpp
     game/core/game_config.cpp
     game/core/game_hooks.cpp
-    game/core/spider_runtime.cpp
+    titles/spiderman1/spider1_runtime.cpp
     game/core/spider_context.cpp
     game/core/allocator_audit.cpp)
-  target_include_directories(spider_runtime_test PRIVATE game game/core game/render generated)
+  spider_read_title(spiderman1 SPIDER1_TEST)
+  target_include_directories(spider_runtime_test PRIVATE
+    game game/core game/render generated titles/spiderman1)
+  target_compile_definitions(spider_runtime_test PRIVATE
+    SPIDER_TITLE_SERIAL="${SPIDER1_TEST_SERIAL}"
+    SPIDER_TITLE_DISC_ENV="${SPIDER1_TEST_DISCENV}"
+    SPIDER_TITLE_GUEST_EXE="${SPIDER1_TEST_GUESTEXECUTABLE}"
+    SPIDER_TITLE_EXECUTABLE_SIZE=${SPIDER1_TEST_FILESIZE}
+    SPIDER_TITLE_EXECUTABLE_SHA256="${SPIDER1_TEST_EXECUTABLESHA256}")
   target_link_libraries(spider_runtime_test PRIVATE psxport)
   add_test(NAME spider_runtime COMMAND spider_runtime_test)
+  add_executable(enter_electro_runtime_test
+    tests/enter_electro_runtime_test.cpp
+    game/core/spider_runtime.cpp
+    titles/spiderman2/enter_electro_runtime.cpp)
+  spider_read_title(spiderman2 SPIDER2_TEST)
+  target_include_directories(enter_electro_runtime_test PRIVATE
+    game game/core titles/spiderman2)
+  target_compile_definitions(enter_electro_runtime_test PRIVATE
+    SPIDER_TITLE_SERIAL="${SPIDER2_TEST_SERIAL}"
+    SPIDER_TITLE_DISC_ENV="${SPIDER2_TEST_DISCENV}"
+    SPIDER_TITLE_GUEST_EXE="${SPIDER2_TEST_GUESTEXECUTABLE}"
+    SPIDER_TITLE_EXECUTABLE_SIZE=${SPIDER2_TEST_FILESIZE}
+    SPIDER_TITLE_EXECUTABLE_SHA256="${SPIDER2_TEST_EXECUTABLESHA256}")
+  target_link_libraries(enter_electro_runtime_test PRIVATE psxport)
+  add_test(NAME enter_electro_runtime COMMAND enter_electro_runtime_test)
+  add_executable(executable_identity_test
+    tests/executable_identity_test.cpp
+    game/core/executable_identity.cpp)
+  target_include_directories(executable_identity_test PRIVATE game/core)
+  target_link_libraries(executable_identity_test PRIVATE OpenSSL::Crypto)
+  add_test(NAME executable_identity COMMAND executable_identity_test)
+  add_test(NAME title_catalog COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/test_title_catalog.py)
+  add_test(
+    NAME re08_store_sites
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/test_re08_store_sites.py
+  )
   add_test(
     NAME launcher_policy
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/run.py --selftest

@@ -31,10 +31,10 @@ Statuses: ✅ re-verified · 🟡 re-partial (honest gap) · 🔬 in-progress ·
 
 ### RE-00 — Provision + statically recompile the executable
 - status: re-verified
-- deps: 
+- deps:
 - evidence: PS-X EXE header: entry 0x8008739C, load 0x80010000, text 0xB6800; the corpus verified current under psxport 3418a79b contains 1672 resident fragments from 738 discovery roots. `game/recomp_seeds.json` keeps `main` empty and contains one retail-measured `main_reentry`: CdInit's HookEntryInt continuation 0x8008B990
 - where: 
-- gap: 
+- gap:
 - notes: 
 
 ### RE-01 — crt0 / boot seam
@@ -200,12 +200,12 @@ Statuses: ✅ re-verified · 🟡 re-partial (honest gap) · 🔬 in-progress ·
 **2026-08-14 runtime skip discriminator:** `PSXPORT_STR_SKIP_ORACLE=start|cross|held` drives only the framework pad seam and observes the shipping `FUN_8002AA0C` body at qualified PCs. Start on boot ID0 produced a guest edge after the 30-tick guard and reached the common teardown with active state cleared (1/1); the resulting held byte made the retail boot owner suppress ID1. Cross reached both boot IDs and, after an explicit idle replacement frame between them, each observed release before injection and produced an edge-driven common teardown at tick 31 (2/2). The earlier ID1 negative was an instrument defect: headless `Pad::driveRelease()` does not reset the sampled buttons and no SDL poll replaces them. The checkpoint at `0x8002AEF8` is reported honestly as `guard_arm`: it is reached before the two edge-clearing stores, not after them. Queued movies reported **MISSING CORPUS: 0 invocations; no verdict**. This advances C036 for both measured boot paths; it does not certify queued movies, menu arrival, or in-engine sequences. Fresh current-source logs: `scratch/logs/str_skip_start_current.log`, `scratch/logs/str_skip_cross_release_current.log`. `PSXPORT_SELFTEST=strskip` exercises the same event classifier as shipping observation across tick 29/30, early suppression, late exit, held non-retrigger, Start/Cross mode selection, owner/context validation, and missing-queued-corpus semantics.
 
 ### RE-08 — Render: native per-vertex depth from the guest's own swc2/mfc2 store (store hook, NOT a GTE tap)
-- status: todo
+- status: re-partial
 - deps: RE-09
-- evidence: 
-- where: 
-- gap: 
-- notes: 
+- evidence: THE STORE-HOOK DEPTH PATH IS PROVEN END-TO-END, 2026-08-24. The mechanism RE-08 names was already in the framework recompiler (emit.py: swc2 of SXY DR12-15 emits `gte_store_xy`; mfc2->sw pairs emit `gte_hold_pz`/`gte_record_pz` via vertex_pz_stores) and in the runtime (gte_beetle.cpp gte_store_xy/gte_hold_pz -> ProjPrim::setPz, word-guarded; consumed by gp0_exec lookupPz at draw time). What was missing was ANY trustworthy measurement on this port — the codemap row said "execution status UNKNOWN", C003's old evidence was INST-26-aliased to records=0, and no spider1 code called the framework's whole-run report. LANDED GAME-SIDE ONLY: render_seam.cpp now calls render_depth_coverage_report() every 2048 submitFrame calls (kDepthReportEvery), emitting LIFETIME depth totals mid-run (the watchdog `_exit(130)` means an exit-time dump would never print). MEASURED, two independent 240 s headless NOPACE runs on the real disc, both reaching dem1/dem2/dem3/dem4/l1a1: @6144 submits 1354377 of 2223704 prims = 60.91% carry real per-vertex depth; vertex-depth cache 11313797 records, lookups 4774494 hit / 868877 miss = 84.60% hit; misses split 86.0% ABSENT / 14.0% STALE; copy-carry bridge 2369181 of 69966073 sites carried (3.39%). Run-to-run repeat within ±1 prim at matching submit counts. Boot gate before vs after the seam edit: 20872 frames / 6144 calls / 10 scene changes BEFORE, 19656 / 6144 / 10 AFTER — submits and scenes identical, frames -5.8% (wall-clock noise; both far above the 4902 floor). Hermetic gate: tests/test_re08_store_sites.py (10 checks, wired into ctest as `re08_store_sites`) proves the new static scanner fires on a synthetic module carrying all four store forms AND discriminates swc2-of-SXY from swc2-of-SZ; shown RED by mutation (XY_REGS |= {18} flips the counts and fails the assertions). Logs: scratch/logs/re08_depth_run1.log, scratch/logs/re08_sites.csv, gate logs gate-boot-20260824-*.
+- where: game/render/render_seam.cpp (the periodic lifetime report — the only spider1 change); instrument tools/re08_store_sites.py + tests/test_re08_store_sites.py; static site table scratch/logs/re08_sites.csv. Guest tap carriers, named by Ghidra + the scanner: FUN_8007C4D8 (RE-21's source-to-screen; 23 swc2-XY taps, dominant), per-vertex transform family FUN_8007B628/B798/B9CC/BE90/C2AC (mfc2-form holds, writing SXY+IR3+clip-flag into the scratchpad staging block at 0x1F8003xx against viewport DAT_800B5918), FUN_80080988 (3 mfc2 taps + 12 untapped swc2-others), FUN_80028030/FUN_800301E4/FUN_80029334 (unrolled quad builders mixing direct swc2 with spill-mediated halfword stores). Framework side (NOT edited this session): emit.py GTE_SCREEN_XY_REGS/vertex_pz_stores/_track_value, gte_beetle.cpp gte_store_xy/gte_hold_pz/gte_record_pz, proj_prim.h ProjPrim.
+- gap: COVERAGE, not mechanism. 39% of prims still fall to the 2D order band and 15% of lookups miss, ABSENT-dominated — the tap never fired at those packet words. Root shape identified by disassembly (disasm.py spot-check after Ghidra): Spider-Man's unrolled builders read projected XY via mfc2 into a register, SPILL it as a stack word (`sw t0,0x90($sp)`), reload it (`lw v1,0x90($sp)`), and store HALFWORDS into the packet (`sh v1,($t7)` / `sh v0,-4($s0)` — e.g. FUN_80028304..8002831C). Neither tap form sees this: _track_value collects `sw` only, dies at the spill because it does not track through memory, and halfword stores are invisible besides. A direct mfc2->sh scan over the whole corpus finds ZERO pairs, so a naive sh extension closes NOTHING — the fix is spill-through tracking (one memory hop) plus sh targets, with gte_record_pz keying the CONTAINING aligned word (addr & ~3): safe for existing word-aligned sites (masking is identity there) and order-independent for halfwords because the second half-store always snapshots the completed word as its guard. Also counted and deliberately untouched: 593 swc2 stores of non-screen-XY cop2 registers (SZ FIFO et al.) — a future SZ-direct form if coverage analysis demands it. This extension is a FRAMEWORK emitter change in the recomp-emitter claim area. The current 9c2e3f1c pin still lacks spill-memory and halfword-target tracking; declared there, not attempted in this game-only milestone.
+- notes: The per-frame PSXPORT_DEBUG=ndepth line stays DISTRUSTED (INST-26); everything cited above comes from render_depth_coverage_report's whole-run totals, whose zero case prints "NO PRIMITIVES WERE CLASSIFIED AT ALL" instead of a percentage. Whether 61% 3D-prim coverage is near this scene mix's ceiling or far from it is UNKNOWN — dem* attract scenes are 2D-heavy, so per-scene breakdown is the next measurement before judging the remaining gap's size.
 
 ### RE-17 — Native camera projection constants (libgte SetGeomOffset / SetGeomScreen)
 - status: re-verified
@@ -388,3 +388,30 @@ no-producer claim or permit retrying until green.
 - where: game/render/guest_frame_fallback.cpp; game/render/render_seam.cpp; guest submit FUN_80061308; CVar PSXPORT_SPIDER1_GUEST_FRAME_FALLBACK
 - gap: DEBT: this is a mutually-exclusive whole guest frame, not a native display-list producer and not RE-21 progress. Remove it per scene only after the complete game-owned native producer is proven. If native and guest packets ever need to coexist within one scene, ownership must be partitioned without a second packet parser and double draw must be mechanically impossible. Guest packet output must never be interpolated.
 - notes: Explicitly authorized by the user only for graphics whose native producer remains unported. Actual guest-time GTE results/packets are allowed; guessed state and interpolation are not. The port default remains Gte because a debt path does not constitute native coverage.
+
+## boot
+
+
+### EE-00 — Enter Electro serial-bound provisioning and resident substrate
+- status: re-verified
+- deps:
+- evidence: USA disc SYSTEM.CNF boots SLUS_013.78;1; selected-media inspection rejects SLUS_008.75 before cached executable use. PS-X EXE is 786432 bytes, entry 0x80093C68, load 0x80010000, text 0xBF800 (loaded end 0x800CF800). The generated registry has 1653 candidate entry points from 366 discovery roots, with its highest resident entry at 0x800C28C8; the independently derived BSS starts at 0x800C2AF4 and the corresponding executable bytes from there through 0x800CF0DC are zero. GuestProgramImage therefore routes the pre-BSS resident span [0x00010000,0x000C2AF4), not the payload extent or heap boundary. No copyrighted output is tracked.
+- where: tools/title_catalog.py; tools/ensure_recomp.py --title spiderman2; titles/spiderman2/title.json; titles/spiderman2/recomp_seeds.json
+- gap: Resident executable only. The 28 CD.WAD runtime modules are deliberately not claimed before EE-02 reaches the game loader.
+- notes: Both-answer tests accept SLUS_008.75 and SLUS_013.78 and reject missing, unknown, ambiguous, and mismatched media identities.
+
+### EE-01 — Enter Electro crt0 and direct derived runtime
+- status: re-verified
+- deps: EE-00
+- evidence: Shipping crt0_extract over the real USA SLUS_013.78 resolves 8/8 fields: BSS 0x800C2AF4..0x800CF0DC, stack globals 0x800C0D10/0x800C0D0C with bias -8, heap 0x800CF0DC, gp 0x800C1764, libcInit 0x800988B0; disassembly establishes first game call 0x80031F54. Focused runtime test proves null legacy config/hooks/context and proves the newly required guest-VRAM picture query aborts rather than borrowing Spider-Man 1's policy. The real derived executable on psxport d2266f4b reaches shipping crt0_setup, reports 10 AGREE / 0 DISAGREE / 0 unresolved, initializes heap 0x800CF0E0 size 0x728F1C, and then emits the named EE-02 refusal with no recomp-MISS (`scratch/logs/enter-electro-boundary.log`).
+- where: titles/spiderman2/enter_electro_runtime.{h,cpp}; tests/enter_electro_runtime_test.cpp; runtime audit in psxport crt0_setup
+- gap:
+- notes: No Spider-Man 1 GameConfig, GameHooks, generated thunk, or title context is bound.
+
+### EE-02 — Enter Electro first game-owned call
+- status: todo
+- deps: EE-01
+- evidence: crt0 jal 0x80031F54 at 0x80093D04; the derived runtime names this exact boundary and aborts rather than dispatching unported behavior.
+- where: guest FUN_80031F54; EnterElectroRuntime::bootInit
+- gap: Reverse-engineer and execute the title own gameMain initialization without copying SLUS_008.75 addresses or hooks.
+- notes: The abort is the current success condition. Rendering, widescreen, runtime modules, and gameplay remain downstream and unclaimed.

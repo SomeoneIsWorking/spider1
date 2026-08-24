@@ -1,0 +1,9 @@
+[project]
+name = "spider-native-port-launcher"
+version = "0.1.0"
+description = "Locked bootstrap environment for the Spider native ports"
+requires-python = ">=3.11"
+dependencies = []
+
+[tool.uv]
+package = false

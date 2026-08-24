@@ -36,6 +36,7 @@
 #include "config_var.h"
 #include "config_vars.h" // psx::config::cv_render_path — this port's DEFAULT render path
 #include "core.h"
+#include "fps60.h"
 #include "frame_census.h"
 #include "frame_envelope.h"
 #include "game.h"
@@ -43,6 +44,7 @@
 #include "guest_frame_commit.h"
 #include "guest_frame_fallback.h"
 #include "recomp_iface.h"
+#include "render_stats.h"
 #include "render_substrate.h"
 #include "scene_id.h"
 #include <cstdio>
@@ -228,6 +230,16 @@ private:
   // A run killed at any moment still leaves the count in the log.
   static constexpr unsigned long long kReportEvery = 512;
 
+  // RE-08's run-time half, reported on the SAME discipline as the reach counter above: an
+  // atexit summary would never print here (the watchdog `_exit(130)`s), so the framework's
+  // LIFETIME depth-coverage totals are emitted DURING the run, every kDepthReportEvery
+  // submitFrame calls. render_depth_coverage_report prints cumulative counters with their own
+  // denominators (records / lookup hits+misses / stale-vs-absent misses / copy-carry rate) —
+  // it is the repaired instrument for what INST-26 distrusted: whole-run totals that no
+  // alternate-field sampling parity can alias to zero, and a no-data case that says "nothing
+  // measured" instead of printing 0%.
+  static constexpr unsigned long long kDepthReportEvery = 2048;
+
   // THE FIRST NATIVE PRODUCER. On a native-owned frame, the envelope precedes scene geometry. A
   // whole-guest fallback frame skips it along with every other native producer, so the guest body
   // remains the one owner of its environment and display list. See frame_envelope.h / HACK-03.
@@ -384,6 +396,14 @@ FrameSubmission RenderSeam::seamPass(Core *c, bool psxLeg) {
                  mSceneChanges);
   }
 
+  // RE-08: cumulative native-depth coverage over the whole run so far. Everything counted here
+  // was DRAWN by frames already submitted, so the report lags the current call by one frame —
+  // irrelevant for lifetime totals. Runs BEFORE this frame's super-call; reads framework state
+  // and guest RAM only.
+  if (mCalls % kDepthReportEvery == 0) {
+    render_depth_coverage_report(c, "submitFrame periodic");
+  }
+
   const DrawBuffer db(c, c->mem_r32(kCurrentDb));
   lucent::debug(
       "rseam",
@@ -421,7 +441,7 @@ FrameSubmission RenderSeam::seamPass(Core *c, bool psxLeg) {
         .nativeProducerReady =
             false, // RE-21: no named scene has a native display-list producer yet
         .nativeSubmissionStarted = false,
-        .interpolationActive = c->game->fps60.active(),
+        .interpolationActive = fps60(*c->game).active(),
     };
     const GuestFrameFallbackDecision fallback = decideGuestFrameFallback(fallbackInputs);
     if (fallback == GuestFrameFallbackDecision::SubmitGuestFrame) {

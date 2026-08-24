@@ -22,21 +22,26 @@ What it does, in order:
      regenerate, which catches a stale-but-self-consistent generated/ that an input hash alone
      would happily accept.
 
-Usage: python3 tools/ensure_recomp.py [/path/to/disc.chd]
-Env:   PSXPORT_SPIDERMAN_DISC (disc path), PSXPORT_DISCDUMP (discdump binary override),
+Usage: python3 tools/ensure_recomp.py [--title spiderman1|spiderman2] [/path/to/disc.chd]
+Env:   the selected title manifest's disc key, PSXPORT_DISCDUMP (discdump binary override),
        PSXPORT_FORCE_RECOMP=1 (ignore the hash and always re-emit).
 Exit:  0 on success (recomp present & current), non-zero with a diagnostic on any failure.
 """
+
+import argparse
 import hashlib
 import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import extract_modules  # noqa: E402  (same directory; see MODULE_SRCS)
-from disc_path import resolve_disc as resolve_disc_path  # noqa: E402
+import extract_modules
+from disc_path import resolve_disc as resolve_disc_path
+from title_catalog import Title, TitleCatalogError, load_catalog
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -50,16 +55,14 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # Tomba2Engine (fixed there 2026-08-12); this is the same latent defect in this repo.
 PSXPORT_DIR = os.environ.get("PSXPORT_DIR", "external/psxport")
 RECOMP_DIR = f"{PSXPORT_DIR}/tools/recomp"
-RECOMP_SRCS = [f"{RECOMP_DIR}/emit.py", f"{RECOMP_DIR}/decode.py", f"{RECOMP_DIR}/psexe.py"]
+RECOMP_SRCS = [
+    f"{RECOMP_DIR}/emit.py",
+    f"{RECOMP_DIR}/decode.py",
+    f"{RECOMP_DIR}/psexe.py",
+]
 # The module extractor decides the CONTENT of every overlay the recompiler is fed (which bytes, and
 # what base they are relocated to), so it is as much a recomp input as emit.py itself.
 MODULE_SRCS = ["tools/extract_modules.py"]
-
-EXE_NAME = "SLUS_008.75"          # the retail US boot executable, per SYSTEM.CNF
-EXE = f"scratch/bin/spiderman/{EXE_NAME}"
-# The recompiler seed set is a GAME fact, supplied by this repo — the framework ships none. A change
-# to it changes the emitted function set, so it is a hash input like the executable itself.
-SEEDS = "game/recomp_seeds.json"
 
 # Runtime-loaded code modules. SLUS_008.75 is NOT the whole game: further CODE lives in the packed
 # archive CD.WAD as <name>.bin + <name>.rel pairs, loaded and relocated at runtime by the game's own
@@ -69,12 +72,7 @@ SEEDS = "game/recomp_seeds.json"
 # first call into a module aborts with a recomp MISS. See docs/re-frontier.md RE-09.
 HED_NAME = "CD.HED"
 WAD_NAME = "CD.WAD"
-WAD_DIR = "scratch/wad"
-OVERLAY_DIR = "scratch/overlays"
-GEN_DIR = "generated"
-GEN_MAIN = "generated/spiderman_rec.c"
-HASH_FILE = "generated/.recomp.hash"
-VERSION_FILE = "generated/.recomp_version"
+SYSTEM_CNF = "SYSTEM.CNF"
 
 
 def say(msg):
@@ -89,20 +87,28 @@ def die(msg):
 def recomp_version():
     """The RECOMP_VERSION constant declared in the recompiler's emit.py, read TEXTUALLY so we don't
     import the whole recompiler just for one string."""
-    src = open(os.path.join(ROOT, f"{RECOMP_DIR}/emit.py")).read()
-    m = re.search(r'^RECOMP_VERSION\s*=\s*"([^"]+)"', src, re.M)
+    src = (Path(ROOT) / RECOMP_DIR / "emit.py").read_text(encoding="utf-8")
+    m = re.search(r'^RECOMP_VERSION\s*=\s*"([^"]+)"', src, re.MULTILINE)
     if not m:
         die(f"could not read RECOMP_VERSION from {RECOMP_DIR}/emit.py")
     return m.group(1)
 
 
-def resolve_disc(argv):
+def parse_args(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--title", default="spiderman1")
+    parser.add_argument("disc", nargs="?")
+    return parser.parse_args(argv)
+
+
+def resolve_disc(title: Title, argument: str | None):
     """Resolve and validate the disc selected by the shared tooling policy."""
-    argument = argv[1] if len(argv) > 1 and argv[1] else None
-    disc = resolve_disc_path(Path(ROOT), argument, os.environ)
+    disc = resolve_disc_path(Path(ROOT), argument, os.environ, title.disc_env)
     if not disc or not os.path.isfile(disc):
-        die("no disc image — pass it as ./run.sh <disc.chd>, set PSXPORT_SPIDERMAN_DISC, "
-            "or drop a *.chd here")
+        die(
+            f"no disc image — pass it as ./run.sh <disc.chd>, set {title.disc_env}, "
+            "or drop a *.chd here"
+        )
     return disc
 
 
@@ -112,13 +118,19 @@ def find_discdump():
         return cand
     # discdump is a FRAMEWORK tool, so it builds into the submodule's own build tree; the top-level
     # paths are kept too for a unified configure.
-    for p in ("external/psxport/build/tools/discdump", "external/psxport/build/tools/discdump.exe",
-              "build/tools/discdump", "build/tools/discdump.exe"):
+    for p in (
+        "external/psxport/build/tools/discdump",
+        "external/psxport/build/tools/discdump.exe",
+        "build/tools/discdump",
+        "build/tools/discdump.exe",
+    ):
         full = os.path.join(ROOT, p)
         if os.access(full, os.X_OK):
             return full
-    die("discdump not built — run.sh builds it before calling ensure_recomp.py "
-        "(cmake --build external/psxport/build --target discdump)")
+    die(
+        "discdump not built — run.sh builds it before calling ensure_recomp.py "
+        "(cmake --build external/psxport/build --target discdump)"
+    )
 
 
 def extract(discdump, disc, disc_path, dest_dir):
@@ -128,19 +140,103 @@ def extract(discdump, disc, disc_path, dest_dir):
     if os.path.isfile(out):
         return out
     os.makedirs(os.path.join(ROOT, dest_dir), exist_ok=True)
-    r = subprocess.run([discdump, "get", disc_path, disc, os.path.join(ROOT, dest_dir)],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    r = subprocess.run(
+        [discdump, "get", disc_path, disc, os.path.join(ROOT, dest_dir)],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
     if r.returncode != 0 or not os.path.isfile(out):
         err = (r.stderr or b"").decode(errors="replace").strip()
-        tree = subprocess.run([discdump, "list", disc], stdout=subprocess.PIPE,
-                              stderr=subprocess.STDOUT)
-        die(f"could not extract {disc_path} from the disc"
+        tree = subprocess.run(
+            [discdump, "list", disc],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            check=False,
+        )
+        die(
+            f"could not extract {disc_path} from the disc"
             + (f"\n  discdump: {err}" if err else "")
-            + "\n  disc tree:\n" + (tree.stdout or b"").decode(errors="replace"))
+            + "\n  disc tree:\n"
+            + (tree.stdout or b"").decode(errors="replace")
+        )
     return out
 
 
-def input_hash():
+def verify_selected_media(discdump: str, disc: str, selected: Title) -> None:
+    """Read SYSTEM.CNF from this disc every run; a cached executable cannot select a title."""
+    scratch = Path(ROOT) / "scratch"
+    scratch.mkdir(exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="title-inspect-", dir=scratch) as directory:
+        result = subprocess.run(
+            [discdump, "get", SYSTEM_CNF, disc, directory],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        cnf = Path(directory) / SYSTEM_CNF
+        if result.returncode or not cnf.is_file():
+            diagnostic = result.stderr.decode(errors="replace").strip()
+            die(f"could not inspect SYSTEM.CNF on selected media: {diagnostic}")
+        try:
+            actual = load_catalog(Path(ROOT)).from_system_cnf(
+                cnf.read_text(encoding="ascii", errors="replace")
+            )
+        except TitleCatalogError as exc:
+            die(str(exc))
+        if actual.id != selected.id:
+            die(
+                f"selected title {selected.id} ({selected.serial}) refuses media booting "
+                f"{actual.id} ({actual.serial})"
+            )
+        say(f"identity: SYSTEM.CNF boots {actual.serial} ({actual.label})")
+
+
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for block in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def provision_executable(discdump: str, disc: str, title: Title) -> Path:
+    """Freshly extract and authenticate the boot executable before trusting the scratch cache."""
+    scratch = Path(ROOT) / "scratch"
+    scratch.mkdir(exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="exe-identity-", dir=scratch) as directory:
+        result = subprocess.run(
+            [discdump, "get", title.serial, disc, directory],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        extracted = Path(directory) / title.serial
+        if result.returncode or not extracted.is_file():
+            diagnostic = result.stderr.decode(errors="replace").strip()
+            die(f"could not extract {title.serial} from selected media: {diagnostic}")
+        actual_size = extracted.stat().st_size
+        if actual_size != title.file_size:
+            die(
+                f"{title.serial} size mismatch: expected {title.file_size} bytes, "
+                f"selected media contains {actual_size} bytes"
+            )
+        actual_hash = file_sha256(extracted)
+        if actual_hash != title.executable_sha256:
+            die(
+                f"{title.serial} SHA-256 mismatch: expected {title.executable_sha256}, "
+                f"selected media contains {actual_hash}"
+            )
+
+        destination = Path(ROOT) / title.guest_executable
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        if not destination.is_file() or file_sha256(destination) != actual_hash:
+            shutil.copyfile(extracted, destination)
+        say(f"executable: {title.serial} SHA-256 {actual_hash} (USA identity verified)")
+        return destination
+
+
+def input_hash(title: Title, exe: Path, overlay_dir: Path | None):
     """SHA-256 over the game executable + this game's seed file + the recompiler sources."""
     h = hashlib.sha256()
 
@@ -149,74 +245,107 @@ def input_hash():
         with open(path, "rb") as f:
             h.update(f.read())
 
-    feed(EXE_NAME, os.path.join(ROOT, EXE))
-    feed(SEEDS, os.path.join(ROOT, SEEDS))
-    for src in RECOMP_SRCS + MODULE_SRCS:
-        feed(src, os.path.join(ROOT, src))
+    feed(title.serial, exe)
+    feed(str(title.seeds), Path(ROOT) / title.seeds)
+    feed(
+        f"titles/{title.id}/title.json", Path(ROOT) / "titles" / title.id / "title.json"
+    )
+    for src in RECOMP_SRCS:
+        feed(f"framework/recomp/{Path(src).name}", Path(ROOT) / src)
+    if title.runtime_modules:
+        for src in MODULE_SRCS:
+            feed(f"game/{src}", Path(ROOT) / src)
     # The relocated module images are recomp INPUTS exactly like the executable: change a load base
     # or a module's disc contents and the emitted substrate must change with it.
-    ov = os.path.join(ROOT, OVERLAY_DIR)
-    for name in sorted(os.listdir(ov)) if os.path.isdir(ov) else []:
+    ov = overlay_dir
+    for name in sorted(os.listdir(ov)) if ov and os.path.isdir(ov) else []:
         if name.endswith(".bin"):
-            feed(f"{OVERLAY_DIR}/{name}", os.path.join(ov, name))
+            feed(f"overlays/{title.id}/{name}", Path(ov) / name)
     return h.hexdigest()
 
 
-def generated_complete():
+def generated_complete(gen_dir: Path, gen_main: Path):
     """The generated set is complete iff the manifest exists and every TU it lists is present."""
-    manifest = os.path.join(ROOT, GEN_DIR, "rec_sources.cmake")
-    for f in (manifest, os.path.join(ROOT, GEN_DIR, "shard_disp.c"),
-              os.path.join(ROOT, GEN_MAIN), os.path.join(ROOT, GEN_DIR, "overlay_table.c")):
+    manifest = gen_dir / "rec_sources.cmake"
+    for f in (
+        manifest,
+        gen_dir / "shard_disp.c",
+        gen_main,
+        gen_dir / "overlay_table.c",
+    ):
         if not os.path.isfile(f):
             return False
-    listed = re.findall(r"^\s*(\S+\.c)\s*$", open(manifest).read(), re.M)
-    return all(os.path.isfile(os.path.join(ROOT, GEN_DIR, tu)) for tu in listed)
+    contents = manifest.read_text(encoding="utf-8")
+    listed = re.findall(r"^\s*(\S+\.c)\s*$", contents, re.MULTILINE)
+    return all(os.path.isfile(gen_dir / tu) for tu in listed)
 
 
-def run_emit():
-    say("recompiling SLUS_008.75 -> C (the execution substrate)…")
-    cmd = [sys.executable, os.path.join(ROOT, f"{RECOMP_DIR}/emit.py"),
-           os.path.join(ROOT, EXE), os.path.join(ROOT, GEN_MAIN),
-           "--seeds", os.path.join(ROOT, SEEDS),
-           "--overlays", os.path.join(ROOT, OVERLAY_DIR)]
-    if subprocess.run(cmd).returncode != 0:
+def run_emit(title: Title, exe: Path, gen_main: Path, overlay_dir: Path | None):
+    say(f"recompiling {title.serial} -> C (the execution substrate)…")
+    cmd = [
+        sys.executable,
+        os.path.join(ROOT, f"{RECOMP_DIR}/emit.py"),
+        str(exe),
+        str(gen_main),
+        "--seeds",
+        str(Path(ROOT) / title.seeds),
+    ]
+    if overlay_dir:
+        cmd.extend(["--overlays", str(overlay_dir)])
+    if subprocess.run(cmd, check=False).returncode != 0:
         die("emit.py failed")
 
 
 def main():
-    disc = resolve_disc(sys.argv)
+    args = parse_args(sys.argv[1:])
+    try:
+        title = load_catalog(Path(ROOT)).by_id(args.title)
+    except TitleCatalogError as exc:
+        die(str(exc))
+    disc = resolve_disc(title, args.disc)
     say(f"disc: {disc}")
     discdump = find_discdump()
+    verify_selected_media(discdump, disc, title)
 
-    extract(discdump, disc, EXE_NAME, "scratch/bin/spiderman")
+    exe = provision_executable(discdump, disc, title)
 
     # Runtime-loaded modules: extract + relocate BEFORE the hash is taken, since the relocated images
     # are recomp inputs. Both archive files are large-ish, so extract() caches them in scratch/.
-    hed = extract(discdump, disc, HED_NAME, WAD_DIR)
-    wad = extract(discdump, disc, WAD_NAME, WAD_DIR)
-    say("extracting runtime-loaded code modules from CD.WAD…")
-    try:
-        extract_modules.extract(hed, wad, os.path.join(ROOT, OVERLAY_DIR))
-    except (KeyError, ValueError, OSError) as e:
-        die(f"could not prepare the runtime-loaded modules: {e}")
+    overlay_dir = None
+    if title.runtime_modules:
+        wad_dir = Path(ROOT) / "scratch" / "wad" / title.id
+        overlay_dir = Path(ROOT) / "scratch" / "overlays" / title.id
+        hed = extract(discdump, disc, HED_NAME, str(wad_dir.relative_to(ROOT)))
+        wad = extract(discdump, disc, WAD_NAME, str(wad_dir.relative_to(ROOT)))
+        say("extracting runtime-loaded code modules from CD.WAD…")
+        try:
+            extract_modules.extract(hed, wad, str(overlay_dir))
+        except (KeyError, ValueError, OSError) as exc:
+            die(f"could not prepare the runtime-loaded modules: {exc}")
 
-    os.makedirs(os.path.join(ROOT, GEN_DIR), exist_ok=True)
-    want = recomp_version() + ":" + input_hash()
+    gen_dir = Path(ROOT) / title.generated_directory
+    gen_main = gen_dir / title.generated_main
+    hash_file = gen_dir / ".recomp.hash"
+    version_file = gen_dir / ".recomp_version"
+    gen_dir.mkdir(parents=True, exist_ok=True)
+    want = recomp_version() + ":" + input_hash(title, exe, overlay_dir)
     have = ""
-    if os.path.isfile(os.path.join(ROOT, HASH_FILE)):
-        have = open(os.path.join(ROOT, HASH_FILE)).read().strip()
+    if hash_file.is_file():
+        have = hash_file.read_text(encoding="ascii").strip()
 
-    if (not os.environ.get("PSXPORT_FORCE_RECOMP")) and have == want and generated_complete():
+    if (
+        (not os.environ.get("PSXPORT_FORCE_RECOMP"))
+        and have == want
+        and generated_complete(gen_dir, gen_main)
+    ):
         say("recomp up to date")
         return
 
-    run_emit()
-    if not generated_complete():
+    run_emit(title, exe, gen_main, overlay_dir)
+    if not generated_complete(gen_dir, gen_main):
         die("emit.py finished but the generated set is incomplete")
-    with open(os.path.join(ROOT, HASH_FILE), "w") as f:
-        f.write(want + "\n")
-    with open(os.path.join(ROOT, VERSION_FILE), "w") as f:
-        f.write(recomp_version() + "\n")
+    hash_file.write_text(want + "\n", encoding="ascii")
+    version_file.write_text(recomp_version() + "\n", encoding="ascii")
     say("recomp complete")
 
 

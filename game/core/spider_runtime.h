@@ -1,20 +1,24 @@
 #pragma once
 
-#include "game_iface.h"
+#include "executable_identity.h"
+#include "game_runtime.h"
+
+#include <string_view>
 
 namespace spider {
 
-// Process-lifetime owner of Spider-Man's framework-facing behavior. The legacy base is temporary:
-// it keeps measured compatibility facts and not-yet-typed callbacks reachable without making the
-// GameConfig/GameHooks pair the title's public architecture.
-class SpiderRuntime final : public LegacyGameRuntimeAdapter {
+// Shared process-lifetime seam for the two Neversoft Spider titles. Executable facts and behavior
+// remain virtual title policy: this base deliberately owns no guest address and no generated thunk.
+class SpiderRuntime : public GameRuntime {
 public:
-  SpiderRuntime();
+  std::string_view serial() const;
+  virtual std::string_view discEnvironment() const = 0;
+  virtual std::string_view defaultExecutable() const = 0;
+  virtual const ExecutableIdentity &executableIdentity() const = 0;
+  virtual void installRecomp() = 0;
 
-  void *createContext(Core &core) override;
-  void destroyContext(void *context) override;
-  void registerOverrides(Game &game) override;
-  void bootInit(Core &core) override;
+protected:
+  [[noreturn]] void refuseUnported(std::string_view boundary, std::string_view frontier) const;
 };
 
 } // namespace spider

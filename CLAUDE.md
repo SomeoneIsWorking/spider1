@@ -16,14 +16,16 @@ The disc boot executable/serial is the canonical title key: `SLUS_008.75` means 
 `SLUS_013.78` means Enter Electro. Human-facing names are labels, never selectors; do not infer a
 title from a generic "Spider-Man" string, asset shape, or whichever substrate happens to exist.
 A product target binds to exactly one recognized serial and must refuse an unknown or mismatched
-disc instead of silently running the other title's configuration.
+disc instead of silently running the other title's configuration. Serial is necessary but not
+sufficient: provisioning and direct target boot must also match the executable's measured file size
+and SHA-256 before `Game` construction, so a renamed or stale cache cannot supply identity.
 
-Only `SLUS_008.75` is implemented today. The existing `titles/spiderman1/` and
-`titles/spiderman2/` directories are identity/status placeholders, not the completed multi-title
-layout. When implementation of `SLUS_013.78` begins, convert the repo to per-title
-`titles/<id>/` seams and substrates over measured shared lineage code in `game/`, as specified in
-`docs/plans/spider2-multi-title.md`. Do not claim Enter Electro support before its own executable,
-seam, runtime facts, native producers, build, and real-disc verification exist.
+`SLUS_008.75` is the playable implementation. `SLUS_013.78` now has its own manifest, generated
+substrate namespace, direct `EnterElectroRuntime`, and executable-derived crt0 facts; it deliberately
+aborts at its first unported game-owned call (`0x80031F54`, EE-02). This is a verified identity/boot
+boundary, not gameplay or rendering support. Shared `game/` code must remain address-free lineage
+mechanism; title addresses and generated thunks belong below `titles/<id>/`. Do not claim Enter
+Electro rendering, widescreen, or gameplay before its own frontier establishes those layers.
 
 This file holds durable **directives**. Findings go to `docs/issues/`, status to `docs/codemap.md`,
 progress to `docs/re-frontier.md`, proven results to `docs/info/`.
@@ -117,7 +119,7 @@ from, and the command that reproduces the disassembly
 An address with no provenance is a guess, and guesses are how a port acquires magic constants. The
 remaining legacy configuration facts that have not been RE'd stay **zero**, with the frontier step
 named — zero means "not yet known", never "not needed". New behavior and policy belong on the
-derived `SpiderRuntime`; do not grow `GameConfig` or `GameHooks`.
+appropriate title-derived runtime; do not grow `GameConfig` or `GameHooks`.
 
 Prefer ground truth over inference. The single most useful identification in this port so far came
 from a diagnostic string the binary itself emits, not from pattern-matching control flow.
@@ -153,8 +155,8 @@ map is `external/psxport/docs/workspace/WORKSPACE.md`.
 ## Keep the framework game-agnostic
 
 psxport carries no game code and must keep compiling standalone (`psxport_smoke`). When the framework
-needs a game-specific value, expose a narrow typed runtime fact interface and implement it in
-`SpiderRuntime`; do not `#include` anything from `generated/` into framework code, bake an address
+needs a game-specific value, expose a narrow typed runtime fact interface and implement it in the
+title-derived runtime; do not `#include` anything from `generated/` into framework code, bake an address
 into `runtime/`, or add another field to the legacy configuration bag.
 
 Where the framework already bakes one in, that is a **wart**: record it in
@@ -176,7 +178,7 @@ natively, not to reproduce the hardware faithfully enough that the guest's own I
 interrupt controller so a guest ISR can set a completion byte is the long way round to a value the
 host already knows.
 
-Concretely: let `SpiderRuntime` install the native owner at a binary-proven library chokepoint, do
+Concretely: let the title-derived runtime install the native owner at a binary-proven library chokepoint, do
 the real work natively (serve the read from the disc image), and drive whatever completion the guest
 is waiting on. Hardware modelling is
 still worth having where it is genuinely simpler or serves other consumers — but it is not the

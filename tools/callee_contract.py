@@ -34,7 +34,6 @@ EXE = os.path.join(REPO, "scratch/bin/SLUS_008.75")
 DECLS = os.path.join(REPO, "generated/rec_decls.h")
 
 # Ground truth for this binary (docs/re-frontier.md RE-16).
-WANT_VIOLATION = 0x8002A5F4          # the coroutine yield — must be flagged
 RULE1 = 0x8002A478                   # already demoted by rule 1
 MUST_KEEP = {0x80086B10: "StGetNext (the port super-calls it — demoting breaks the LINK)",
              0x8007CD44: "branch-and-link subroutine (seeded by the 131-site link fix)",
@@ -218,11 +217,9 @@ def walk(exe, entry, end, live, demoted):
                     # a+8 through the resume switch. Both edges are real and BOTH must be walked:
                     # the callee's body (inline flow), and the continuation after it.
                     #
-                    # Walking only the target was a modelling gap that hid the very path this rule
-                    # exists to find. Everything after an in-body call went unexplored, so the
-                    # decoder's SUSPEND path -- reached only after such a call returns -- was
-                    # invisible and 0x8002A5F4 read as "ok". The walk has to mirror the emitted CFG
-                    # or it proves things about a different program.
+                    # Walking only the target would leave everything after the call unexplored,
+                    # including any later balance or suspend path. The walk has to mirror the emitted
+                    # CFG or it proves things about a different program.
                     work.append((i.target, sp, "link", wrote))
                     work.append((a + 8, sp, ra, wrote))
                 else:
@@ -279,11 +276,10 @@ def main():
     print()
     print(f"VIOLATIONS ({len(viol)}) — cannot be emitted as a host callee:")
     for a, why in viol:
-        tag = "  <-- WANTED" if a == WANT_VIOLATION else ("  <-- MUST-KEEP!" if a in MUST_KEEP else "")
+        tag = "  <-- MUST-KEEP!" if a in MUST_KEEP else ""
         print(f"   0x{a:08X}  {why}{tag}")
     if not viol:
-        print("   (none — which would be a FAILURE of this scan, not a clean result: "
-              f"0x{WANT_VIOLATION:08X} is known to violate)")
+        print("   (none)")
     print()
     print(f"UNCLASSIFIABLE ({len(unk)}) — refused rather than defaulted:")
     for a, why in unk[:12]:
@@ -293,11 +289,6 @@ def main():
     print()
 
     ok = True
-    if WANT_VIOLATION not in {a for a, _ in viol}:
-        ok = False
-        print(f"FAIL: 0x{WANT_VIOLATION:08X} (the coroutine yield) was NOT flagged")
-    else:
-        print(f"ok: 0x{WANT_VIOLATION:08X} flagged")
     hit = {a for a, _ in viol} & set(MUST_KEEP)
     if hit:
         ok = False

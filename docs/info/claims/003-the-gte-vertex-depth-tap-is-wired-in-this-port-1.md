@@ -3,43 +3,52 @@ id: C003
 kind: claim
 status: holds
 created: 2026-07-30
-tags: RE-08
+reconfirmed: 2026-08-24
+tags: RE-08,depth,render
 ---
 
 ## Claim
 
-The GTE vertex-depth tap is wired in this port (10 gte_record_pz sites across 6 projection functions) but has NEVER executed: projprim records=0 over a full boot+menu run. The cause is that the port never reaches 3D content, not a broken tap or a closed gate.
+The GTE vertex-depth tap is wired AND executes at scale in this port. Native per-vertex depth from the
+guest's own swc2/mfc2 stores works end-to-end on the shipping default leg: over a bounded headless run
+that reaches live 3D scenes (dem1/dem2/dem3/dem4/l1a1), ~61–64% of drawn primitives carry REAL
+per-vertex depth and 84.6–86.0% of renderer depth lookups hit.
 
-## Evidence
+## Evidence (REPLACES the pre-2026-08-24 evidence; see history below)
 
-grep -h gte_record_pz generated/shard_*.c | wc -l -> 10, in gen_func_8007B628/8007B798/8007B9CC/8007BE90/8007C2AC/80080988. PSXPORT_DEBUG=ndepth over a 100s run (636 lines, f60..f600+) reports 'projprim(vtx) records=0 lookups hit=0 miss=0' every sample. Gate ruled out: attach_enabled() and native_depth_on() both return 1 unconditionally (gte_beetle.cpp:358-360). Plumbing ruled out: gte_record_pz calls projprim.setPz directly with no other condition.
+MEASURED 2026-08-24 with a whole-run instrument that cannot alias (INST-29): `render_depth_coverage_report()`
+(external/psxport/runtime/recomp/gpu_native.cpp — LIFETIME totals, never reset) now called from the port's
+own submitFrame seam every 2048 calls (game/render/render_seam.cpp, kDepthReportEvery). Two independent runs:
+
+    @2048 submits : 471561 of  741781 prims = 63.57% real-depth | cache 4186747 records, hits 1664616 / misses 270090  (86.04%)
+    @4096 submits : 812421 of 1321727 prims = 61.47%             | cache 6726356 records, hits 2879363 / misses 508976  (84.98%)
+    @6144 submits : 1354377 of 2223704 prims = 60.91%            | cache 11313797 records, hits 4774494 / misses 868877 (84.60%)
+
+Run-to-run determinism: the second run's @2048/@4096 lines repeat the first's within ±1 primitive
+(frame-boundary timing). Misses are ABSENT-dominated (496847 absent vs 12129 stale at @4096) and the
+copy-carry bridge ran (2369181 carried of 69966073 copy sites = 3.39%). The report REFUSES to print a
+percentage over zero classified prims ("NO PRIMITIVES WERE CLASSIFIED AT ALL … not 0% 3D"), so its
+no-data case is distinguishable from a measurement by construction — the defect that invalidated the
+old evidence does not exist in this one. Static denominators for the same day:
+tools/re08_store_sites.py over MAIN + all 30 overlay modules — 2989 functions / 329101 words decoded,
+77 swc2 screen-XY tap sites (dominant: FUN_8007C4D8 with 23), 10 mfc2->sw vertex taps
+(FUN_8007B628/8007B798/8007B9CC/8007BE90/8007C2AC/80080988), 968 copy-carry sites,
+593 swc2 stores of non-screen-XY cop2 registers left UNTAPPED by design.
 
 ## What would falsify it
 
-if a run that reaches 3D gameplay still reports records=0, the tap IS broken and the 10 sites are the wrong ones -- re-check vertex_pz_stores coverage against the real projection routines
+A run reaching the same named 3D scenes whose periodic `[ndepth] depth coverage` lines report records
+flat or hit%=0 while the prim denominator grows — i.e. the lifetime counters disagree with draws the
+fcensus shows happening. Also falsified if the report line itself is shown to sample/reset per frame
+again (regression against INST-29's mechanism).
 
-## EVIDENCE DEPENDENCY FLAGGED 2026-08-06 — the instrument behind the `records=0` was caught lying (INST-26)
+## History — what this claim said before, and why it changed
 
-STATUS DELIBERATELY LEFT `holds`: nothing measured says this claim's CONCLUSION is wrong, and
-falsifying it on suspicion would be as unfounded as the reading it corrects. What is now known is
-that its EVIDENCE cannot bear the weight it was given.
-
-`PSXPORT_DEBUG=ndepth` (INST-26, DISTRUSTED 2026-08-06) resets `stats`/`projprim` counters on EVERY
-present (`gpu_native.cpp:1673` / `:1660`) while reporting only when `s_frame % 60 == 0` (`:1646`).
-Each printed line is therefore a ONE-FRAME snapshot with no denominator, and this claim's "636 lines,
-f60..f600+" resolve to roughly ten such snapshots — all at the same frame parity. Spider-Man draws on
-ALTERNATE FIELDS and 60 is even, so every one of those samples landed on a non-drawing field. On a
-field where nothing was drawn, `records=0 lookups hit=0 miss=0` is what the channel prints whether the
-tap fired earlier that pair or never fired at all.
-
-So "the tap has NEVER executed" and "the tap executed on the fields I did not sample" produce the same
-line, and this evidence cannot separate them. The other two legs of the claim are untouched and still
-good: the 10 `gte_record_pz` sites are a static grep, and the gate/plumbing eliminations are reads of
-`gte_beetle.cpp` and of `gte_record_pz` itself, neither of which goes through this channel.
-
-**TO RE-ESTABLISH IT** the ndepth report has to carry its denominator and sample by DRAW EVENT rather
-than by frame parity (see INST-26), or the same question has to be answered without it — e.g. a
-counter on `ProjPrim::setPz` that is never reset and is dumped once at exit. Until then this claim's
-own falsifier is not evaluable: a run reaching 3D gameplay would still report `records=0` on a
-non-drawing field, so the stated test could not distinguish the two outcomes it was written to
-distinguish.
+2026-07-30 version: "tap wired but NEVER executed (records=0); the port never reaches 3D." Its
+instrument was PSXPORT_DEBUG=ndepth, caught lying 2026-08-06 (INST-26): one-frame samples at fixed
+frame parity, reset every present, zero/no-data collision — Spider-Man draws on alternate fields, so
+every sample landed on a non-drawing field. That flag left the falsifier unevaluable. The codemap's
+2026-08-06 refresh removed the false "port never reaches 3D" reason (the port demonstrably reaches
+rooftop gameplay) and named re-measurement as RE-08's first move. Done 2026-08-24: re-measured with
+the whole-run report above; the "records=0" reading was entirely the instrument. The old conclusion
+is deleted, not annotated away — the Claim section above states the current truth.

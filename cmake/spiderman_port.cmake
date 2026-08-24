@@ -10,20 +10,21 @@ option(PSXPORT_BUILD_PORT "Build the Spider-Man native port binary (spiderman_po
 option(SPIDER_BUILD_IRQ_POLL_AUDIT
        "Link the full-R3000 deferred-work preservation discriminator" OFF)
 
-# The framework static library + its psxport_smoke agnosticism proof. Always included so `psxport`
-# and `psxport_smoke` stay buildable even when the game target is off.
-include(${PSXPORT_DIR}/cmake/psxport.cmake)
-
 if(NOT PSXPORT_BUILD_PORT)
   return()
 endif()
+
+spider_read_title(spiderman1 SPIDER1)
 
 # ---- game source list -------------------------------------------------------------------------
 # Phase 0: the seam only. No game behaviour is owned natively yet — every guest function runs on the
 # substrate. Ported subsystems get added here as they land (see docs/codemap.md).
 set(GAME_SRC
   game/core/main.cpp              # process entry point
-  game/core/spider_runtime.cpp    # derived game runtime: boot, policy, override ownership
+  game/core/spider_port.cpp       # shared process boot composition
+  game/core/executable_identity.cpp  # serial + byte identity before Game construction
+  game/core/spider_runtime.cpp    # address-free lineage runtime base
+  titles/spiderman1/spider1_runtime.cpp  # title behavior and legacy migration boundary
   game/core/spider_context.cpp    # per-Core Spider runtime subsystem aggregate
   game/core/allocator_audit.cpp   # opt-in retail allocator first-corruption discriminator
   game/core/irq_poll_audit.cpp    # compile-time full-R3000 deferred-work discriminator
@@ -64,28 +65,14 @@ include(${CMAKE_SOURCE_DIR}/generated/rec_sources.cmake)
 list(TRANSFORM GEN_REC_SRCS PREPEND generated/)
 set_source_files_properties(${GEN_REC_SRCS}
   PROPERTIES LANGUAGE CXX
-  COMPILE_OPTIONS "-O1;-foptimize-sibling-calls;-fno-strict-aliasing;-fwrapv")
+  COMPILE_OPTIONS "-w;-O1;-foptimize-sibling-calls;-fno-strict-aliasing;-fwrapv")
 
 add_executable(spiderman_port ${GAME_SRC} ${GEN_REC_SRCS})
 
-# The framework's SDL_GPU shader header is produced by a psxport custom target; the game exe needs it
-# present before its own compile ordering.
-add_dependencies(spiderman_port gen_gpu_shaders)
-
-set_target_properties(spiderman_port PROPERTIES
-  CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON
-  ENABLE_EXPORTS ON                                   # -rdynamic: watchdog backtrace symbol names
-  RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/scratch/bin)
-
-# Framework include dirs (runtime, generated, vendored backends, SDL/freetype) come PUBLICly from the
-# psxport link; only the game's own subfolders are added here.
-target_include_directories(spiderman_port PRIVATE game game/core game/render)
-
-target_compile_options(spiderman_port PRIVATE -w -O2 -g
-  ${SDL3_CFLAGS_OTHER} ${FREETYPE_CFLAGS_OTHER})
+spider_configure_target(spiderman_port SPIDER1)
+target_include_directories(spiderman_port PRIVATE titles/spiderman1)
 
 if(SPIDER_BUILD_IRQ_POLL_AUDIT)
   target_compile_definitions(spiderman_port PRIVATE SPIDER_IRQ_POLL_AUDIT_ENABLED=1)
   target_link_options(spiderman_port PRIVATE -Wl,--wrap=rec_irq_poll)
 endif()
-target_link_libraries(spiderman_port PRIVATE psxport)

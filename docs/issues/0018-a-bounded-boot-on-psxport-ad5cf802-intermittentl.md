@@ -5,7 +5,7 @@ status: investigating
 symptom: Before dem1, FUN_8002A338 can continue decoding past its first 0x25800-byte VLC buffer until its 0x0401 output overwrites the next live free-node link; a later allocator traversal then follows 0x04010401.
 tags: boot,allocator,fmv,str,vlc,nondeterminism
 created: 2026-08-22
-updated: 2026-08-22
+updated: 2026-08-25
 ---
 
 ## Evidence
@@ -17,7 +17,7 @@ The deliberately separate 10-second census gate on the same binary did not repro
 The fault recurred after regenerating all 1,672 main functions and 30 overlays at recompiler version
 `2026-08-22.1`, cleanly configuring Clang against framework `57a17a14`, and passing all eight CTests.
 The bounded combined gate
-`python3 tools/gate.py boot --seconds 20 --grace 8 --watchdog 30 --debug allocaudit,meshprobe --no-gpuguard`
+`python3 tools/gate.py boot --seconds 20 --grace 8 --watchdog 30 --debug allocaudit,meshprobe`
 stopped after 1.4 seconds in `scratch/logs/gate-boot-20260822-190346.log`. The first watched
 external write was:
 
@@ -111,3 +111,62 @@ bounded legs prove the same executable and disc can take the other path. The nex
 capture the first failing decoder's input-sector identity/header and saved continuation, then compare
 them with a matched successful first frame. Issue 0018 therefore stays investigating, and framework
 `57a17a14` is not behaviorally cleared by its passing unit suite.
+
+## 2026-08-25 static correction: 0x8002A5F4 is not the non-local return
+
+The emitted `0x8002A5F4` helper was re-examined as a possible host-call boundary defect because its
+four callers live inside `FUN_8002A338`. That hypothesis is falsified by the executable CFG. From
+entry `0x8002A5F4`, every reachable path joins the already-demoted decoder block at `0x8002A478` and
+returns through `jr $ra` at `0x8002A460` to the live link supplied by its caller. The helper cannot
+reach the enclosing decoder's save-and-suspend tail at `0x8002A7F4`; reaching that tail requires the
+separate `0x8002A424` continuation path. Keeping `0x8002A5F4` as a host callee therefore does not
+explain the intermittent overrun.
+
+`tools/callee_contract.py` had encoded the opposite conclusion as `WANT_VIOLATION=0x8002A5F4` even
+though its own CFG walk correctly returned `ok`. That stale expected failure has been removed. The
+tool remains report-only and its hermetic selftest still proves it distinguishes a balanced leaf,
+an unbalanced pop, and a matching save/restore path.
+
+## Next bounded discriminator: callback clock versus sector-ready clock
+
+The remaining malformed/misordered-sector branch now has one precise composition test. A continuous
+ReadS starts two independent delivery owners:
+
+- `runtime/recomp/cdc_native.cpp::cdc_drive_service` makes the actual controller FIFO and INT1
+  sector-ready event due on the deterministic emulated CPU clock; its shipping test proves zero data
+  and zero INT1 at deadline minus one.
+- `runtime/recomp/cd_override.cpp::Cd::pumpStream` invokes the guest's ready callback from a separate
+  `std::chrono::steady_clock` budget. It can force callback one at elapsed zero and dispatch up to
+  `CD_STREAM_MAX_BURST` callbacks after a host stall, whether or not the CDC has produced that many
+  sector-ready events.
+
+That split predicts the observed sensitivity to diagnostic overhead: wall time can accumulate while
+guest time has not reached another sector deadline, so a burst invokes `FUN_800860B4 -> FUN_80085000`
+without a matching FIFO/INT1 arrival. An empty DMA is zero-filled by the controller model; admitting
+such bytes to the STR ring can remove the VLC terminator and produce the observed sequential decode
+overrun. This is a root-cause candidate, not yet a resolution.
+
+The required hermetic composition test must drive the shipping owners together. The existing CDC
+seam is `cdc_bind_tick_source(CdcState*, void*, CdcTickNowFn)` plus `cdc_drive_service(CdcState*)` in
+`cdc_state.h`; `tests/cdc_test_clock.h` already supplies its fake. The other shipping boundary is
+`Cd::pumpStream(Core*, int)` in `cd.h`, but its `steady_clock` and `rec_dispatch` call are not
+injectable yet. The test therefore needs narrow clock/dispatch bindings on `Cd` with production
+defaults, rather than another reimplementation of its budget.
+
+Start ReadS through the normal CD owner so `stream_active` and `cdc.drive_event_armed` are both set.
+At host time H0 and CDC deadline minus one, call `pumpStream(c, 3)`: the old implementation forces
+callback one immediately. Advance only host time to H0 + 20 ms (three double-speed sector periods),
+leave CDC at deadline minus one, and pump again: the old budget reaches three callbacks total even
+though `cdc_drive_service` still returns zero, `data_n` is zero, `irq_sequence` is unchanged, and
+`irq_edge` is clear. The required answer is zero callbacks across both pumps. Then advance the fake
+CDC clock to exactly its deadline, require `cdc_drive_service` to produce the one INT1/data event,
+and require exactly one callback from the next pump; a second pump without another CDC deadline must
+remain zero. This test shows the old and required answers on the same shipping composition.
+
+The implementation owner must then replace the duplicate wall-clock entitlement with a consumable
+sector-ready event owned by `CdcState`; whether that event is consumed when INT1 is queued or when it
+becomes current must follow the controller's existing IRQ-order contract, not a new title-specific
+flag. Candidate files are `runtime/recomp/cd_override.cpp`, `runtime/recomp/cd.h`,
+`runtime/recomp/cdc_native.cpp`, `runtime/recomp/cdc_state.h`,
+`tests/test_cd_stream_drive_rate.cpp`, `tests/cdc_test_clock.h`, and a new composition test. They
+remain untouched while Crash Bash owns the CDC area.

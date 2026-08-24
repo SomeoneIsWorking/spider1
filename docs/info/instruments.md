@@ -70,10 +70,43 @@ INST-20 states exactly where its blindness starts.
 
 ---
 
+## INST-29 — RE-08 depth coverage: `render_depth_coverage_report()` via the seam's periodic call, plus `tools/re08_store_sites.py` — **trusted 2026-08-24; both shown to produce both answers**
+
+The whole-run instrument that replaced the aliased one-frame line (INST-26) for every depth question
+this repo asks. TWO halves, each with a demonstrated negative:
+
+1. **RUNTIME** — external/psxport's `render_depth_coverage_report(Core*, why)` (gpu_native.cpp),
+   printing LIFETIME totals (`nd3dTotal`/`nd2dTotal`, `ProjPrim::totals()`), called from
+   game/render/render_seam.cpp every `kDepthReportEvery = 2048` submitFrame calls. Trust basis:
+   (a) the counters are never reset between reports, so no sampling parity can alias them onto a
+   non-drawing field — the exact defect that killed INST-26; (b) its zero case prints "NO PRIMITIVES
+   WERE CLASSIFIED AT ALL … not 0% 3D" instead of a percentage, so silence cannot wear a number;
+   (c) it was seen to produce the OTHER answer: run 1 vs run 2 differ at matching submit counts by
+   ±1 primitive while percentages repeat (63.57%/61.47%/60.91% across report points), and misses
+   carry a stale-vs-absent split that moves independently of the hit rate. It is emitted mid-run
+   because the watchdog `_exit(130)`s and an exit-time dump would never print.
+2. **STATIC** — tools/re08_store_sites.py: walks the same images the substrate was built from
+   (MAIN + all 30 overlay modules from `scratch/overlays/spiderman1`, function boundaries taken from
+   the generated dispatch tables,
+   analysis imported from emit.py rather than re-derived) and counts every vertex-store form with
+   denominators on every line. REFUSES (exit 2) on missing/mismatched corpus instead of printing an
+   empty table — refusal observed live during development (28 images vs 30 dispatch tables).
+   Hermetic gate tests/test_re08_store_sites.py feeds a synthetic module carrying all four store
+   forms and asserts BOTH classes: the SXY swc2 is a tap AND the SZ swc2 is counted as UNTAPPED;
+   shown RED by mutation (adding 18 to XY_REGS flips swc2_xy=1→2 / other=1→0 and fails).
+
+Blind spots, stated: the runtime report says nothing about pixels or about whether 61% prim coverage
+is good for this scene mix (dem* attract scenes are 2D-heavy — per-scene breakdown not yet built);
+the static scanner trusts generated/ dispatch tables as the function-set ground truth and decodes
+function bodies linearly, so data-in-body words count as undecoded noise (9478 of 329101, mostly
+SHELL). *See:* C003 (the claim this instrument re-established), RE-08.
+
+---
+
 ## INST-28 — `tools/gate.py` (THE RUN GATE) — **trusted for BOOT REACH, after being seen to fail 17 ways; blind to pixels and to the pc_render leg. Added 2026-08-12, extended 2026-08-22**
 
 *What it shows:* whether the already-built `scratch/bin/spiderman_port` still boots and keeps
-advancing. `gate.py boot` launches it headless under `gpuguard run --timeout N` (never `./run.sh`) and
+advancing. `gate.py boot` launches it headless, capped (never `./run.sh`), and
 asserts on the port's own log lines: boot exe loaded, guest main dispatched, render seam installed AND
 fired, first-to-last ADVANCE of the periodic `[rseam] submitFrame calls=… frame=…` counters, frame and
 submit floors at 35% of the recorded baseline RATE, ≥2 scene changes into printable scene names, and no
@@ -116,11 +149,11 @@ contains the word "stuck" in prose.
 in the LAUNCHER, both in the HANG branch, which had ZERO selftest coverage. Both are fixed and selftest
 case 17 now drives that branch through the real `cmd_boot`:*
 - **The hang refusal saved an EMPTY log.** The handler wrote only `e.stdout`, and the port writes 100%
-  of its output to STDERR — measured: 92 stderr lines, 0 stdout lines from a 12s `gpuguard run`. So the
+  of its output to STDERR — measured: 92 stderr lines, 0 stdout lines from a 12s capped run. So the
   one failure that most needs a log got `Log: <path>` pointing at 0 bytes. Now writes stdout+stderr and
   reports the captured line count in the refusal itself.
-- **It orphaned the game.** `subprocess.run(timeout=)` kills only the DIRECT child, so killing the
-  `gpuguard` wrapper left `spiderman_port` alive and reparented — measured with a stand-in: 2 survivors
+- **It orphaned the game.** `subprocess.run(timeout=)` kills only the DIRECT child, so killing a
+  wrapper left `spiderman_port` alive and reparented — measured with a stand-in: 2 survivors
   per hang. A GPU-holding orphan is what the NEXT gate run then contends with, while this run reported a
   tidy refusal. Now `start_new_session=True` plus `killpg`, and the refusal states how many processes
   were signalled and how many were still alive after.

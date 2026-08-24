@@ -1,0 +1,15 @@
+{
+  "id": "spiderman1",
+  "label": "Spider-Man",
+  "serial": "SLUS_008.75",
+  "discEnv": "PSXPORT_SPIDERMAN_DISC",
+  "target": "spiderman_port",
+  "portExecutable": "scratch/bin/spiderman_port",
+  "guestExecutable": "scratch/bin/spiderman/SLUS_008.75",
+  "generatedDirectory": "generated",
+  "generatedMain": "spiderman_rec.c",
+  "seeds": "game/recomp_seeds.json",
+  "runtimeModules": true,
+  "fileSize": 749568,
+  "executableSha256": "d2270e35581ba083d9441166e9a45ead4f869ab07e890f9a512ad7ee4cc0b15b"
+}

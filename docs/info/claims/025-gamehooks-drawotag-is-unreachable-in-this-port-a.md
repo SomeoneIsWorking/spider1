@@ -4,9 +4,9 @@ kind: claim
 status: holds
 created: 2026-08-06
 tags: render,drawOTag,native-frame-loop,phase-0,re-12
-depends: external/psxport/runtime/recomp/native_boot.cpp, game/core/spider_runtime.cpp#SpiderRuntime::bootInit, game/core/game_hooks.cpp
-reconfirmed: 2026-08-22 19:16:21
-verified_at: 2026-08-22 19:16:21
+depends: external/psxport/runtime/recomp/native_boot.cpp, titles/spiderman1/spider1_runtime.cpp#Spider1Runtime::bootInit, game/core/game_hooks.cpp
+reconfirmed: 2026-08-22 19:55:49
+verified_at: 2026-08-22 19:55:49
 ---
 
 ## Claim
@@ -28,3 +28,7 @@ any new call site of hooks->drawOTag outside native_step_frame, OR SpiderRuntime
 ## Re-confirmed 2026-08-22 19:16:21
 
 Post-commit af8a3c0 authoritative Clang CTest passes 8/8; SpiderRuntime boot remains the guest frame loop and GameHooks drawOTag remains unreachable.
+
+## Re-confirmed 2026-08-22 19:55:49
+
+Reconfirmed after the multi-title split on clean psxport d2266f4b: Spider1Runtime::bootInit dispatches guest main 0x8002C354 and does not return into the native frame loop. The bounded live regression reaches dem1/frame 2299/512 retail submitFrame calls with no 'entering native frame loop'; focused spider_runtime CTest passes.

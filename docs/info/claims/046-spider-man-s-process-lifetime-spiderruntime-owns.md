@@ -1,10 +1,11 @@
 ---
 id: C046
 kind: claim
-status: holds
+status: falsified
 created: 2026-08-22
 tags: runtime,inheritance,architecture,boot
 depends: game/core/spider_runtime.cpp#SpiderRuntime, game/core/main.cpp#main, game/core/game_hooks.cpp
+falsified_on: 2026-08-22
 ---
 
 ## Claim
@@ -18,3 +19,9 @@ Spider-Man's process-lifetime SpiderRuntime owns boot dispatch, render policy, a
 ## What would falsify it
 
 SpiderRuntime stops deriving GameRuntime, a boot or override callback becomes non-null in legacy compatibilityHooks, an installer moves out of SpiderRuntime without a typed owner, or a fresh boot check-log fails to reach and advance the same Phase-0 path
+
+## FALSIFIED 2026-08-22
+
+The multi-title conversion split the old concrete SpiderRuntime into an address-free lineage base and title-derived Spider1Runtime/EnterElectroRuntime. Spider-Man 1 boot and overrides now belong to Spider1Runtime, so the old ownership statement and dependency no longer describe the shipping architecture.
+
+> Anything that cited this claim as proof must be re-checked. Grep the repo for it.

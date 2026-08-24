@@ -4,9 +4,9 @@ kind: claim
 status: holds
 created: 2026-08-06
 tags: render,frame-loop,drawotag,re-12,re-19,re-20,seam
-depends: game/render/render_seam.cpp#RenderSeam::submitFrame, game/core/spider_runtime.cpp#SpiderRuntime::registerOverrides
-reconfirmed: 2026-08-22 19:16:22
-verified_at: 2026-08-22 19:16:22
+depends: game/render/render_seam.cpp#RenderSeam::submitFrame, titles/spiderman1/spider1_runtime.cpp#Spider1Runtime::registerOverrides
+reconfirmed: 2026-08-22 19:55:49
+verified_at: 2026-08-22 19:55:49
 ---
 
 ## Claim
@@ -28,3 +28,7 @@ Run the port with an override installed at 0x80061308 that does NOT super-call. 
 ## Re-confirmed 2026-08-22 19:16:22
 
 Post-commit af8a3c0 authoritative Clang CTest passes 8/8; SpiderRuntime still installs the game-owned FUN_80061308 submitFrame seam.
+
+## Re-confirmed 2026-08-22 19:55:49
+
+Reconfirmed after the multi-title split on clean psxport d2266f4b: Spider1Runtime::registerOverrides installs the render seam at 0x80061308; the bounded live regression reports the first exact hit at frame 2/ra 0x80061218 and advances to 512 calls in dem1. Full Clang CTest passes 10/10.

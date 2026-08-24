@@ -1,0 +1,15 @@
+{
+  "id": "spiderman2",
+  "label": "Spider-Man 2: Enter Electro",
+  "serial": "SLUS_013.78",
+  "discEnv": "PSXPORT_SPIDERMAN2_DISC",
+  "target": "enter_electro_port",
+  "portExecutable": "scratch/bin/enter_electro_port",
+  "guestExecutable": "scratch/bin/spiderman2/SLUS_013.78",
+  "generatedDirectory": "generated/spiderman2",
+  "generatedMain": "enter_electro_rec.c",
+  "seeds": "titles/spiderman2/recomp_seeds.json",
+  "runtimeModules": false,
+  "fileSize": 786432,
+  "executableSha256": "dbe6c3f32337fe0fa7085519c728a75abf5d007b45ea0ba58178bcf84b72908a"
+}

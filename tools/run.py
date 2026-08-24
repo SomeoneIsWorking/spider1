@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 import shutil
 import subprocess
@@ -11,11 +12,17 @@ import tempfile
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
-from disc_path import resolve_disc
+from disc_path import DiscPathError, resolve_disc, resolve_unidentified_disc
+from launcher_dependencies import (
+    DependencyError,
+    Requirement,
+    install_instructions,
+    platform_family,
+    require_native_dependencies,
+)
+from title_catalog import Title, TitleCatalogError, load_catalog
 
 ROOT = Path(__file__).resolve().parents[1]
-EXE = Path("scratch/bin/spiderman/SLUS_008.75")
-PORT = Path("scratch/bin/spiderman_port")
 CYAN = "\033[1;36m"
 RED = "\033[1;31m"
 RESET = "\033[0m"
@@ -34,10 +41,16 @@ def refuse(message: str) -> int:
     return 1
 
 
-def run(command: Sequence[str], *, env: Mapping[str, str] | None = None, quiet: bool = False) -> None:
+def run(
+    command: Sequence[str],
+    *,
+    cwd: Path = ROOT,
+    env: Mapping[str, str] | None = None,
+    quiet: bool = False,
+) -> None:
     result = subprocess.run(
         list(command),
-        cwd=ROOT,
+        cwd=cwd,
         env=dict(env) if env is not None else None,
         stdout=subprocess.DEVNULL if quiet else None,
         check=False,
@@ -50,11 +63,12 @@ def run_or_refuse(
     command: Sequence[str],
     failure: str,
     *,
+    cwd: Path = ROOT,
     env: Mapping[str, str] | None = None,
     quiet: bool = False,
 ) -> None:
     try:
-        run(command, env=env, quiet=quiet)
+        run(command, cwd=cwd, env=env, quiet=quiet)
     except LauncherError as exc:
         raise LauncherError(failure) from exc
 
@@ -69,29 +83,14 @@ def command_output(command: Sequence[str]) -> str | None:
     return result.stdout.strip() if result.returncode == 0 else None
 
 
-def require_tool(name: str) -> str:
-    path = shutil.which(name)
-    if path is None:
-        raise LauncherError(f"{name} not found")
-    return path
-
-
-def compiler_is_clang(compiler: str) -> bool:
-    try:
-        result = subprocess.run(
-            [compiler, "--version"], cwd=ROOT, text=True, capture_output=True, check=False
-        )
-    except OSError:
-        return False
-    return result.returncode == 0 and "clang" in (result.stdout + result.stderr).lower()
-
-
 def cpu_count() -> int:
     return os.cpu_count() or 4
 
 
 def framework_revision(framework: Path) -> tuple[str, bool]:
-    revision = command_output(["git", "-C", str(framework), "rev-parse", "--short", "HEAD"])
+    revision = command_output(
+        ["git", "-C", str(framework), "rev-parse", "--short", "HEAD"]
+    )
     status = command_output(["git", "-C", str(framework), "status", "--porcelain"])
     return revision or "?", bool(status)
 
@@ -100,24 +99,52 @@ def announce_framework(framework_text: str, framework: Path) -> None:
     revision, dirty = framework_revision(framework)
     suffix = " +dirty" if dirty else ""
     if framework_text == "external/psxport":
-        say(f"framework: external/psxport -> {framework.resolve()} @ {revision}{suffix}")
+        say(
+            f"framework: external/psxport -> {framework.resolve()} @ {revision}{suffix}"
+        )
         return
     say(
         f"framework: *** {framework_text} *** (DEV CLONE {revision}{suffix}) — NOT the recorded pin"
     )
 
 
-def sync_submodules() -> None:
-    script = ROOT / "external/psxport/scripts/sync-submodules.sh"
+def submodule_sync_invocation(framework: Path) -> tuple[list[str], Path]:
+    """Return the framework-owned sync command and its repository root."""
+    framework_root = framework.resolve()
+    return ["bash", str(framework_root / "scripts/sync-submodules.sh")], framework_root
+
+
+def sync_submodules(framework: Path) -> None:
+    command, framework_root = submodule_sync_invocation(framework)
+    script = Path(command[1])
     if shutil.which("git") and script.is_file():
-        run_or_refuse(["bash", str(script)], "submodule sync failed")
+        run_or_refuse(
+            command,
+            "submodule sync failed",
+            cwd=framework_root,
+        )
         return
-    say("WARNING: external/psxport/scripts/sync-submodules.sh is absent — the framework's nested ")
+    say(
+        "WARNING: external/psxport/scripts/sync-submodules.sh is absent — the framework's nested "
+    )
     say("         submodules (vendor/beetle-psx, vendor/lucent) were NOT synced.")
 
 
-def discdump_commands(framework: Path, cc: str, cxx: str, jobs: int) -> list[list[str]]:
-    build = framework / "build"
+def player_build_root(cc: str, cxx: str) -> Path:
+    """Return an isolated build root without classifying compiler identity."""
+    contract = f"{cc}\0{cxx}\0BUILD_TESTING=OFF\0PSXPORT_BUILD_TESTS=OFF"
+    key = hashlib.sha256(contract.encode()).hexdigest()[:12]
+    return Path("scratch/build/player") / key
+
+
+def discdump_commands(
+    framework: Path,
+    build: Path,
+    cc: str,
+    cxx: str,
+    python: str,
+    jobs: int,
+) -> list[list[str]]:
     return [
         [
             "cmake",
@@ -128,30 +155,44 @@ def discdump_commands(framework: Path, cc: str, cxx: str, jobs: int) -> list[lis
             "-DCMAKE_BUILD_TYPE=Release",
             f"-DCMAKE_C_COMPILER={cc}",
             f"-DCMAKE_CXX_COMPILER={cxx}",
+            f"-DPython3_EXECUTABLE={python}",
+            "-DBUILD_TESTING=OFF",
+            "-DPSXPORT_BUILD_TESTS=OFF",
         ],
         ["cmake", "--build", str(build), "-j", str(jobs), "--target", "discdump"],
     ]
 
 
-def port_commands(framework: Path, cc: str, cxx: str, jobs: int) -> list[list[str]]:
+def port_commands(
+    framework: Path,
+    build: Path,
+    cc: str,
+    cxx: str,
+    python: str,
+    jobs: int,
+    title: Title,
+) -> list[list[str]]:
     return [
         [
             "cmake",
             "-S",
             ".",
             "-B",
-            "build",
+            str(build),
             "-DCMAKE_BUILD_TYPE=Release",
             f"-DPSXPORT_DIR={framework.resolve()}",
             f"-DCMAKE_C_COMPILER={cc}",
             f"-DCMAKE_CXX_COMPILER={cxx}",
+            f"-DPython3_EXECUTABLE={python}",
+            "-DBUILD_TESTING=OFF",
+            f"-DSPIDER_TITLES={title.id}",
         ],
-        ["cmake", "--build", "build", "-j", str(jobs), "--target", "spiderman_port"],
+        ["cmake", "--build", str(build), "-j", str(jobs), "--target", title.target],
     ]
 
 
 def launch_environment(
-    environ: Mapping[str, str], framework_text: str, disc: str
+    environ: Mapping[str, str], framework_text: str, disc: str, title: Title
 ) -> dict[str, str]:
     result = dict(environ)
     if result.get("PSXPORT_NOWINDOW", ""):
@@ -160,12 +201,82 @@ def launch_environment(
         result["PSXPORT_VK_WINDOW"] = "1"
     if not result.get("PSXPORT_ASSET_DIR"):
         result["PSXPORT_ASSET_DIR"] = framework_text
-    result["PSXPORT_SPIDERMAN_DISC"] = disc
+    result[title.disc_env] = disc
     return result
+
+
+def detect_title(discdump: Path, disc: str) -> Title:
+    scratch = ROOT / "scratch"
+    scratch.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(
+        prefix="launcher-title-", dir=scratch
+    ) as directory:
+        result = subprocess.run(
+            [str(discdump), "get", "SYSTEM.CNF", disc, directory],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        cnf = Path(directory) / "SYSTEM.CNF"
+        if result.returncode or not cnf.is_file():
+            raise LauncherError(
+                f"could not inspect SYSTEM.CNF: {result.stderr.strip()}"
+            )
+        try:
+            return load_catalog(ROOT).from_system_cnf(
+                cnf.read_text(encoding="ascii", errors="replace")
+            )
+        except TitleCatalogError as exc:
+            raise LauncherError(str(exc)) from exc
+
+
+def bootstrap_contract(root: Path) -> str:
+    required = ("bootstrap.py", "pyproject.toml", "uv.lock")
+    missing = [name for name in required if not (root / name).is_file()]
+    if missing:
+        return f"missing locked bootstrap file(s): {', '.join(missing)}"
+    try:
+        shim = (root / "run.sh").read_text(encoding="utf-8")
+    except OSError:
+        return "run.sh is missing"
+    if "uv run --frozen python bootstrap.py" not in shim or "python3" in shim:
+        return "run.sh does not enter through frozen uv"
+    return ""
+
+
+def parse_launch_arguments(argv: Sequence[str]) -> tuple[bool, str | None]:
+    arguments = list(argv)
+    prepare_only = False
+    if "--prepare-only" in arguments:
+        prepare_only = True
+        arguments.remove("--prepare-only")
+    if len(arguments) > 1 or "--prepare-only" in arguments:
+        raise LauncherError("usage: ./run.sh [--prepare-only] [disc.chd]")
+    if arguments and arguments[0].startswith("-"):
+        raise LauncherError(f"unknown launcher option: {arguments[0]}")
+    return prepare_only, arguments[0] if arguments else None
 
 
 def selftest() -> int:
     checks = 0
+    checks += 1
+    if error := bootstrap_contract(ROOT):
+        return refuse(f"launcher selftest failed: {error}")
+    checks += 1
+    if parse_launch_arguments(["--prepare-only", "game.chd"]) != (
+        True,
+        "game.chd",
+    ):
+        return refuse("launcher selftest failed: prepare-only argument parsing")
+    checks += 1
+    try:
+        parse_launch_arguments(["--prepare-only", "--prepare-only"])
+    except LauncherError:
+        pass
+    else:
+        return refuse("launcher selftest failed: duplicate prepare-only accepted")
+
     scratch = ROOT / "scratch"
     scratch.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="run-selftest-", dir=scratch) as temporary:
@@ -176,6 +287,16 @@ def selftest() -> int:
         fallback = root / "a.chd"
         for path in (cli, env_disc, file_disc, fallback):
             path.touch()
+        for name in ("bootstrap.py", "pyproject.toml", "uv.lock"):
+            (root / name).touch()
+        (root / "run.sh").write_text(
+            '#!/bin/sh\nexec python3 "$(dirname "$0")/tools/run.py" "$@"\n',
+            encoding="utf-8",
+        )
+        checks += 1
+        if bootstrap_contract(root) != "run.sh does not enter through frozen uv":
+            return refuse("launcher selftest failed: broken bootstrap shim accepted")
+
         (root / ".env").write_text(
             f"PSXPORT_SPIDERMAN_DISC={file_disc}\nPSXPORT_DISC=ignored.chd\n",
             encoding="utf-8",
@@ -189,7 +310,9 @@ def selftest() -> int:
         for argument, environ, expected in cases:
             checks += 1
             if resolve_disc(root, argument, environ) != expected:
-                return refuse(f"launcher selftest failed: disc precedence case {checks}")
+                return refuse(
+                    f"launcher selftest failed: disc precedence case {checks}"
+                )
 
         (root / ".env").write_text(
             f"PSXPORT_DISC={file_disc}\n",
@@ -207,27 +330,184 @@ def selftest() -> int:
             path.unlink()
         checks += 1
         if resolve_disc(root, None, {}):
-            return refuse("launcher selftest failed: missing-disc refusal discriminator")
+            return refuse(
+                "launcher selftest failed: missing-disc refusal discriminator"
+            )
+
+        checks += 1
+        if resolve_unidentified_disc(
+            root,
+            None,
+            {"PSXPORT_SPIDERMAN2_DISC": str(env_disc)},
+            ["PSXPORT_SPIDERMAN_DISC", "PSXPORT_SPIDERMAN2_DISC"],
+        ) != str(env_disc):
+            return refuse("launcher selftest failed: Enter Electro disc environment")
+
+        checks += 1
+        try:
+            resolve_unidentified_disc(
+                root,
+                None,
+                {
+                    "PSXPORT_SPIDERMAN_DISC": str(env_disc),
+                    "PSXPORT_SPIDERMAN2_DISC": str(file_disc),
+                },
+                ["PSXPORT_SPIDERMAN_DISC", "PSXPORT_SPIDERMAN2_DISC"],
+            )
+        except DiscPathError:
+            pass
+        else:
+            return refuse(
+                "launcher selftest failed: ambiguous title disc environments accepted"
+            )
 
     fake_framework = Path("external/psxport")
-    commands = port_commands(fake_framework, "clang", "clang++", 7)
+    sync_command, sync_root = submodule_sync_invocation(fake_framework)
+    checks += 1
+    if (
+        sync_root != fake_framework.resolve()
+        or Path(sync_command[1]).parent.parent != sync_root
+    ):
+        return refuse("launcher selftest failed: submodule sync is not framework-owned")
+    catalog = load_catalog(ROOT)
+    spider1 = catalog.by_id("spiderman1")
+    spider2 = catalog.by_id("spiderman2")
+    commands = port_commands(
+        fake_framework,
+        Path("scratch/build/player/toolchain/spiderman1"),
+        "/usr/bin/cc",
+        "/usr/bin/c++",
+        "/locked/python",
+        7,
+        spider1,
+    )
     checks += 1
     if commands[1][-2:] != ["--target", "spiderman_port"]:
         return refuse("launcher selftest failed: default build target")
     checks += 1
-    if "-DCMAKE_CXX_COMPILER=clang++" not in commands[0]:
-        return refuse("launcher selftest failed: Clang C++ configure")
+    if "-DCMAKE_CXX_COMPILER=/usr/bin/c++" not in commands[0]:
+        return refuse("launcher selftest failed: C++ compiler propagation")
+    checks += 1
+    if "-DPython3_EXECUTABLE=/locked/python" not in commands[0]:
+        return refuse("launcher selftest failed: locked Python propagation")
+    checks += 1
+    if commands[0][commands[0].index("-B") + 1] == "build" or not commands[0][
+        commands[0].index("-B") + 1
+    ].startswith("scratch/build/player/"):
+        return refuse("launcher selftest failed: product build is not isolated")
+    checks += 1
+    if "-DBUILD_TESTING=OFF" not in commands[0] or any(
+        "ctest" in argument.lower() for command in commands for argument in command
+    ):
+        return refuse("launcher selftest failed: product path can run tests")
+    checks += 1
+    spider2_commands = port_commands(
+        fake_framework,
+        Path("scratch/build/player/toolchain/spiderman2"),
+        "/opt/gcc",
+        "/opt/g++",
+        "/locked/python",
+        7,
+        spider2,
+    )
+    if (
+        spider2_commands[1][-1] != "enter_electro_port"
+        or "-DSPIDER_TITLES=spiderman2" not in spider2_commands[0]
+    ):
+        return refuse("launcher selftest failed: Enter Electro target selection")
 
-    headless = launch_environment({"PSXPORT_NOWINDOW": "1"}, "external/psxport", "game.chd")
+    checks += 1
+    tools_commands = discdump_commands(
+        fake_framework,
+        Path("scratch/build/player/toolchain/framework"),
+        "/opt/gcc",
+        "/opt/g++",
+        "/locked/python",
+        7,
+    )
+    if (
+        tools_commands[0][tools_commands[0].index("-B") + 1]
+        != "scratch/build/player/toolchain/framework"
+        or "-DBUILD_TESTING=OFF" not in tools_commands[0]
+        or "-DPSXPORT_BUILD_TESTS=OFF" not in tools_commands[0]
+        or any(
+            "ctest" in argument.lower()
+            for command in tools_commands
+            for argument in command
+        )
+    ):
+        return refuse("launcher selftest failed: disc tool build is not isolated")
+
+    checks += 1
+    fedora = install_instructions(
+        [
+            Requirement("cxx", "a C++ compiler"),
+            Requirement("sdl3", "SDL3 development files"),
+        ],
+        "fedora",
+    )
+    if "sudo dnf install gcc-c++ SDL3-devel" not in fedora:
+        return refuse("launcher selftest failed: Fedora dependency command")
+    checks += 1
+    if platform_family("linux", 'ID="ubuntu"\nID_LIKE="debian"\n') != "debian":
+        return refuse("launcher selftest failed: Linux platform detection")
+    checks += 1
+    available = {
+        "cmake",
+        "git",
+        "pkg-config",
+        "glslc",
+        "gcc",
+        "g++",
+    }
+    native = require_native_dependencies(
+        {"CC": "gcc", "CXX": "g++"},
+        which=lambda name: f"/fake/{name}" if name in available else None,
+        pkg_exists=lambda _tool, _module: True,
+        platform_name="linux",
+        os_release='ID="fedora"\n',
+    )
+    if native.cc != "/fake/gcc" or native.cxx != "/fake/g++":
+        return refuse(
+            "launcher selftest failed: compiler selection without identity policy"
+        )
+    checks += 1
+    without_glslc = available - {"glslc"}
+    try:
+        require_native_dependencies(
+            {"CC": "gcc", "CXX": "g++"},
+            which=lambda name: f"/fake/{name}" if name in without_glslc else None,
+            pkg_exists=lambda _tool, _module: True,
+            platform_name="linux",
+            os_release='ID="fedora"\n',
+        )
+    except DependencyError as exc:
+        if "sudo dnf install glslc" not in str(exc):
+            return refuse("launcher selftest failed: wrong missing-glslc refusal")
+    else:
+        return refuse("launcher selftest failed: missing glslc accepted")
+
+    headless = launch_environment(
+        {"PSXPORT_NOWINDOW": "1"}, "external/psxport", "game.chd", spider1
+    )
     windowed = launch_environment(
-        {"PSXPORT_ASSET_DIR": ""}, "external/psxport", "game.chd"
+        {"PSXPORT_ASSET_DIR": ""}, "external/psxport", "game.chd", spider2
     )
     checks += 1
     if headless.get("PSXPORT_VK_HEADLESS") != "1" or "PSXPORT_VK_WINDOW" in headless:
         return refuse("launcher selftest failed: headless launch environment")
     checks += 1
-    if windowed.get("PSXPORT_VK_WINDOW") != "1" or windowed["PSXPORT_ASSET_DIR"] != "external/psxport":
+    if (
+        windowed.get("PSXPORT_VK_WINDOW") != "1"
+        or windowed["PSXPORT_ASSET_DIR"] != "external/psxport"
+    ):
         return refuse("launcher selftest failed: windowed launch environment")
+    checks += 1
+    if (
+        windowed.get("PSXPORT_SPIDERMAN2_DISC") != "game.chd"
+        or "PSXPORT_SPIDERMAN_DISC" in windowed
+    ):
+        return refuse("launcher selftest failed: title-specific disc environment")
 
     print(f"launcher selftest: PASS — {checks} positive/refusal checks")
     return 0
@@ -235,70 +515,94 @@ def selftest() -> int:
 
 def launch(argv: Sequence[str]) -> int:
     os.chdir(ROOT)
-    require_tool("cmake")
-    python = require_tool("python3")
-    require_tool("pkg-config")
-    result = subprocess.run(["pkg-config", "--exists", "sdl3"], cwd=ROOT, check=False)
-    if result.returncode:
-        raise LauncherError(
-            "SDL3 not found (Linux: SDL3-devel / libsdl3-dev; macOS: brew install sdl3)"
-        )
-
-    cc = os.environ.get("CC") or "clang"
-    cxx = os.environ.get("CXX") or "clang++"
-    if not compiler_is_clang(cc):
-        raise LauncherError(f"CC={cc} is not Clang")
-    if not compiler_is_clang(cxx):
-        raise LauncherError(f"CXX={cxx} is not Clang")
+    prepare_only, argument = parse_launch_arguments(argv)
+    try:
+        native = require_native_dependencies()
+    except DependencyError as exc:
+        raise LauncherError(str(exc)) from exc
+    python = sys.executable
+    cc = native.cc
+    cxx = native.cxx
     jobs = cpu_count()
+    build_root = player_build_root(cc, cxx)
 
-    run_or_refuse([python, "tools/psxport_sync.py", "--auto"], "could not resolve external/psxport")
+    run_or_refuse(
+        [python, "tools/psxport_sync.py", "--auto"],
+        "could not resolve external/psxport",
+    )
     framework_text = os.environ.get("PSXPORT_DIR") or "external/psxport"
     framework = Path(framework_text)
     if not (framework / "cmake/psxport.cmake").is_file():
         raise LauncherError(f"PSXPORT_DIR={framework_text} is not a psxport checkout")
     announce_framework(framework_text, framework)
-    sync_submodules()
+    sync_submodules(framework)
 
-    argument = argv[0] if argv else None
-    disc = resolve_disc(ROOT, argument, os.environ)
+    catalog = load_catalog(ROOT)
+    try:
+        disc = resolve_unidentified_disc(
+            ROOT,
+            argument,
+            os.environ,
+            [catalog.by_id(title_id).disc_env for title_id in catalog.ids()],
+        )
+    except DiscPathError as exc:
+        raise LauncherError(str(exc)) from exc
     if not disc or not Path(disc).is_file():
         raise LauncherError(
-            "no disc image — pass it as ./run.sh <disc.chd>, set PSXPORT_SPIDERMAN_DISC, "
-            "or drop a *.chd here"
+            "no disc image — pass it as ./run.sh <disc.chd>, set a title-specific disc "
+            "environment variable, or drop one *.chd here"
         )
     say(f"disc: {disc}")
 
     say("building libchdr + discdump…")
-    configure_discdump, build_discdump = discdump_commands(framework, cc, cxx, jobs)
+    framework_build = build_root / "framework"
+    configure_discdump, build_discdump = discdump_commands(
+        framework, framework_build, cc, cxx, python, jobs
+    )
     run_or_refuse(configure_discdump, "psxport cmake configure failed", quiet=True)
     run_or_refuse(build_discdump, "discdump build failed", quiet=True)
-    discdump = framework / "build/tools/discdump"
+    discdump = framework_build / "tools/discdump"
     if not os.access(discdump, os.X_OK):
-        discdump = framework / "build/tools/discdump.exe"
+        discdump = framework_build / "tools/discdump.exe"
     if not os.access(discdump, os.X_OK):
         raise LauncherError("discdump build failed")
 
-    Path("generated").mkdir(parents=True, exist_ok=True)
+    title = detect_title(discdump, disc)
+    say(f"title: {title.label} ({title.serial})")
+
+    title.generated_directory.mkdir(parents=True, exist_ok=True)
     Path("scratch/bin").mkdir(parents=True, exist_ok=True)
     provision_env = dict(os.environ)
     provision_env["PSXPORT_DISCDUMP"] = str(discdump)
     run_or_refuse(
-        [python, "tools/ensure_recomp.py", disc],
+        [python, "tools/ensure_recomp.py", "--title", title.id, disc],
         "recomp provisioning failed",
         env=provision_env,
     )
-    if not EXE.is_file():
-        raise LauncherError(f"ensure_recomp.py did not produce {EXE}")
+    if not title.guest_executable.is_file():
+        raise LauncherError(
+            f"ensure_recomp.py did not produce {title.guest_executable}"
+        )
 
     say(f"building the native port (CMake -j{jobs})…")
-    configure_port, build_port = port_commands(framework, cc, cxx, jobs)
+    port_build = build_root / title.id
+    configure_port, build_port = port_commands(
+        framework, port_build, cc, cxx, python, jobs, title
+    )
     run_or_refuse(configure_port, "cmake configure failed", quiet=True)
     run_or_refuse(build_port, "port build failed")
 
-    say("launching Spider-Man (native PC port)…")
-    launch_env = launch_environment(os.environ, framework_text, disc)
-    os.execvpe(str(PORT), [str(PORT), str(EXE)], launch_env)
+    if prepare_only:
+        say(f"{title.label} is built and ready at {title.port_executable}")
+        return 0
+
+    say(f"launching {title.label} (native PC port)…")
+    launch_env = launch_environment(os.environ, framework_text, disc, title)
+    os.execvpe(
+        str(title.port_executable),
+        [str(title.port_executable), str(title.guest_executable)],
+        launch_env,
+    )
     return 0
 
 

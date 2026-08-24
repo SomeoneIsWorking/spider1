@@ -15,7 +15,7 @@ THE PREMISE'S IMPLIED FIX IS ONLY HALF RIGHT, and this is the part to remember: 
 BOOT STATUS AT psxport 240d8f9a, so a future regression has a baseline: it boots and boots DEEP — 240s headless run reached rseam frame 14007 with 5632 submitFrame calls and 9 scene changes, clean. Those three counters are the obvious assertions for a gate (frames advanced, submitFrame calls > 0, scene changes > 0) plus 0 recomp-MISS and 0 fail-fast aborts.
 
 RESOLVED 2026-08-12 — `tools/gate.py`. `python3 tools/gate.py boot` launches the already-built
-`scratch/bin/spiderman_port` headless under `gpuguard run --timeout N` (never `./run.sh`) and keys on
+`scratch/bin/spiderman_port` headless, capped (never `./run.sh`), and keys on
 the port's own log lines, as this issue said it would have to. Seven assertions: `[boot] loaded …:
 entry 0x…`, `[boot] Phase 0: dispatching guest main()`, `[rseam] render seam installed at 0x…`,
 `[rseam] submitFrame override REACHED` (the line the port's own install message names as its
@@ -54,9 +54,9 @@ AUDITED 2026-08-12, SECOND PASS — the gate was re-verified by running it, and 
 found in the part nothing covered: the LAUNCHER's hang branch. `--selftest` had 16 cases and all 16
 judged captured TEXT through `analyse()`; the launcher itself had exactly one case (missing binary).
 1. The hang refusal wrote only `e.stdout` to its log — and the port writes **100% of its output to
-   stderr** (measured: 92 stderr lines / 0 stdout lines from a 12s `gpuguard run`). The refusal for the
+   stderr** (measured: 92 stderr lines / 0 stdout lines from a 12s capped run). The refusal for the
    single failure that most needs evidence pointed at an EMPTY file.
-2. `subprocess.run(timeout=)` kills only the DIRECT child, so the hang path killed the `gpuguard`
+2. `subprocess.run(timeout=)` kills only the DIRECT child, so the hang path killed a
    wrapper and left `spiderman_port` running, reparented — measured with a stand-in: **2 orphans per
    hang**. A GPU-holding orphan is what the next gate run contends with while this one reports a tidy
    refusal.
