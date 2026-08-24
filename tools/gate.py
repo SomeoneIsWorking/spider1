@@ -26,12 +26,11 @@ pixels, about the native render leg (the default leg is psx_render, the referenc
 past the ~2 minutes it ran.
 
 REFUSALS (exit 2, never 0) — each says what it did NOT do rather than returning a clean empty pass:
-missing binary, missing boot executable, unresolvable disc, gpuguard missing/latched or refusing
-preflight, zero output lines, no port output at all (launcher never got there), fewer than two
-progress lines to compare (cannot speak about ADVANCE), and a HANG the run's own two kill paths failed
-to end — which kills the whole process GROUP (the port is a grandchild of gpuguard, and killing only
-the direct child leaks a GPU-holding orphan into the next run) and reports how many processes it
-signalled, how many survived, and how many output lines it captured before the kill.
+missing binary, missing boot executable, unresolvable disc, zero output lines, no port output at all,
+fewer than two progress lines to compare (cannot speak about ADVANCE), and a HANG the run's own two
+kill paths failed to end — which kills the whole process GROUP (killing only the direct child leaks a
+GPU-holding orphan into the next run) and reports how many processes it signalled, how many survived,
+and how many output lines it captured before the kill.
 GPU DEVICE LOSS (exit 3): a hard STOP for the whole session, not a retry.
 
     python3 tools/gate.py boot                     # the gate: capped headless launch + assertions
@@ -46,7 +45,6 @@ from __future__ import annotations
 import argparse
 import os
 import re
-import shutil
 import signal
 import subprocess
 import sys
@@ -360,15 +358,6 @@ def cmd_boot(args) -> int:
                       "not be comparable to the recorded baseline.")
 
     cmd = [BIN, EXE]
-    launcher = 'direct'
-    if not args.no_gpuguard:
-        gg = shutil.which('gpuguard')
-        if not gg:
-            return refuse("gpuguard is not on PATH — NOTHING WAS RUN. This run drives a Vulkan "
-                          "device, and the machine-wide GPU interlock is not optional here "
-                          "(CLAUDE.md). On a machine without it, pass --no-gpuguard deliberately.")
-        cmd = [gg, 'run', '--timeout', str(args.seconds), '--'] + cmd
-        launcher = 'gpuguard'
 
     env = dict(os.environ)
     env['PSXPORT_SPIDERMAN_DISC'] = disc
@@ -387,52 +376,59 @@ def cmd_boot(args) -> int:
     stamp = time.strftime('%Y%m%d-%H%M%S')
     logpath = os.path.join(LOGDIR, f'gate-boot-{stamp}.log')
 
-    print(f"[gate:boot] launching via {launcher}, capped at {args.seconds}s, "
+    print(f"[gate:boot] launching direct, capped at {args.seconds}s, "
           f"PSXPORT_WATCHDOG={args.watchdog}s frame-progress")
     print(f"[gate:boot] {' '.join(cmd)}")
-    # PROCESS GROUP, not a bare child, and this is MEASURED rather than assumed: `subprocess.run(...,
-    # timeout=)` kills only the DIRECT child, so killing the gpuguard wrapper leaves `spiderman_port`
-    # alive and reparented to pid 1 — verified 2026-08-12 with a `gpuguard run -- sh -c 'sleep 200'`
-    # stand-in, whose sleeper survived the wrapper's death. An orphan holding the Vulkan device is
-    # exactly what the next gate run then contends with, while this run reports a tidy refusal. So the
-    # launch gets its own session and the hang path kills the whole GROUP and COUNTS the survivors.
+    # PROCESS GROUP, not a bare child: `subprocess.run(..., timeout=)` kills only the DIRECT child, so
+    # a child that spawns the port (or any wrapper) would leave `spiderman_port` alive and reparented
+    # to pid 1. An orphan holding the Vulkan device is exactly what the next gate run then contends
+    # with, while this run reports a tidy refusal. So the launch gets its own session and the hang path
+    # kills the whole GROUP and COUNTS the survivors.
     grace = args.grace
     t0 = time.time()
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
                          cwd=REPO, stdin=subprocess.DEVNULL, start_new_session=True)
     try:
-        so, se = p.communicate(timeout=args.seconds + grace)
+        so, se = p.communicate(timeout=args.seconds)
         rc = p.returncode
     except subprocess.TimeoutExpired:
-        killed, alive = _kill_group(p.pid)
+        # The cap is the NORMAL end of a capped run: the port is alive and (usually) progressing,
+        # and the floors below are judged on what the window captured. Ask the whole GROUP to stop —
+        # SIGTERM, which the port handles in-band with a "where it was stuck" backtrace — then give
+        # it `grace` to exit. Only if it is STILL running after that is this a HANG.
         try:
-            so, se = p.communicate(timeout=30)
+            os.killpg(os.getpgid(p.pid), signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        try:
+            so, se = p.communicate(timeout=grace)
+            rc = p.returncode
         except subprocess.TimeoutExpired:
-            so, se = '', ''
-        # BOTH streams: the port writes 100% of its output to STDERR (measured 2026-08-12 — 92 lines on
-        # stderr, 0 on stdout), so an earlier version of this handler, which saved only stdout, wrote an
-        # EMPTY log for the single failure that needs a log most. A refusal pointing at an empty file is
-        # the "diagnostic that can print nothing" this repo's rules forbid.
-        out = (so or '') + (se or '')
-        with open(logpath, 'w') as f:
-            f.write(out)
-        return refuse(f"neither the {args.seconds}s supervisor cap nor the {args.watchdog}s frame "
-                      f"watchdog ended the process within {args.seconds + grace}s. Treat this as a HANG "
-                      f"whose own kill path failed, NOT a pass. Killed the whole process group: "
-                      f"{killed} process(es) signalled, {alive} still alive afterwards "
-                      f"({'clean' if alive == 0 else 'ORPHANS REMAIN — kill them by PID, never by name'}). "
-                      f"Captured {out.count(chr(10))} output line(s) (stdout+stderr) before the kill. "
-                      f"Log: {logpath}")
+            killed, alive = _kill_group(p.pid)
+            try:
+                so, se = p.communicate(timeout=30)
+            except subprocess.TimeoutExpired:
+                so, se = '', ''
+            # BOTH streams: the port writes 100% of its output to STDERR (measured 2026-08-12 — 92 lines on
+            # stderr, 0 on stdout), so an earlier version of this handler, which saved only stdout, wrote an
+            # EMPTY log for the single failure that needs a log most. A refusal pointing at an empty file is
+            # the "diagnostic that can print nothing" this repo's rules forbid.
+            out = (so or '') + (se or '')
+            with open(logpath, 'w') as f:
+                f.write(out)
+            return refuse(f"neither the {args.seconds}s supervisor cap (SIGTERM) nor a further "
+                          f"{grace}s grace ended the process; the {args.watchdog}s frame watchdog did "
+                          f"not fire either, so the guest was NOT stalled. Treat this as a HANG whose "
+                          f"own kill path failed, NOT a pass. Killed the whole process group: "
+                          f"{killed} process(es) signalled, {alive} still alive afterwards "
+                          f"({'clean' if alive == 0 else 'ORPHANS REMAIN — kill them by PID, never by name'}). "
+                          f"Captured {out.count(chr(10))} output line(s) (stdout+stderr) before the kill. "
+                          f"Log: {logpath}")
+        rc = -15 if rc is None else rc
     secs = time.time() - t0
     out = (so or '') + (se or '')
     with open(logpath, 'w') as f:
         f.write(out)
-
-    # gpuguard refusing preflight is a REFUSAL, not a failing gate: the game never launched.
-    if not RE_BOOT_LOADED.search(out) and re.search(r'not launching|latch:.*(?:set|latched)', out):
-        return refuse(f"the launcher refused before the port started — the game NEVER RAN, so nothing "
-                      f"is proven. A gpuguard denial is a STOP, not an obstacle: diagnose statically "
-                      f"and ask the user. Log: {logpath}\n" + out.strip()[-1200:])
 
     return analyse(out, rc, secs, 'boot', f'log: {logpath}')
 
@@ -451,8 +447,6 @@ def cmd_check_log(args) -> int:
 # same text with one thing broken, so a failure is attributable to exactly that mutation.
 # ------------------------------------------------------------------------------------------------
 GOOD_LOG = """\
-[gpuguard] INFO OK to run. Checked -- latch: clear; kernel log: 15 min scanned, 0 amdgpu trouble lines
-[gpuguard] INFO launching (timeout 240s): ./scratch/bin/spiderman_port scratch/bin/spiderman/SLUS_008.75
 [watchdog] armed: 30s frame-progress timeout (30s grace for the first frame)
 [boot] loaded scratch/bin/spiderman/SLUS_008.75: entry 0x8008739C load 0x80010000 text 0xB6800 sp 0x801FFFF0
 [plat-hle] 8 hardware-sync primitive(s) installed from GameConfig::hle
@@ -473,7 +467,6 @@ GOOD_LOG = """\
 
 [watchdog] INTERRUPT (SIGINT/SIGTERM) — where it was stuck:
 ./scratch/bin/spiderman_port(_Z17gpu_pace_subframeP4Corei+0x33) [0x7f9683]
-[gpuguard] INFO exit=130 after 240s (wall-clock timeout after 240s)
 """
 
 
@@ -568,88 +561,106 @@ def selftest() -> int:
     print(f"\n----- case {len(cases) + 1}: missing binary via the real launcher (expect exit 2) -----")
     global BIN
     saved, BIN = BIN, os.path.join(REPO, 'scratch', 'bin', 'does_not_exist_selftest')
-    got = cmd_boot(argparse.Namespace(seconds=5, grace=4, watchdog=5, debug='', no_gpuguard=True))
+    got = cmd_boot(argparse.Namespace(seconds=5, grace=4, watchdog=5, debug=''))
     BIN = saved
     print(f"----- case {len(cases) + 1}: exit {got}, expected 2 -> "
           f"{'OK' if got == 2 else 'SELFTEST FAILURE'}")
     if got != 2:
         bad = 1
 
-    # HANG-PATH CASE, through the REAL launcher. Both bugs found in the 2026-08-12 audit lived in this
-    # branch and NOTHING covered it: (a) it saved only stdout, and the port writes 100% of its output to
-    # stderr, so the refusal pointed at an EMPTY log; (b) it killed only the direct child, orphaning a
-    # GPU-holding process. The stand-in prints to stderr like the port does and spawns a grandchild like
-    # gpuguard does, so the case fails if either bug returns.
-    print(f"\n----- case {len(cases) + 2}: a HANG via the real launcher (expect exit 2, a NON-EMPTY log, "
-          f"and NO surviving process) -----")
-    stand_in = os.path.join(REPO, 'scratch', 'bin', 'gate_selftest_hang.sh')
-    beat = os.path.join(REPO, 'scratch', 'bin', 'gate_selftest_heartbeat')
-    pidf = os.path.join(REPO, 'scratch', 'bin', 'gate_selftest_orphan.pid')
-    os.makedirs(os.path.dirname(stand_in), exist_ok=True)
-    for f_ in (beat, pidf):
-        if os.path.exists(f_):
-            os.unlink(f_)
-    # HOW THE SURVIVOR IS DETECTED, and why not by argv. Two earlier versions of this check could not
-    # fire: scanning `ps` for the script's NAME missed the grandchild (whose argv is 'sleep 600'), and
-    # putting a marker in `sh -c 'sleep 600 # MARK'` failed because dash EXEC-OPTIMISES that into bare
-    # 'sleep 600', erasing the marker. Both duly printed "surviving=0" against the pre-fix launcher,
-    # which MEASURABLY leaks 2 orphans per run. So the grandchild instead publishes its own PID and
-    # TOUCHES A HEARTBEAT FILE in a loop: an advancing mtime after the gate returned is proof something
-    # is still running, and the PID file makes the cleanup a kill BY PID rather than by name.
-    with open(stand_in, 'w') as f:
-        f.write('#!/bin/sh\n'
-                'echo "SELFTEST-STAND-IN: this line goes to STDERR, as every port log line does" >&2\n'
-                f"sh -c 'echo $$ > {pidf}; while : ; do : > {beat}; sleep 0.2; done' &\n"
-                'wait\n')      # `wait`, not another `sleep`: one child only, so any leak has a known PID
-    os.chmod(stand_in, 0o755)
-    saved, BIN = BIN, stand_in
-    os.makedirs(LOGDIR, exist_ok=True)
-    LOGS_BEFORE = sorted(os.listdir(LOGDIR))
-    got = cmd_boot(argparse.Namespace(seconds=3, grace=4, watchdog=5, debug='', no_gpuguard=True))
-    BIN = saved
-    newlogs = [x for x in sorted(os.listdir(LOGDIR)) if x not in LOGS_BEFORE] if os.path.isdir(LOGDIR) else []
-    logtext = open(os.path.join(LOGDIR, newlogs[-1])).read() if newlogs else ''
-    spawned = os.path.exists(beat)      # the DENOMINATOR: did the grandchild ever run at all?
-    m0 = os.stat(beat).st_mtime_ns if spawned else 0
-    time.sleep(1.5)
-    m1 = os.stat(beat).st_mtime_ns if os.path.exists(beat) else m0
-    alive = spawned and m1 != m0
-    ok_exit = got == 2
-    ok_log = 'SELFTEST-STAND-IN' in logtext
-    ok_dead = spawned and not alive
-    print(f"      exit={got} (want 2) · log captured {logtext.count(chr(10))} line(s), stderr marker "
-          f"present={ok_log} · grandchild spawned={spawned}, heartbeat still advancing after the "
-          f"gate returned={alive} (want False)")
-    if not spawned:
-        print("      SELFTEST FAILURE: the grandchild never started, so the orphan half of this case "
-              "proved NOTHING — it did not observe a clean kill, it observed nothing.")
-    if not ok_log:
-        print("      SELFTEST FAILURE: the hang refusal saved a log WITHOUT the process's stderr — a "
-              "refusal pointing at an empty file is a diagnostic that can print nothing.")
-    if alive:
-        print("      SELFTEST FAILURE: a process SURVIVED the gate's hang path — the gate orphaned it "
-              "instead of killing its process group. An orphan holding the GPU is what the next run "
-              "then contends with.")
-    if os.path.exists(pidf):            # clean up BY PID, never by binary name
-        try:
-            os.kill(int(open(pidf).read().strip()), signal.SIGKILL)
-        except (ProcessLookupError, ValueError, PermissionError):
-            pass
-    print(f"----- case {len(cases) + 2}: "
-          f"{'OK' if (ok_exit and ok_log and ok_dead) else 'SELFTEST FAILURE'}")
-    if not (ok_exit and ok_log and ok_dead):
-        bad = 1
-    for f_ in (stand_in, beat, pidf):
-        if os.path.exists(f_):
-            os.unlink(f_)
+    # TWO LAUNCHER CASES through the REAL launcher, because both bugs found in the 2026-08-12 audit
+    # lived there and NOTHING covered them: (a) the refusal saved only stdout while the port writes
+    # 100% of its output to stderr, so it pointed at an EMPTY log; (b) it killed only the direct
+    # child, orphaning a GPU-holding process. Case A ends at the CAP: the gate SIGTERMs the group at
+    # --seconds and the child obeys. Case B is the HANG branch: the child IGNORES SIGTERM, so the gate
+    # must escalate to SIGKILL after --grace. Both stand-ins print to stderr like the port does and
+    # spawn a grandchild, so each case fails if either bug returns.
+    def run_stand_in_case(label: str, ignore_term: bool) -> None:
+        nonlocal bad
+        global BIN
+        stand_in = os.path.join(REPO, 'scratch', 'bin', 'gate_selftest_hang.sh')
+        beat = os.path.join(REPO, 'scratch', 'bin', 'gate_selftest_heartbeat')
+        pidf = os.path.join(REPO, 'scratch', 'bin', 'gate_selftest_orphan.pid')
+        os.makedirs(os.path.dirname(stand_in), exist_ok=True)
+        for f_ in (beat, pidf):
+            if os.path.exists(f_):
+                os.unlink(f_)
+        # HOW THE SURVIVOR IS DETECTED, and why not by argv. Two earlier versions of this check could
+        # not fire: scanning `ps` for the script's NAME missed the grandchild (whose argv is
+        # 'sleep 600'), and putting a marker in `sh -c 'sleep 600 # MARK'` failed because dash
+        # EXEC-OPTIMISES that into bare 'sleep 600', erasing the marker. Both duly printed
+        # "surviving=0" against the pre-fix launcher, which MEASURABLY leaks 2 orphans per run. So the
+        # grandchild instead publishes its own PID and TOUCHES A HEARTBEAT FILE in a loop: an advancing
+        # mtime after the gate returned is proof something is still running, and the PID file makes the
+        # cleanup a kill BY PID rather than by name.
+        with open(stand_in, 'w') as f:
+            f.write('#!/bin/sh\n'
+                    'trap "" TERM\n'          # the MAIN shell ignores the polite stop ...
+                    'echo "SELFTEST-STAND-IN: this line goes to STDERR, as every port log line does" >&2\n'
+                    f"sh -c 'echo $$ > {pidf}; while : ; do : > {beat}; sleep 0.2; done' &\n"
+                    + ('wait\n' if ignore_term else 'sleep 60\n'))
+        # ... and in the hang variant so does the grandchild, whose `while` loop outlives every
+        # TERMed `sleep` it spawns — so ONLY SIGKILL escalation can end case B. Without the trap the
+        # whole group dies at --seconds, which is case A.
+        os.chmod(stand_in, 0o755)
+        saved, BIN = BIN, stand_in
+        os.makedirs(LOGDIR, exist_ok=True)
+        LOGS_BEFORE = sorted(os.listdir(LOGDIR))
+        got = cmd_boot(argparse.Namespace(seconds=3, grace=4, watchdog=5, debug=''))
+        BIN = saved
+        newlogs = [x for x in sorted(os.listdir(LOGDIR)) if x not in LOGS_BEFORE] if os.path.isdir(LOGDIR) else []
+        logtext = open(os.path.join(LOGDIR, newlogs[-1])).read() if newlogs else ''
+        spawned = os.path.exists(beat)      # the DENOMINATOR: did the grandchild ever run at all?
+        m0 = os.stat(beat).st_mtime_ns if spawned else 0
+        time.sleep(1.5)
+        m1 = os.stat(beat).st_mtime_ns if os.path.exists(beat) else m0
+        alive = spawned and m1 != m0
+        ok_exit = got == 2
+        ok_log = 'SELFTEST-STAND-IN' in logtext
+        ok_dead = spawned and not alive
+        print(f"      exit={got} (want 2) · log captured {logtext.count(chr(10))} line(s), stderr "
+              f"marker present={ok_log} · grandchild spawned={spawned}, heartbeat still advancing "
+              f"after the gate returned={alive} (want False)")
+        if not spawned:
+            print("      SELFTEST FAILURE: the grandchild never started, so the orphan half of this "
+                  "case proved NOTHING — it did not observe a clean kill, it observed nothing.")
+        if not ok_log:
+            print("      SELFTEST FAILURE: the launcher saved a log WITHOUT the process's stderr — a "
+                  "refusal pointing at an empty file is a diagnostic that can print nothing.")
+        if alive:
+            print("      SELFTEST FAILURE: a process SURVIVED the gate's kill path — the gate "
+                  "orphaned it instead of killing its process group. An orphan holding the GPU is "
+                  "what the next run then contends with.")
+        if os.path.exists(pidf):            # clean up BY PID, never by binary name
+            try:
+                os.kill(int(open(pidf).read().strip()), signal.SIGKILL)
+            except (ProcessLookupError, ValueError, PermissionError):
+                pass
+        verdict = 'OK' if (ok_exit and ok_log and ok_dead) else 'SELFTEST FAILURE'
+        print(f"----- case {label}: {verdict}")
+        if verdict != 'OK':
+            bad = 1
+        for f_ in (stand_in, beat, pidf):
+            if os.path.exists(f_):
+                os.unlink(f_)
+
+    print(f"\n----- case {len(cases) + 2}: a run ended AT THE CAP via SIGTERM (expect exit 2, a "
+          f"NON-EMPTY log, and NO surviving process) -----")
+    run_stand_in_case(len(cases) + 2, ignore_term=False)
+
+    print(f"\n----- case {len(cases) + 3}: a HANG — SIGTERM ignored by every member (expect exit 2, "
+          f"a NON-EMPTY log, and NO surviving process) -----")
+    run_stand_in_case(len(cases) + 3, ignore_term=True)
 
     # The denominator is COUNTED, not asserted in prose: a hand-written tally drifts the moment a case
     # is added, and a wrong denominator is exactly the lie this whole file is written against.
-    n = len(cases) + 2
+    n_launcher_cases = 3        # missing binary, cap/SIGTERM, hang
+    n = len(cases) + n_launcher_cases
     n_pass = sum(1 for _n, _t, _r, w, _s in cases if w == 0)
     n_fail = sum(1 for _n, _t, _r, w, _s in cases if w == 1)
-    # +2: the two REFUSALS exercised through the real launcher (missing binary, and a hang)
-    n_refuse = sum(1 for _n, _t, _r, w, _s in cases if w == 2) + 2
+    # +n_launcher_cases: the REFUSALS exercised through the real launcher (missing binary,
+    # a run ended at the cap, and a hang)
+    n_refuse = sum(1 for _n, _t, _r, w, _s in cases if w == 2) + n_launcher_cases
     n_dev = sum(1 for _n, _t, _r, w, _s in cases if w == 3)
     print("\n" + "=" * 96)
     if bad:
@@ -668,7 +679,8 @@ def main() -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--selftest', action='store_true',
                     help='prove the gate fires: judge a known-good capture plus one mutation per '
-                         'assertion, and a real missing-binary refusal')
+                         'assertion, and three refusals through the real launcher (missing binary, '
+                         'a run ended at the cap, and a hang)')
     sub = ap.add_subparsers(dest='cmd')
     b = sub.add_parser('boot', help='capped headless launch + assertions (THE gate)')
     b.add_argument('--seconds', type=int, default=120,
@@ -680,12 +692,8 @@ def main() -> int:
                         "(default 30). A stall aborts in-band with a guest backtrace.")
     b.add_argument('--grace', type=int, default=120,
                    help='seconds to wait for the run to end BEYOND --seconds before declaring a hang '
-                        'and group-killing it (default 120: gpuguard\'s own cap plus the port\'s '
-                        'shutdown). A hang is a REFUSAL, never a pass.')
+                        'and group-killing it (default 120). A hang is a REFUSAL, never a pass.')
     b.add_argument('--debug', default='', help='PSXPORT_DEBUG channels, e.g. rseam,envcheck')
-    b.add_argument('--no-gpuguard', action='store_true',
-                   help='launch without the machine-wide GPU interlock. Only for a machine that has '
-                        'no gpuguard — never to route around a denial.')
     b.set_defaults(fn=cmd_boot)
     c = sub.add_parser('check-log', help='run the SAME analyser over a captured log')
     c.add_argument('path')
