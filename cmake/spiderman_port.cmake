@@ -41,6 +41,9 @@ set(GAME_SRC
   game/render/face_builder_census.cpp  # RE-21 exact FUN_8007C4D8 input-owner census
   game/render/mesh_face_format.cpp  # RE-21 executable-derived source face semantics
   game/render/mesh_transform.cpp  # RE-21 object-local-to-camera source transform contract
+  game/render/mesh_animated_vertex.cpp  # RE-21 animated source/cache staging contract
+  game/render/mesh_pose_contract.cpp  # RE-21 pre-GTE animated pose-composition contract
+  game/render/mips_fixed_point.cpp  # shared exact signed/shift semantics for render source records
   game/render/asset_upload_ledger.cpp  # RE-21 authored texture/CLUT ownership ledger
   game/render/mesh_asset_cook.cpp  # RE-21 retained load-time cooked face ownership
   game/render/texture_asset_probe.cpp  # RE-21 retail asset/upload/lifetime instrument

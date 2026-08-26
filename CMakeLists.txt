@@ -96,6 +96,18 @@ if(BUILD_TESTING)
     game/render/mesh_transform.cpp)
   target_include_directories(mesh_transform_contract_test PRIVATE game/render)
   add_test(NAME mesh_transform_contract COMMAND mesh_transform_contract_test)
+  add_executable(mesh_animated_vertex_test
+    tests/mesh_animated_vertex_test.cpp
+    game/render/mesh_animated_vertex.cpp
+    game/render/mips_fixed_point.cpp)
+  target_include_directories(mesh_animated_vertex_test PRIVATE game/render)
+  add_test(NAME mesh_animated_vertex COMMAND mesh_animated_vertex_test)
+  add_executable(mesh_pose_contract_test
+    tests/mesh_pose_contract_test.cpp
+    game/render/mesh_pose_contract.cpp
+    game/render/mips_fixed_point.cpp)
+  target_include_directories(mesh_pose_contract_test PRIVATE game/render)
+  add_test(NAME mesh_pose_contract COMMAND mesh_pose_contract_test)
   add_executable(asset_upload_ledger_test
     tests/asset_upload_ledger_test.cpp
     game/render/asset_upload_ledger.cpp)

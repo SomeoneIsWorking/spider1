@@ -2,6 +2,7 @@
 id: 12
 title: the present pacer runs at 60.000 Hz while the field clock runs at 59.940 Hz: the beat drops ~1 rendered frame in 3 for ~1.8 s out of every 16.7 s
 status: open
+state_items: S009
 symptom: windowed gameplay judders/flickers in a recurring ~2 s burst roughly every 17 s; presents arrive as a 1 ms pair followed by a 32 ms gap instead of one every 16.68 ms; new pictures reaching the screen fall from 29.0/s to 19.7/s inside a burst
 tags: pacing,temporal,flicker,windowed,presentclock,gpu_pace_subframe,vblank_advance,beat,framework-wart,MAILBOX
 created: 2026-08-06

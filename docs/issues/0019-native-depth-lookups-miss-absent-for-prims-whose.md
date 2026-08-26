@@ -2,6 +2,7 @@
 id: 19
 title: native depth lookups miss ABSENT for prims whose vertices are stored as spill-mediated halfwords
 status: open
+state_items: S006
 symptom: depth coverage % below expectation; ABSENT misses dominate; vertices stored via sh after stack spill get no depth record; 39% of prims fall to the 2D band
 tags: RE-08,depth,ndepth,halfword,spill,gte-store,render
 created: 2026-08-24

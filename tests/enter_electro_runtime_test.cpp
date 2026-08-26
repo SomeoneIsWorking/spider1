@@ -46,8 +46,13 @@ int main() {
   auto game = std::make_unique<Game>();
   Core &core = game->core;
   const GuestProgramImage *image = core.guestProgramImage;
+  const RenderCapabilities renderCapabilities = runtime.renderCapabilities();
   if (core.runtime != &runtime || core.cfg != nullptr || core.hooks != nullptr ||
-      core.gameCtx != nullptr || !image) {
+      core.gameCtx != nullptr || !image || renderCapabilities.nativeRenderPath ||
+      renderCapabilities.temporalInterpolation ||
+      renderCapabilities.defaultPath != RenderPath::Gte ||
+      renderCapabilities.playerPathCount() != 1 ||
+      renderCapabilities.playerSelectable(RenderPath::Native)) {
     std::fprintf(stderr, "Enter Electro borrowed a legacy title seam\n");
     return 1;
   }

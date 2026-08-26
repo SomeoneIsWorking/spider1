@@ -49,6 +49,13 @@ const GuestProgramImage *EnterElectroRuntime::guestProgramImage() const {
   return &image_;
 }
 
+RenderCapabilities EnterElectroRuntime::renderCapabilities() const {
+  // Enter Electro owns no native producer or temporal product at EE-02. Widescreen presentation
+  // remains available through the guest-projection path without exposing Spider-Man's renderer or
+  // 60fps controls merely because both titles share a lineage base.
+  return RenderCapabilities::widescreenOnly();
+}
+
 bool EnterElectroRuntime::guestVramIsPicture(const Game &) const {
   refuseUnported("guest-VRAM picture ownership",
                  "EE-02, then measure Enter Electro's render ownership");

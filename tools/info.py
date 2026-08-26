@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """info.py — the project information system's entry point + the two ledgers nothing else keeps.
 
-WHY THIS EXISTS. A project accumulates three kinds of durable knowledge that ALREADY have homes:
+WHY THIS EXISTS. A project accumulates durable knowledge that ALREADY has distinct homes:
+  · epic outcome                     docs/project-goals.md
+  · capability coverage/current focus docs/project-state.md
   · symptom -> cause/dead-end        docs/issues/       (issue-catalog skill, catalog.py)
-  · subsystem -> where/what status   docs/code-map.md   (codemap skill, codemap.py)
+  · subsystem -> owner/placement     docs/codemap.md    (codemap skill, codemap.py)
   · RE step -> real or hack          docs/re-frontier.md(re-frontier skill, re_frontier.py)
 and two kinds that have NO home, which is where sessions actually lose time:
 
@@ -28,8 +30,8 @@ DATA LIVES IN THE REPO (docs/info/), greppable Markdown, one file per entry — 
 code, reaches subagents, and survives without this tool.
 
 USAGE
-  info.py brief <words...>      # START HERE. One query across every registry: issues, claims,
-                                # instruments, codemap, re-frontier. Replaces remembering 3 CLIs.
+  info.py brief <words...>      # START HERE. One query across every registry: goals, project state,
+                                # issues, claims, instruments, codemap, re-frontier.
   info.py claim add "<claim>" --evidence "<how proven>" --falsified-by "<what OBSERVATION would disprove it>"
                               [--depends path[#symbol] ...]
   info.py claim list [--stale] [--falsified]
@@ -878,6 +880,29 @@ def _run(cmd):
         return ""
 
 
+def _matching_doc_lines(relative_path, words, limit=3):
+    """Search tracked or untracked registry documents with the same any-word rule.
+
+    `git grep` omits an untracked registry. That made a newly bootstrapped project-state file read as
+    consulted-but-empty until somebody staged it, even though staging is unrelated to whether the
+    project knows the fact. Registry visibility must come from the file, not the index.
+    """
+    path = os.path.join(ROOT, relative_path)
+    try:
+        with open(path, encoding="utf-8") as registry:
+            lines = registry.read().splitlines()
+    except OSError:
+        return []
+    lowered = tuple(word.lower() for word in words)
+    matches = []
+    for line_number, line in enumerate(lines, start=1):
+        if any(word in line.lower() for word in lowered):
+            matches.append(f"{relative_path}:{line_number}:{line}")
+            if len(matches) == limit:
+                break
+    return matches
+
+
 def cmd_brief(a):
     # Split INSIDE each argument. `brief <words>` is nargs='+', so the natural
     # `info.py brief "native render tev lighting"` arrives as ONE term and matches nothing —
@@ -926,17 +951,18 @@ def cmd_brief(a):
     # (b) the query was grepped as a literal PHRASE, so any multi-word brief ("movie audio") could only
     #     hit a line containing those words adjacently. Which is almost never. Both failures read to the
     #     caller as "nothing is known about this", at the one moment the tool is consulted.
-    for name, datas in (("CODEMAP", ("docs/codemap.md", "docs/code-map.md")),
+    for name, datas in (("GOALS", ("docs/project-goals.md",)),
+                        ("PROJECT-STATE", ("docs/project-state.md",)),
+                        ("CODEMAP", ("docs/codemap.md", "docs/code-map.md")),
                         ("RE-FRONTIER", ("docs/re-frontier.md",))):
         data = next((d for d in datas if os.path.exists(os.path.join(ROOT, d))), None)
         if not data:
             print(f"\n  {name}: none of {', '.join(datas)} exists here, so it was NOT consulted — "
                   f"this is not an empty result")
             continue
-        pat = "|".join(re.escape(w) for w in words)
-        hits = _run(["git", "grep", "-in", "-m", "3", "-E", pat, "--", data])
+        hits = _matching_doc_lines(data, words)
         print(f"\n  {name} ({data})")
-        print(textwrap.indent("\n".join(hits.splitlines()[:4]) if hits
+        print(textwrap.indent("\n".join(hits) if hits
                               else f"(no line matches any of: {', '.join(words)})", "    "))
     # project-local trackers (every project grows its own; surface them rather than ignore them)
     local = [t for t in ("tools/kanban.py", "tools/findings.py") if os.path.exists(os.path.join(ROOT, t))]
@@ -958,7 +984,7 @@ def cmd_brief(a):
         print("\n  THE CLAIMS AND INSTRUMENTS LEDGERS DO NOT EXIST IN THIS "
               "PROJECT YET, so they were not searched. This is NOT evidence "
               "that the ground is new. Create them with `info.py claim add` / "
-              "`info.py instrument add`, and note that any ISSUES/CODEMAP/"
+              "`info.py instrument add`, and note that any GOALS/PROJECT-STATE/ISSUES/CODEMAP/"
               "RE-FRONTIER sections above are the only registries that were "
               "actually consulted.")
     else:

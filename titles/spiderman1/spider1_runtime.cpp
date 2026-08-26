@@ -59,6 +59,13 @@ const GuestProgramImage *Spider1Runtime::guestProgramImage() const {
   return legacy_.guestProgramImage();
 }
 
+RenderCapabilities Spider1Runtime::renderCapabilities() const {
+  // Spider-Man is the lineage title whose native display-list producer and pre-GTE temporal
+  // contracts are being implemented. Preserve its native/GTE player choice and true temporal
+  // interpolation product while those title-owned paths replace the explicit guest-frame debt.
+  return RenderCapabilities::interpolatedNative();
+}
+
 bool Spider1Runtime::guestVramIsPicture(const Game &game) const {
   // Spider-Man 1 still runs the guest's drawing path, and its measured compatibility policy keeps
   // upload-only screens visible. Delegate to the bounded adapter while that title-specific policy

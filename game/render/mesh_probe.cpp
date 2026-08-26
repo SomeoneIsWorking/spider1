@@ -16,31 +16,40 @@
 #include "core.h"
 #include "face_builder_census.h"
 #include "game.h"
+#include "mesh_animated_vertex.h"
 #include "mesh_face_format.h"
+#include "mesh_pose_contract.h"
 #include "mesh_transform.h"
+#include "mips_fixed_point.h"
 #include "override_registry.h"
 #include "texture_asset_probe.h"
 
 #include <lucent/log.h>
 
 #include <cstdint>
-#include <cstring>
 
 extern void gen_func_80076480(Core *);
+extern void gen_func_80077198(Core *);
 extern void gen_func_80077C08(Core *);
 extern void gen_func_80077D64(Core *);
 extern void gen_func_8007C4D8(Core *);
+extern void gen_func_8007FB1C(Core *);
+extern void gen_func_8007FD1C(Core *);
 int gpu_frame_no(Core *c);
 
 namespace {
 
 constexpr uint32_t kRenderDisplayObject = 0x80076480u;
+constexpr uint32_t kRenderAnimatedObject = 0x80077198u;
 constexpr uint32_t kSubmitAnimatedMesh = 0x80077C08u;
 constexpr uint32_t kSubmitMesh = 0x80077D64u;
 constexpr uint32_t kBuildFaces = 0x8007C4D8u;
+constexpr uint32_t kComposeAnimatedPoseNear = 0x8007FB1Cu;
+constexpr uint32_t kComposeAnimatedPoseFar = 0x8007FD1Cu;
 constexpr uint32_t kFaceControl = 0x1F8003F4u;
 constexpr uint32_t kCameraGlobal = 0x1128u;
 constexpr uint32_t kCameraRotation = 0x74u;
+constexpr uint32_t kAnimatedScaleMode = 0x1170u;
 constexpr uint32_t kMipsS2 = 18u;
 
 // FUN_80077D64's mesh layout, from its instruction-exact pointer arithmetic:
@@ -67,6 +76,10 @@ struct ActiveSubmission {
   uint32_t relativeTranslation = 0;
   MeshDirectTransformInput transformInput;
   MeshDirectTransformContract transform;
+  AnimatedProjectionScale animatedScale = AnimatedProjectionScale::FarPreScaled;
+  AnimatedVertexSummary animatedVertices;
+  MeshPoseKey poseKey;
+  uint64_t poseSignature = 0;
 };
 
 struct SeenContext {
@@ -74,16 +87,48 @@ struct SeenContext {
   uint32_t mesh = 0;
 };
 
+struct SeenPose {
+  MeshPoseKey key;
+  uint64_t lastFrame = 0;
+  uint64_t lastSignature = 0;
+  std::array<uint32_t, 8> lastRetailOutput{};
+  bool hasRetailOutput = false;
+};
+
 ActiveSubmission g_active;
 uint64_t g_objectCalls = 0;
 uint64_t g_meshCalls = 0;
 uint64_t g_layoutMismatches = 0;
 uint64_t g_transformMismatches = 0;
+uint64_t g_animatedCalls = 0;
+uint64_t g_animatedFarCalls = 0;
+uint64_t g_animatedNearCalls = 0;
+uint64_t g_animatedProjectedVertices = 0;
+uint64_t g_animatedReusedVertices = 0;
+uint64_t g_animatedRetainedVertices = 0;
+uint64_t g_poseCalls = 0;
+uint64_t g_poseNearCalls = 0;
+uint64_t g_poseFarCalls = 0;
+uint64_t g_poseInvalidInputs = 0;
+uint64_t g_poseTemporalPairs = 0;
+uint64_t g_poseChangedPairs = 0;
+uint64_t g_poseMeshBindings = 0;
+uint64_t g_poseUnbound = 0;
+uint64_t g_poseOwnerMismatches = 0;
+uint64_t g_poseOracleComparisons = 0;
+uint64_t g_poseOracleMismatches = 0;
+uint64_t g_poseUntrackedCalls = 0;
 FaceBuilderCensus g_faceBuilderCensus;
 SeenContext g_seen[64];
 uint32_t g_seenCount = 0;
+SeenPose g_seenPoses[64];
+uint32_t g_seenPoseCount = 0;
 uint32_t g_orphanLines = 0;
 uint32_t g_transformMismatchLines = 0;
+uint32_t g_poseSampleLines = 0;
+uint32_t g_animatedObjectOwner = 0;
+MeshPoseKey g_pendingPoseKey;
+uint64_t g_pendingPoseSignature = 0;
 
 bool firstContext(uint32_t owner, uint32_t mesh) {
   for (uint32_t i = 0; i < g_seenCount; ++i) {
@@ -98,16 +143,13 @@ bool firstContext(uint32_t owner, uint32_t mesh) {
   return true;
 }
 
-int32_t signedWord(uint32_t word) {
-  int32_t result = 0;
-  std::memcpy(&result, &word, sizeof(result));
-  return result;
-}
-
-int16_t signedHalf(uint16_t half) {
-  int16_t result = 0;
-  std::memcpy(&result, &half, sizeof(result));
-  return result;
+SeenPose *findPose(const MeshPoseKey &key) {
+  for (uint32_t i = 0; i < g_seenPoseCount; ++i) {
+    if (g_seenPoses[i].key == key) {
+      return &g_seenPoses[i];
+    }
+  }
+  return nullptr;
 }
 
 const char *submissionName(ActiveSubmission::Kind kind) {
@@ -230,6 +272,164 @@ void renderDisplayObject(Core *c) {
   g_active = previous;
 }
 
+void renderAnimatedObject(Core *c) {
+  const uint32_t previousOwner = g_animatedObjectOwner;
+  const MeshPoseKey previousPendingKey = g_pendingPoseKey;
+  const uint64_t previousPendingSignature = g_pendingPoseSignature;
+  g_animatedObjectOwner = c->r[4];
+  g_pendingPoseKey = {};
+  g_pendingPoseSignature = 0;
+  gen_func_80077198(c);
+  if (g_pendingPoseKey.valid()) {
+    ++g_poseUnbound;
+  }
+  g_animatedObjectOwner = previousOwner;
+  g_pendingPoseKey = previousPendingKey;
+  g_pendingPoseSignature = previousPendingSignature;
+}
+
+template <std::size_t WordCount>
+void readWords(Core *c, uint32_t address, std::array<uint32_t, WordCount> &words) {
+  for (uint32_t word = 0; word < words.size(); ++word) {
+    words[word] = c->mem_r32(address + word * sizeof(uint32_t));
+  }
+}
+
+using PoseComposer = void (*)(Core *);
+
+void composeAnimatedPose(Core *c, AnimatedProjectionScale scale, PoseComposer superCall) {
+  const uint32_t baseTransform = c->r[4];
+  const uint32_t secondaryRotation = c->r[5];
+  const uint32_t sourcePose = c->r[6];
+  MeshPoseInput input;
+  input.key = {g_animatedObjectOwner, sourcePose};
+  input.scale = scale;
+  if (baseTransform != 0u) {
+    readWords(c, baseTransform, input.baseTransformWords);
+  }
+  if (secondaryRotation != 0u) {
+    readWords(c, secondaryRotation, input.secondaryRotationWords);
+  }
+  if (sourcePose != 0u) {
+    readWords(c, sourcePose, input.sourcePoseWords);
+  }
+  const MeshPoseContract contract = decodeMeshPoseInput(input);
+
+  // The retail body and the shipping Beetle GTE form the oracle for this diagnostic. CR0..CR7 are
+  // captured only after the super-call and never enter a native producer or the pure source
+  // contract above.
+  superCall(c);
+  std::array<uint32_t, 8> retailOutput{};
+  for (uint32_t reg = 0; reg < retailOutput.size(); ++reg) {
+    retailOutput[reg] = gte_read_ctrl(reg);
+  }
+
+  ++g_poseCalls;
+  if (scale == AnimatedProjectionScale::FarPreScaled) {
+    ++g_poseFarCalls;
+  } else {
+    ++g_poseNearCalls;
+  }
+  if (!contract.valid || baseTransform == 0u || secondaryRotation == 0u) {
+    ++g_poseInvalidInputs;
+  }
+
+  const uint64_t frame = static_cast<uint64_t>(gpu_frame_no(c));
+  SeenPose *seen = contract.valid ? findPose(contract.key) : nullptr;
+  bool first = false;
+  bool changedPair = false;
+  bool oracleMismatch = false;
+  if (contract.valid && seen == nullptr && g_seenPoseCount < std::size(g_seenPoses)) {
+    seen = &g_seenPoses[g_seenPoseCount++];
+    seen->key = contract.key;
+    first = true;
+  } else if (contract.valid && seen == nullptr) {
+    ++g_poseUntrackedCalls;
+  }
+  if (seen != nullptr) {
+    if (seen->hasRetailOutput && seen->lastSignature == contract.signature) {
+      ++g_poseOracleComparisons;
+      oracleMismatch = seen->lastRetailOutput != retailOutput;
+      g_poseOracleMismatches += oracleMismatch ? 1u : 0u;
+    }
+    if (!first && frame > seen->lastFrame) {
+      ++g_poseTemporalPairs;
+      changedPair = seen->lastSignature != contract.signature;
+      g_poseChangedPairs += changedPair ? 1u : 0u;
+    }
+    seen->lastFrame = frame;
+    seen->lastSignature = contract.signature;
+    seen->lastRetailOutput = retailOutput;
+    seen->hasRetailOutput = true;
+  }
+
+  if (g_pendingPoseKey.valid()) {
+    ++g_poseUnbound;
+  }
+  g_pendingPoseKey = contract.key;
+  g_pendingPoseSignature = contract.signature;
+
+  if ((first || changedPair || oracleMismatch || !contract.valid) && g_poseSampleLines < 64u) {
+    ++g_poseSampleLines;
+    lucent::debug("meshprobe",
+                  "POSE_CORPUS frame={} owner={:08X} sourcePose={:08X} scale={} valid={} "
+                  "oracleMismatch={} signature={:016X} "
+                  "base=[{:08X},{:08X},{:08X},{:08X},{:08X},{:08X},{:08X},{:08X}] "
+                  "secondary=[{:08X},{:08X},{:08X},{:08X},{:08X}] "
+                  "source=[{:08X},{:08X},{:08X},{:08X},{:08X},{:08X}] "
+                  "sourceTranslation=({},{},{}) compositionTranslation=({},{},{}) "
+                  "retailCR=[{:08X},{:08X},{:08X},{:08X},{:08X},{:08X},{:08X},{:08X}]",
+                  frame,
+                  contract.key.owner,
+                  contract.key.sourcePose,
+                  scale == AnimatedProjectionScale::FarPreScaled ? "far-pre" : "near-full",
+                  contract.valid ? 1 : 0,
+                  oracleMismatch ? 1 : 0,
+                  contract.signature,
+                  input.baseTransformWords[0],
+                  input.baseTransformWords[1],
+                  input.baseTransformWords[2],
+                  input.baseTransformWords[3],
+                  input.baseTransformWords[4],
+                  input.baseTransformWords[5],
+                  input.baseTransformWords[6],
+                  input.baseTransformWords[7],
+                  input.secondaryRotationWords[0],
+                  input.secondaryRotationWords[1],
+                  input.secondaryRotationWords[2],
+                  input.secondaryRotationWords[3],
+                  input.secondaryRotationWords[4],
+                  input.sourcePoseWords[0],
+                  input.sourcePoseWords[1],
+                  input.sourcePoseWords[2],
+                  input.sourcePoseWords[3],
+                  input.sourcePoseWords[4],
+                  input.sourcePoseWords[5],
+                  contract.sourceTranslation[0],
+                  contract.sourceTranslation[1],
+                  contract.sourceTranslation[2],
+                  contract.compositionTranslation[0],
+                  contract.compositionTranslation[1],
+                  contract.compositionTranslation[2],
+                  retailOutput[0],
+                  retailOutput[1],
+                  retailOutput[2],
+                  retailOutput[3],
+                  retailOutput[4],
+                  retailOutput[5],
+                  retailOutput[6],
+                  retailOutput[7]);
+  }
+}
+
+void composeAnimatedPoseNear(Core *c) {
+  composeAnimatedPose(c, AnimatedProjectionScale::NearPostScaled, gen_func_8007FB1C);
+}
+
+void composeAnimatedPoseFar(Core *c) {
+  composeAnimatedPose(c, AnimatedProjectionScale::FarPreScaled, gen_func_8007FD1C);
+}
+
 void submitMesh(Core *c) {
   const ActiveSubmission previous = g_active;
   g_active.kind = ActiveSubmission::Kind::Direct;
@@ -247,9 +447,9 @@ void submitMesh(Core *c) {
     input.objectFlags = c->mem_r16(g_active.owner);
     for (uint32_t axis = 0; axis < 3u; ++axis) {
       input.objectPosition20p12[axis] =
-          signedWord(c->mem_r32(g_active.owner + 4u + axis * sizeof(uint32_t)));
+          mipsSignedWord(c->mem_r32(g_active.owner + 4u + axis * sizeof(uint32_t)));
       input.objectRotation[axis] =
-          signedHalf(c->mem_r16(g_active.owner + 0x10u + axis * sizeof(uint16_t)));
+          mipsSignedHalf(c->mem_r16(g_active.owner + 0x10u + axis * sizeof(uint16_t)));
     }
   }
 
@@ -258,7 +458,7 @@ void submitMesh(Core *c) {
   if (input.cameraPresent) {
     for (uint32_t axis = 0; axis < 3u; ++axis) {
       input.cameraPosition[axis] =
-          signedWord(c->mem_r32(g_active.camera + 4u + axis * sizeof(uint32_t)));
+          mipsSignedWord(c->mem_r32(g_active.camera + 4u + axis * sizeof(uint32_t)));
     }
     for (uint32_t word = 0; word < input.cameraRotationWords.size(); ++word) {
       input.cameraRotationWords[word] =
@@ -267,7 +467,7 @@ void submitMesh(Core *c) {
   }
   if (g_active.relativeTranslation != 0u) {
     for (uint32_t axis = 0; axis < 3u; ++axis) {
-      input.passedRelative[axis] = signedWord(c->mem_r32(
+      input.passedRelative[axis] = mipsSignedWord(c->mem_r32(
           g_active.relativeTranslation + axis * static_cast<uint32_t>(sizeof(uint32_t))));
     }
   }
@@ -289,6 +489,38 @@ void submitAnimatedMesh(Core *c) {
   g_active.returnAddress = c->r[31];
   g_active.mesh = c->r[4];
   g_active.camera = c->mem_r32(c->r[28] + kCameraGlobal);
+  g_active.animatedScale = c->mem_r32(c->r[28] + kAnimatedScaleMode) == 0u
+                               ? AnimatedProjectionScale::FarPreScaled
+                               : AnimatedProjectionScale::NearPostScaled;
+  if (g_pendingPoseKey.valid() && g_pendingPoseKey.owner == g_active.owner) {
+    g_active.poseKey = g_pendingPoseKey;
+    g_active.poseSignature = g_pendingPoseSignature;
+    ++g_poseMeshBindings;
+  } else {
+    ++g_poseOwnerMismatches;
+  }
+  g_pendingPoseKey = {};
+  g_pendingPoseSignature = 0;
+  if (g_active.mesh != 0u) {
+    const uint16_t vertexCount = c->mem_r16(g_active.mesh + kSpiderMeshVertexCountOffset);
+    const uint32_t vertices = g_active.mesh + kSpiderMeshHeaderBytes;
+    for (uint32_t vertex = 0; vertex < vertexCount; ++vertex) {
+      const uint32_t record = vertices + vertex * kSpiderMeshRecordBytes;
+      accumulateAnimatedVertex(g_active.animatedVertices,
+                               decodeAnimatedVertexRecord(c->mem_r32(record),
+                                                          c->mem_r32(record + sizeof(uint32_t)),
+                                                          g_active.animatedScale));
+    }
+  }
+  ++g_animatedCalls;
+  if (g_active.animatedScale == AnimatedProjectionScale::FarPreScaled) {
+    ++g_animatedFarCalls;
+  } else {
+    ++g_animatedNearCalls;
+  }
+  g_animatedProjectedVertices += g_active.animatedVertices.projected;
+  g_animatedReusedVertices += g_active.animatedVertices.reused;
+  g_animatedRetainedVertices += g_active.animatedVertices.retained;
   g_active.transformInput.ownerPresent = g_active.owner != 0u;
   if (g_active.transformInput.ownerPresent) {
     g_active.transformInput.objectFlags = c->mem_r16(g_active.owner);
@@ -318,6 +550,8 @@ void logFaceSample(Core *c,
       "objectPosition20p12=({},{},{}) objectRotation=({},{},{}) cameraPosition=({},{},{}) "
       "relTrans={:08X} passedRel=({},{},{}) expectedRel=({},{},{}) "
       "cameraRotation=[{},{},{};{},{},{};{},{},{}] transform={} "
+      "pose(source={:08X}, signature={:016X}) "
+      "animatedScale={} animatedVertices(total={}, projected={}, reused={}, retained={}) "
       "headerCounts(v={}, secondary={}, faces={}) derived(vertices={:08X}, secondary={:08X}, "
       "faces={:08X}) args(secondary={:08X}, faces={:08X}, count={}) layout={} firstFace=[{:08X} "
       "{:08X}]",
@@ -360,6 +594,13 @@ void logFaceSample(Core *c,
                           : (g_active.kind == ActiveSubmission::Kind::Animated
                                  ? "ANIMATED"
                                  : (g_active.transform.directPathMatches ? "MATCH" : "MISMATCH")),
+      g_active.poseKey.sourcePose,
+      g_active.poseSignature,
+      g_active.animatedScale == AnimatedProjectionScale::FarPreScaled ? "far-pre" : "near-post",
+      g_active.animatedVertices.total,
+      g_active.animatedVertices.projected,
+      g_active.animatedVertices.reused,
+      g_active.animatedVertices.retained,
       vertexCount,
       secondaryCount,
       headerFaceCount,
@@ -380,7 +621,11 @@ void logProgress() {
       "meshprobe",
       "PROGRESS faceCalls={} faces={} emittedBytes={} meshHeaderContext={} otherBuilders={} "
       "unknownCallsite={} invalidOutputDeltas={} layoutMismatches={} transformMismatches={} "
-      "objectCalls={} meshCalls={} uniqueContexts={}",
+      "objectCalls={} meshCalls={} uniqueContexts={} animatedCalls={} farCalls={} nearCalls={} "
+      "animatedVertices(projected={} reused={} retained={}) "
+      "pose(calls={} far={} near={} valid={} unique={} temporalPairs={} changedPairs={} "
+      "meshBindings={} unbound={} ownerMismatches={} oracleComparisons={} "
+      "oracleMismatches={} untrackedCalls={})",
       totals.calls,
       totals.faces,
       totals.emittedBytes,
@@ -392,7 +637,26 @@ void logProgress() {
       g_transformMismatches,
       g_objectCalls,
       g_meshCalls,
-      g_seenCount);
+      g_seenCount,
+      g_animatedCalls,
+      g_animatedFarCalls,
+      g_animatedNearCalls,
+      g_animatedProjectedVertices,
+      g_animatedReusedVertices,
+      g_animatedRetainedVertices,
+      g_poseCalls,
+      g_poseFarCalls,
+      g_poseNearCalls,
+      g_poseCalls - g_poseInvalidInputs,
+      g_seenPoseCount,
+      g_poseTemporalPairs,
+      g_poseChangedPairs,
+      g_poseMeshBindings,
+      g_poseUnbound,
+      g_poseOwnerMismatches,
+      g_poseOracleComparisons,
+      g_poseOracleMismatches,
+      g_poseUntrackedCalls);
 
   const auto &callsites = spiderFaceBuilderCallsites();
   for (std::size_t i = 0; i < callsites.size(); ++i) {
@@ -527,17 +791,24 @@ void spiderman_install_mesh_probe(Game *) {
       faceWord(nullptr, 0u, 1u, 0u) == 0u && faceWord(nullptr, 0x80100044u, 0u, 0u) == 0u;
   const bool decodesFaceFormat = meshFaceFormatSelftest();
   const bool validatesTransform = meshDirectTransformSelftest();
+  const bool validatesAnimatedVertices = meshAnimatedVertexSelftest();
+  const bool validatesPoseContract = meshPoseContractSelftest();
   const bool validatesCallerCensus = faceBuilderCensusSelftest();
   if (!acceptsBaseline || !rejectsPerturbation || !guardsEmptyFaces || !decodesFaceFormat ||
-      !validatesTransform || !validatesCallerCensus) {
+      !validatesTransform || !validatesAnimatedVertices || !validatesPoseContract ||
+      !validatesCallerCensus) {
     lucent::error("meshprobe",
                   "SELFTEST FAILED (baseline={}, perturbed={}, emptyFaceGuard={}, faceFormat={}, "
-                  "directTransform={}, callerCensus={}) — wrappers NOT installed",
+                  "directTransform={}, animatedVertices={}, poseContract={}, callerCensus={}) — "
+                  "wrappers NOT "
+                  "installed",
                   acceptsBaseline ? "accepted" : "rejected",
                   rejectsPerturbation ? "rejected" : "accepted",
                   guardsEmptyFaces ? "guarded" : "read",
                   decodesFaceFormat ? "decoded" : "wrong",
                   validatesTransform ? "validated" : "wrong",
+                  validatesAnimatedVertices ? "validated" : "wrong",
+                  validatesPoseContract ? "validated" : "wrong",
                   validatesCallerCensus ? "validated" : "wrong");
     return;
   }
@@ -546,15 +817,22 @@ void spiderman_install_mesh_probe(Game *) {
                "face-stream perturbation; null and empty face streams were not read; executable-"
                "derived face decoding passed; the direct transform accepted exact source inputs "
                "and rejected relative, rotation, scale, and callsite perturbations; all twelve "
-               "executable face-builder callsites are independently classified");
+               "executable face-builder callsites are independently classified; animated "
+               "records distinguish projected coordinates from shared-cache reuse keys and both "
+               "distance scaling modes; animated pose inputs decode before the GTE and temporal "
+               "pairing rejects changed identity and same-frame samples");
   engine_set_override_main(kRenderDisplayObject, renderDisplayObject, gen_func_80076480);
+  engine_set_override_main(kRenderAnimatedObject, renderAnimatedObject, gen_func_80077198);
   engine_set_override_main(kSubmitAnimatedMesh, submitAnimatedMesh, gen_func_80077C08);
   engine_set_override_main(kSubmitMesh, submitMesh, gen_func_80077D64);
   engine_set_override_main(kBuildFaces, buildFaces, gen_func_8007C4D8);
+  engine_set_override_main(kComposeAnimatedPoseNear, composeAnimatedPoseNear, gen_func_8007FB1C);
+  engine_set_override_main(kComposeAnimatedPoseFar, composeAnimatedPoseFar, gen_func_8007FD1C);
   lucent::info(
       "meshprobe",
-      "ARMED observe-only wrappers on 80076480, animated mesh builder 80077C08, direct mesh "
-      "builder 80077D64, and face builder 8007C4D8; owners are captured from the statically "
-      "proven caller registers. No faceCall line means these render chains never ran. Every "
-      "wrapper super-calls the guest body.");
+      "ARMED observe-only wrappers on 80076480, animated object 80077198, pose composers "
+      "8007FB1C/8007FD1C, animated mesh builder 80077C08, direct mesh builder 80077D64, and "
+      "face builder 8007C4D8; POSE_CORPUS records pre-GTE inputs plus post-super-call retail "
+      "CR0..CR7 as diagnostic oracle only. No faceCall line means these render chains never ran. "
+      "Every wrapper super-calls the guest body.");
 }

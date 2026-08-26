@@ -30,8 +30,13 @@ int main() {
   auto game = std::make_unique<Game>();
   Core &core = game->core;
   const GameHooks *legacyHooks = runtime.legacyHooksForMigration();
+  const RenderCapabilities renderCapabilities = runtime.renderCapabilities();
   if (psxport_game_runtime() != &runtime || core.runtime != &runtime || core.gameCtx == nullptr ||
       runtime.legacyConfigForMigration() == nullptr || legacyHooks == nullptr ||
+      !renderCapabilities.nativeRenderPath || !renderCapabilities.temporalInterpolation ||
+      renderCapabilities.defaultPath != RenderPath::Native ||
+      renderCapabilities.playerPathCount() != 2 ||
+      !renderCapabilities.playerSelectable(RenderPath::Native) ||
       !game_guest_vram_is_picture(*game) || runtime.executableIdentity().fileSize != 749568u ||
       runtime.executableIdentity().sha256 !=
           "d2270e35581ba083d9441166e9a45ead4f869ab07e890f9a512ad7ee4cc0b15b") {
@@ -43,6 +48,7 @@ int main() {
     return 1;
   }
 
-  std::puts("Spider1Runtime: inherited install, measured legacy facts, owned boot and overrides");
+  std::puts(
+      "Spider1Runtime: measured legacy facts, native+temporal rendering, owned boot and overrides");
   return 0;
 }

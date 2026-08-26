@@ -2,6 +2,7 @@
 id: 18
 title: STR VLC decode can overrun its output buffer and overwrite the allocator free list before dem1
 status: investigating
+state_items: S002, S013
 symptom: Before dem1, FUN_8002A338 can continue decoding past its first 0x25800-byte VLC buffer until its 0x0401 output overwrites the next live free-node link; a later allocator traversal then follows 0x04010401.
 tags: boot,allocator,fmv,str,vlc,nondeterminism
 created: 2026-08-22

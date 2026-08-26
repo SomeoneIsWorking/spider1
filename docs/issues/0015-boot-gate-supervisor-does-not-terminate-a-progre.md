@@ -2,6 +2,7 @@
 id: 15
 title: Boot gate supervisor does not terminate a progressing reference-path run at its cap
 status: investigating
+state_items: S002, S011
 symptom: python3 tools/gate.py boot reaches dem1/l1a1 and keeps emitting frame progress, but neither the supervisor cap nor frame watchdog ends it; gate refuses and reports one process alive immediately after group kill
 tags: gate,supervisor,hang,verification
 created: 2026-08-20

@@ -27,14 +27,19 @@ boundary, not gameplay or rendering support. Shared `game/` code must remain add
 mechanism; title addresses and generated thunks belong below `titles/<id>/`. Do not claim Enter
 Electro rendering, widescreen, or gameplay before its own frontier establishes those layers.
 
-This file holds durable **directives**. Findings go to `docs/issues/`, status to `docs/codemap.md`,
-progress to `docs/re-frontier.md`, proven results to `docs/info/`.
+This file holds durable **directives**. Epic intent goes to `docs/project-goals.md`; factual
+capability state and current focus to `docs/project-state.md`; atomic work and findings to
+`docs/issues/`; placement to `docs/codemap.md`; ordered RE dependencies to `docs/re-frontier.md`;
+proven results to `docs/info/`.
 
 ---
 
 ## Start here, every non-trivial task
 
-1. `docs/re-frontier.md` — work the step that is `next`, not a downstream one. Query it with
+1. `python tools/info.py brief <terms>` — one query across goals, project state, issues, ownership,
+   the RE frontier, claims, and instruments. Then read `docs/project-state.md` for capability
+   coverage/current focus and `docs/project-goals.md` only when product intent is relevant.
+2. `docs/re-frontier.md` — work the step that is `next`, not a downstream one. Query it with
 
        python3 tools/re_frontier.py next
 
@@ -51,9 +56,9 @@ progress to `docs/re-frontier.md`, proven results to `docs/info/`.
    entries printed "re-frontier OK" and exited 0 — vacuously true over an empty set. `check` now fails
    on a zero-entry parse and `next` distinguishes "nothing is ready" from "the roadmap was never read"
    (it used to claim every unblocked step was done). Fixed in all three drifted copies.
-2. `docs/codemap.md` — where the subsystem lives and its honest status.
-3. `docs/issues/` — has this symptom been hit before? Has this cause been ruled out?
-4. `docs/info/claims.md` + `instruments.md` — is the thing you are about to rely on actually proven,
+3. `docs/codemap.md` — which subsystem owns the responsibility and where related work belongs.
+4. `docs/issues/` — has this symptom been hit before? Has this cause been ruled out?
+5. `docs/info/claims.md` + `instruments.md` — is the thing you are about to rely on actually proven,
    and can the tool you are about to measure with be trusted?
 
 Believe these over instinct about what is already known. Write back at the END of the task — what you
@@ -109,6 +114,20 @@ at the submission boundary, not inversion — that is RE-08 and it is allowed.
 any hardware; ours would be s16 GTE output. Same technique, different source — resolve from the
 submitter and we are in their position. Separately, PSX has no Z-buffer (`OTZ` is a bucket index, not
 a distance); that argues for native per-vertex depth and says nothing about interpolation.
+
+The host ownership mapping follows Dusklight's current `dusk/frame_interpolation.*`,
+`dusk/game_clock.*`, and camera boundary: simulation records stable game-state identities; a separate
+temporal owner builds presentation samples; the render loop consumes those samples; the title camera
+owner publishes aspect/projection. For this port, `mesh_pose_contract.*` is only the source decoder,
+`mesh_pose_history.*` is the separate temporal owner, the native mesh producer consumes it, and
+`spider_projection.*` owns title projection. Do not collapse these into `render_seam.cpp`.
+
+Spider-Man's matching record-and-replace boundary starts inside `FUN_80077198`, before
+`FUN_8007FB1C/FUN_8007FD1C` submit their three transform records to the GTE. Object transforms are
+identified by the display-object address plus the stable authored pose-record address; camera pose
+and title projection remain separate owners. `game/render/mesh_pose_contract.*` owns the pure input
+decode. A future temporal store belongs in its own `game/render/` module and the render seam only
+composes it; neither HACK-03 nor a post-GTE matrix may seed that store.
 
 ## Reverse-engineer first, and cite it
 

@@ -2,10 +2,11 @@
 id: 13
 title: A native producer whose only scene is the boot-init frame cannot be pixel-gated — the window is 2 frames of black
 status: open
+state_items: S005, S006, S007
 symptom: producer-enabled vs producer-disabled A/B reports 0 pixels differing even though the producer provably ran (produced=2 clears=2 in band)
 tags: render,producer,gate,negative-control,envelope
 created: 2026-08-06
-updated: 2026-08-22
+updated: 2026-08-26
 ---
 
 ## What happened
@@ -80,3 +81,38 @@ fallback deliberately skips the envelope, so it cannot supply an attributable de
 
 ### Note (2026-08-22)
 2026-08-22 corrected the producer dependency from a single direct backdrop chain to the complete common-face-builder ownership graph. SLUS_008.75 has 12 static FUN_8007C4D8 callsites; the bounded dem1 run classified all 24,576 calls with unknown=0. Animated FUN_80077C08 dominated at 18,355 calls / 306,027 of 314,238 faces, while direct FUN_80077D64 contributed only 593 calls. The first direct 28-byte record advanced the primitive cursor by 480 bytes, proving a one-FT4 producer would skip retail clipping/expansion. game/render/face_builder_census.cpp and the animated FUN_80077C08 context wrapper implement the missing ownership stage; scratch/logs/gate-boot-20260822-174725.log then observed 14,793 animated layout matches with zero mismatches. Issue stays open: animated vertex semantics and common clip/cull/lighting/colour still precede the first native display-list producer.
+
+### Note (2026-08-26)
+2026-08-26 root-cause milestone: exact FUN_8007B798/8007B9CC disassembly proves animated source flag 0x0002 is a shared transformed-vertex cache reuse key, not XYZ; flag 0x0001 retains a result, and near/far move the signed divide-by-16 after/before RTPS. Added game/render/mesh_animated_vertex.{h,cpp}, a both-answer CTest, and an observe-only source census before the retail super-call. No producer or draw was added. The next dependency is FUN_8007FB1C/FUN_8007FD1C matrix composition plus fixed-point RTPS/outcodes; the new census needs a serialized headless product run.
+
+### Note (2026-08-26)
+The progress denominator reports `untrackedCalls` after the bounded 64-pose roster fills, so roster
+saturation cannot look like complete temporal/oracle coverage.
+
+2026-08-26: the next producer dependency now has a falsifying corpus boundary. Exact FUN_8007FB1C/8007FD1C inputs decode in game/render/mesh_pose_contract.cpp; PSXPORT_DEBUG=meshprobe wraps their FUN_80077198 owner scope, copies pre-GTE inputs, super-calls retail, and logs CR0..CR7 only as an oracle. Repeated identical input signatures are compared automatically, with an oracle comparison denominator and mismatch count. The Clang pure test and port link pass. This does not make the black envelope pixel gate meaningful and does not add a display-list producer; a serialized product run must first show valid POSE_CORPUS rows, real temporal changes, mesh bindings, zero owner mismatches, and nonzero oracle comparisons with zero mismatches before the PC composer can be implemented and diffed.
+
+The serialized run command is bounded by the project gate and exercises the actual built product;
+do not run it concurrently with another game instance:
+
+```sh
+PSXPORT_RENDER_PATH=native PSXPORT_FPS60=0 .venv/bin/python tools/gate.py boot \
+  --seconds 120 --watchdog 30 --grace 120 --debug meshprobe
+```
+
+### Live falsifier (2026-08-26, clean framework `99a42aa3`)
+
+The serialized command above ran the actual product and failed honestly. The gate log
+`scratch/logs/gate-boot-20260826-235605.log` ended with exit 139 after 1.8 seconds. Meshprobe's
+selftest passed and its observe-only wrappers armed; the native render seam then fired exactly once
+at frame 2 for scene `....`. The process terminated before the first `faceCall`, `POSE_CORPUS`, or
+meshprobe `PROGRESS` record, so this run produced zero face or pose corpus rows and met none of the
+required progress floors. It falsifies this run as validation of the new live corpus. It does not
+falsify the pure pose/vertex contracts because their instrumented retail boundaries never ran.
+
+Two later events must remain separate. First, `CdSearchFile` reported
+`/CINEMAS/TTSLOGO.STR;1` absent from the disc. Then the allocator path `FUN_800651C8 ->
+FUN_80064FA0` attempted an unmapped `read32` at `0x04010401` during main and aborted. Issue 0018's
+earlier first-write evidence proves this allocator signature is downstream detection of an adjacent
+free-list node overwritten by retail VLC decoder `FUN_8002A338`; this run did not capture that first
+write again. Nothing in this log establishes that the missing-file event caused the allocator
+damage, so no causal edge is recorded between them.

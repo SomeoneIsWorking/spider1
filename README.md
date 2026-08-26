@@ -42,8 +42,10 @@ by the framework at boot. Execution then aborts deliberately at `gameMain 0x8003
 first game-owned call is not ported. It has no gameplay, rendering, widescreen, native producer, or
 runtime-module claim yet.
 
-See [`docs/codemap.md`](docs/codemap.md) for the full subsystem map and
-[`docs/re-frontier.md`](docs/re-frontier.md) for the ordered work queue.
+See [`docs/project-state.md`](docs/project-state.md) for verified/partial/missing capability
+coverage, [`docs/project-goals.md`](docs/project-goals.md) for durable product outcomes,
+[`docs/codemap.md`](docs/codemap.md) for subsystem placement, and
+[`docs/re-frontier.md`](docs/re-frontier.md) for the ordered RE dependency chain.
 
 ---
 
@@ -111,7 +113,7 @@ titles/              manifests, derived title runtimes, and generated-substrate 
 external/psxport/    resolved framework checkout: recompiler, runtime, PSX hardware, harness, renderer
 generated/           per-title recompiled substrates — regenerated, never committed, never hand-edited
 tools/               provisioning + reverse-engineering helpers
-docs/                codemap, RE frontier, issue catalog, claims + instruments ledgers
+docs/                goals, project state, codemap, RE frontier, issues, claims + instruments
 ```
 
 ## Working rules

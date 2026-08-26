@@ -2,6 +2,7 @@
 id: 9
 title: a present INDEX is not content-stable across runs — before/after comparisons at a fixed index can compare different scenes
 status: open
+state_items: S011
 symptom: present 4500 showed a corrupted city skyline in one run and a pause screen in another, on builds minutes apart; 'the same frame' is not the same frame
 tags: method,instrument,measurement,trap
 created: 2026-08-06
