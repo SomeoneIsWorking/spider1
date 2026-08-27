@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import runpy
 import shutil
 import subprocess
 import sys
@@ -202,11 +203,11 @@ def port_commands(
 def launch_environment(
     environ: Mapping[str, str], framework_text: str, disc: str, title: Title
 ) -> dict[str, str]:
-    result = dict(environ)
-    if result.get("PSXPORT_NOWINDOW", ""):
-        result["PSXPORT_VK_HEADLESS"] = "1"
-    else:
-        result["PSXPORT_VK_WINDOW"] = "1"
+    framework = Path(framework_text)
+    if not framework.is_absolute():
+        framework = ROOT / framework
+    policy = runpy.run_path(str(framework / "tools/port/launch_environment.py"))
+    result = policy["player_environment"](environ)
     if not result.get("PSXPORT_ASSET_DIR"):
         result["PSXPORT_ASSET_DIR"] = framework_text
     result[title.disc_env] = disc
@@ -495,15 +496,31 @@ def selftest() -> int:
     else:
         return refuse("launcher selftest failed: missing glslc accepted")
 
-    headless = launch_environment(
-        {"PSXPORT_NOWINDOW": "1"}, "external/psxport", "game.chd", spider1
+    player_from_agent_shell = launch_environment(
+        {
+            "PSXPORT_NOWINDOW": "1",
+            "PSXPORT_VK_HEADLESS": "1",
+            "PSXPORT_NOAUDIO": "1",
+            "PSXPORT_NOPACE": "1",
+        },
+        "external/psxport",
+        "game.chd",
+        spider1,
     )
     windowed = launch_environment(
         {"PSXPORT_ASSET_DIR": ""}, "external/psxport", "game.chd", spider2
     )
     checks += 1
-    if headless.get("PSXPORT_VK_HEADLESS") != "1" or "PSXPORT_VK_WINDOW" in headless:
-        return refuse("launcher selftest failed: headless launch environment")
+    if player_from_agent_shell.get("PSXPORT_VK_WINDOW") != "1" or any(
+        key in player_from_agent_shell
+        for key in (
+            "PSXPORT_NOWINDOW",
+            "PSXPORT_VK_HEADLESS",
+            "PSXPORT_NOAUDIO",
+            "PSXPORT_NOPACE",
+        )
+    ):
+        return refuse("launcher selftest failed: player launch environment")
     checks += 1
     if (
         windowed.get("PSXPORT_VK_WINDOW") != "1"

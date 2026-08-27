@@ -85,7 +85,7 @@ build only the selected product target. They never reuse the maintainer
 `build/` tree or run CTest. `./run.sh --prepare-only [disc.chd]` performs the same provisioning and
 product build but stops before process launch.
 
-Useful knobs: `PSXPORT_NOWINDOW=1` (headless), `PSXPORT_NOAUDIO=1`, `PSXPORT_WATCHDOG=<sec>`,
+Useful knobs for direct diagnostic runs: `PSXPORT_NOAUDIO=1`, `PSXPORT_WATCHDOG=<sec>`,
 `PSXPORT_DEBUG=vsync` (channel-gated diagnostics).
 
 ## Verifying C++ changes

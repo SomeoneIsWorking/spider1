@@ -41,6 +41,7 @@ from __future__ import annotations
 import argparse
 import os
 import re
+import runpy
 import signal
 import subprocess
 import sys
@@ -53,6 +54,13 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BIN = os.path.join(REPO, 'scratch', 'bin', 'spiderman_port')
 EXE = os.path.join(REPO, 'scratch', 'bin', 'spiderman', 'SLUS_008.75')
 LOGDIR = os.path.join(REPO, 'scratch', 'logs')
+
+
+def agent_launch_environment(environment):
+    policy = runpy.run_path(
+        os.path.join(REPO, 'external', 'psxport', 'tools', 'port', 'launch_environment.py')
+    )
+    return policy['agent_environment'](environment)
 
 # ---- THE RECORDED BASELINE ---------------------------------------------------------------------
 # Measured 2026-08-12 at psxport 240d8f9a (docs/issues/0014): a 240s headless run reached rseam frame
@@ -357,16 +365,12 @@ def cmd_boot(args) -> int:
 
     cmd = [BIN, EXE]
 
-    env = dict(os.environ)
+    env = agent_launch_environment(os.environ)
     env['PSXPORT_SPIDERMAN_DISC'] = disc
-    env['PSXPORT_NOAUDIO'] = '1'
-    env['PSXPORT_NOPACE'] = '1'          # the ONLY switch that means "frames, not real time"
     env['PSXPORT_WATCHDOG'] = str(args.watchdog)
     # Assets live with the FRAMEWORK; without this the overlay logs four [rmlui:error] lines about
     # missing fonts on every otherwise-clean run. Not a knob the gate asserts on — just noise removed.
     env.setdefault('PSXPORT_ASSET_DIR', os.path.join(REPO, 'external', 'psxport'))
-    # NOT setting PSXPORT_VK_HEADLESS: the binary is headless BY DEFAULT (run.sh opts INTO a window
-    # with PSXPORT_VK_WINDOW=1), precisely so an agent that forgets a flag fails safe.
     if args.debug:
         env['PSXPORT_DEBUG'] = args.debug
 
@@ -469,6 +473,19 @@ GOOD_LOG = """\
 
 
 def selftest() -> int:
+    agent_environment = agent_launch_environment(
+        {'PSXPORT_VK_WINDOW': '1', 'PSXPORT_NOPACE': '0', 'KEEP': 'yes'}
+    )
+    if (
+        'PSXPORT_VK_WINDOW' in agent_environment
+        or agent_environment.get('KEEP') != 'yes'
+        or any(
+            agent_environment.get(key) != '1'
+            for key in ('PSXPORT_VK_HEADLESS', 'PSXPORT_NOAUDIO', 'PSXPORT_NOPACE')
+        )
+    ):
+        return refuse('gate selftest failed: agent launch environment policy')
+
     cases: list[tuple[str, str, int, int, float]] = []   # name, text, rc, expected_exit, secs
 
     cases.append(("GOOD baseline capture (must PASS)", GOOD_LOG, 130, 0, 240))
