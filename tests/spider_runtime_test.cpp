@@ -1,3 +1,4 @@
+#include "spider1_frame_driver.h"
 #include "spider1_runtime.h"
 
 #include "game.h"
@@ -14,8 +15,13 @@ void spiderman_install_cd_stream(Game *) {}
 void spiderman_install_diag_overrides(Game *) {}
 void spiderman_install_module_loader(Game *) {}
 void spiderman_install_recomp() {}
-void spiderman_install_sync_natives(Game *) {}
 void spiderman_install_render_seam(Game *) {}
+void gen_func_8006B514(Core *) {}
+void gen_func_80075D0C(Core *) {}
+void spider1_native_movie_body(Core *) {}
+bool spiderman_take_guest_frame_fallback() {
+  return false;
+}
 int spiderman_str_skip_selftest(const char *, const char *) {
   return 0;
 }
@@ -33,10 +39,11 @@ int main() {
   const RenderCapabilities renderCapabilities = runtime.renderCapabilities();
   if (psxport_game_runtime() != &runtime || core.runtime != &runtime || core.gameCtx == nullptr ||
       runtime.legacyConfigForMigration() == nullptr || legacyHooks == nullptr ||
-      !renderCapabilities.nativeRenderPath || !renderCapabilities.temporalInterpolation ||
-      renderCapabilities.defaultPath != RenderPath::Native ||
-      renderCapabilities.playerPathCount() != 2 ||
-      !renderCapabilities.playerSelectable(RenderPath::Native) ||
+      dynamic_cast<spider::Spider1FrameDriver *>(game->frameDriver.get()) == nullptr ||
+      renderCapabilities.nativeRenderPath || renderCapabilities.temporalInterpolation ||
+      renderCapabilities.defaultPath != RenderPath::Gte ||
+      renderCapabilities.playerPathCount() != 1 ||
+      renderCapabilities.playerSelectable(RenderPath::Native) ||
       !game_guest_vram_is_picture(*game) || runtime.executableIdentity().fileSize != 749568u ||
       runtime.executableIdentity().sha256 !=
           "d2270e35581ba083d9441166e9a45ead4f869ab07e890f9a512ad7ee4cc0b15b") {
@@ -48,7 +55,6 @@ int main() {
     return 1;
   }
 
-  std::puts(
-      "Spider1Runtime: measured legacy facts, native+temporal rendering, owned boot and overrides");
+  std::puts("Spider1Runtime: measured legacy facts, native frame driver, owned boot and overrides");
   return 0;
 }

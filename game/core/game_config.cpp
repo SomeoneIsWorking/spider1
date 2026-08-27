@@ -184,7 +184,11 @@ static const GameConfig g_spiderman_cfg = {
     // 0x8008B990, declared under main_reentry in game/recomp_seeds.json. Removing cdCommand still
     // requires its own end-to-end stock-libcd proof; do not infer that proof from the delivery
     // seam.
-    /* cdInit         */ 0,
+    // Public stock-libcd CdInit. The host CD service owns this complete boundary: its success path
+    // only installs the four callback values below and returns 1. Letting the inner controller
+    // reset run would enter register-level polling whose timeout clock is the forbidden guest
+    // VSync query, despite all shipping reads already completing synchronously on the host.
+    /* cdInit */ 0x8008A16Cu,
     /* cdCommand */ 0x8008CE8Cu,
     // cdSync: 0x80086C60, stock libcd's CdSync(mode, result) — a thin wrapper over 0x8008CBC4. The
     // CD streaming poller at 0x80085000 calls it in a loop and only proceeds when the result is not
@@ -199,8 +203,9 @@ static const GameConfig g_spiderman_cfg = {
     /* lastSectorTracker */ 0,
     /* cdInlineLoad   */ 0,
     /* cdCmdStream    */ 0,
-    /* cdCallbackTable*/ {0, 0, 0, 0},
-    /* cdCallbackFn   */ {0, 0, 0, 0},
+    // Exact stores at 0x8008A190..0x8008A1C4 on the authenticated SLUS_008.75 success path.
+    /* cdCallbackTable */ {0x800B3B14u, 0x800B3B18u, 0x800B1C7Cu, 0x800B1C80u},
+    /* cdCallbackFn */ {0x8008A238u, 0x8008A260u, 0x8008A288u, 0},
 
     // cdGetSector: 0x8008D82C, stock libcd's CdGetSector(a0 = dest, a1 = words). RE'd from its
     // decompiled body (tools/ghidra_query.py func 0x8008D82C): it programs DMA3 — MADR from a0,
@@ -441,22 +446,11 @@ static const GameConfig g_spiderman_cfg = {
         /* setGeomOffset */ 0x8008BF24u,
         /* setGeomScreen */ 0x8008BF14u,
 
-        // vsyncTrap stays ZERO, and that is a deliberate statement rather than a gap. The trap
-        // means
-        // "nothing may reach VSync because the native frame loop owns all timing" — untrue here.
-        // This
-        // port runs the guest's own loop on the substrate, so it REIMPLEMENTS VSync faithfully and
-        // registers that handler itself (game/core/sync_native.cpp). Setting both would let
-        // initBuiltins clobber the real implementation with an abort.
-        //
-        // (Adding the two fields above also repairs a latent mislabel: this initialiser is
-        // POSITIONAL,
-        // and before today the entry commented `/* vsyncTrap */` sat in the setGeomOffset SLOT,
-        // with
-        // setGeomScreen and vsyncTrap left implicitly zero. Harmless only because all three were 0
-        // —
-        // the day anyone set vsyncTrap it would have installed the VSync abort at the GTE setter.)
-        /* vsyncTrap */ 0,
+        // The native Spider1FrameDriver owns every display field and presentation fence. Any guest
+        // call to libetc VSync — query or wait — is therefore a second cadence owner and aborts.
+        // The framework protects this binding from later title registration; the title declares
+        // only this measured address and never supplies a successful VSync handler.
+        /* vsyncTrap */ 0x80084BE0u,
     },
 
     // --- present policy -------------------------------------------------------------------------
@@ -505,8 +499,8 @@ static const GameConfig g_spiderman_cfg = {
     // rate", and it is the number of vblanks that ONE gpu_pace_frame call represents. The framework
     // then sleeps exactly `quota/60 s` per call (gpu_native.cpp gpu_pace_subframe).
     //
-    // So the value is fixed by THIS PORT'S CALL SITES, and it has exactly two, both the same shape
-    // (sync_native.cpp, the blocking VSync loop and FUN_8005E748's field-wait loop):
+    // HISTORICAL DERIVATION. Before the native driver, the port had exactly two calls, both the
+    // same blocking-VSync / FUN_8005E748 field-wait shape:
     //
     //     while (<guest vblank counter> < target) { gpu_pace_frame(c); vblank_advance(c); }
     //
@@ -516,13 +510,14 @@ static const GameConfig g_spiderman_cfg = {
     // quantum
     // therefore has to be ONE vblank, or every wait is rounded up to a multiple of the quantum.
     // That
-    // is precisely the case game_iface.h names: "A port that still runs the guest's own frame loop
-    // and paces once per vblank (each vblank is 1/60s) sets 1." This port runs the guest's own
-    // loop.
+    // is precisely the case game_iface.h names: one pace quantum equals one display field. The
+    // current Spider1FrameDriver passes its explicit delivered-field count to FramePresenter, and
+    // this legacy compatibility value retains the same one-field quantum.
     //
     // The 2 was a guess at the game's display rate, and the guess also mis-modelled the game: the
     // guest does NOT ask for two fields at a time. MEASURED windowed with `PSXPORT_DEBUG=pace`
-    // (the instrument in sync_native.cpp), 260 s, 7449 field-wait entries: 7327 of them (98.4%) are
+    // (the retired field-clock instrument), 260 s, 7449 field-wait entries: 7327 of them (98.4%)
+    // are
     // FUN_8005E748(n=1) — a request for ONE field — and the remaining 122 are one n=240 loading
     // delay. With quota=2, 578 of 599 consecutive entries advanced the guest counter by 2 while it
     // had asked for 1, at a median spacing of 33.30 ms (= 2/60 s). Every one-field wait was served

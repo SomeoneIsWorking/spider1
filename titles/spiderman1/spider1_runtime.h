@@ -1,6 +1,7 @@
 #pragma once
 
 #include "game_iface.h"
+#include "spider1_widescreen.h"
 #include "spider_runtime.h"
 
 namespace spider {
@@ -18,10 +19,11 @@ public:
   void destroyContext(void *context) override;
   void registerOverrides(Game &game) override;
   void bootInit(Core &core) override;
+  std::unique_ptr<FrameDriver> createFrameDriver(Game &game) override;
   const GuestProgramImage *guestProgramImage() const override;
   RenderCapabilities renderCapabilities() const override;
+  const GuestWidescreenProjection *guestWidescreenProjection() const override;
   bool guestVramIsPicture(const Game &game) const override;
-  std::unique_ptr<TemporalFramePresentation> createTemporalFramePresentation(Game &game) override;
 
 private:
   static const ExecutableIdentity identity_;
@@ -29,6 +31,7 @@ private:
   // Bounded composition keeps the old framework views alive for Spider-Man 1 without making them
   // the shared lineage base or leaking them into Enter Electro.
   LegacyGameRuntimeAdapter legacy_;
+  Spider1Widescreen widescreen_;
 };
 
 } // namespace spider

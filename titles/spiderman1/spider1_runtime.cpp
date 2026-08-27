@@ -1,4 +1,5 @@
 #include "spider1_runtime.h"
+#include "spider1_frame_driver.h"
 
 #include "cfg.h"
 #include "core.h"
@@ -17,7 +18,6 @@ extern void spiderman_install_cd_stream(Game *);
 extern void spiderman_install_diag_overrides(Game *);
 extern void spiderman_install_module_loader(Game *);
 extern void spiderman_install_recomp();
-extern void spiderman_install_sync_natives(Game *);
 
 namespace spider {
 
@@ -60,10 +60,10 @@ const GuestProgramImage *Spider1Runtime::guestProgramImage() const {
 }
 
 RenderCapabilities Spider1Runtime::renderCapabilities() const {
-  // Spider-Man is the lineage title whose native display-list producer and pre-GTE temporal
-  // contracts are being implemented. Preserve its native/GTE player choice and true temporal
-  // interpolation product while those title-owned paths replace the explicit guest-frame debt.
-  return RenderCapabilities::interpolatedNative();
+  // Native rendering and temporal interpolation remain targets, not shipping capabilities: no
+  // named scene has a complete native producer and no authored pose-history product exists yet.
+  // Keep those controls hidden until S006/S009 can supply the pixels they claim to select.
+  return RenderCapabilities::widescreenOnly();
 }
 
 bool Spider1Runtime::guestVramIsPicture(const Game &game) const {
@@ -73,11 +73,8 @@ bool Spider1Runtime::guestVramIsPicture(const Game &game) const {
   return legacy_.guestVramIsPicture(game);
 }
 
-std::unique_ptr<TemporalFramePresentation>
-Spider1Runtime::createTemporalFramePresentation(Game &game) {
-  // Spider-Man's guest logic is not an already-60fps title. Preserve its established optional
-  // interpolation decorator while the direct Enter Electro runtime remains neutral.
-  return legacy_.createTemporalFramePresentation(game);
+const GuestWidescreenProjection *Spider1Runtime::guestWidescreenProjection() const {
+  return &widescreen_;
 }
 
 void Spider1Runtime::registerOverrides(Game &game) {
@@ -86,7 +83,13 @@ void Spider1Runtime::registerOverrides(Game &game) {
   // compatibility view before its own boot boundary.
   game.cd.overridesInit();
   game.platform_hle.initBuiltins();
-  spiderman_install_sync_natives(&game);
+  auto *driver = dynamic_cast<Spider1FrameDriver *>(game.frameDriver.get());
+  if (!driver) {
+    lucent::error("frame", "Spider-Man 1 override registration has no title FrameDriver");
+    std::abort();
+  }
+  driver->installOverrides();
+  widescreen_.install();
   spiderman_install_render_seam(&game);
   spiderman_install_cd_stream(&game);
   spiderman_install_module_loader(&game);
@@ -96,17 +99,17 @@ void Spider1Runtime::registerOverrides(Game &game) {
 }
 
 void Spider1Runtime::bootInit(Core &core) {
-  const GuestProgramImage *image = guestProgramImage();
-  if (!image || !image->gameMainEntry) {
-    lucent::error("boot",
-                  "the measured RE-01 gameMain entry is absent from Spider-Man's program image; "
-                  "refusing to dispatch address 0");
+  auto *driver =
+      core.game ? dynamic_cast<Spider1FrameDriver *>(core.game->frameDriver.get()) : nullptr;
+  if (!driver) {
+    lucent::error("boot", "Spider-Man 1 finite boot has no title FrameDriver");
     std::abort();
   }
-  lucent::info("boot",
-               "Phase 0: dispatching guest main() 0x{:08X} on the recompiled substrate",
-               image->gameMainEntry);
-  rec_dispatch(&core, image->gameMainEntry);
+  driver->runBootPrefix(core);
+}
+
+std::unique_ptr<FrameDriver> Spider1Runtime::createFrameDriver(Game &game) {
+  return std::make_unique<Spider1FrameDriver>(game);
 }
 
 } // namespace spider

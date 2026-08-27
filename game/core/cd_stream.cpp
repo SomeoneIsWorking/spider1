@@ -24,6 +24,7 @@
 #include "core.h"
 #include "game.h"
 #include "override_registry.h"
+#include "spider1_stream_driver.h"
 #include <lucent/log.h>
 
 // StGetNext(&addr, &header) — 0x80086B10. Returns 0 when it hands back a ready ring slot, non-zero
@@ -60,6 +61,13 @@ static void spiderman_stgetnext(Core *c) {
   if (c->r[2] != 0) {
     c->game->cd.pumpStream(c, 1);
     gen_func_80086B10(c);
+    if (c->r[2] != 0) {
+      // On hardware the display clock and SPU keep advancing while libstr polls for an
+      // asynchronous sector. A static recompile would otherwise spin here inside one host step,
+      // eventually filling the XA ring and preventing the next movie VSync boundary forever.
+      // Preserve StGetNext's "not ready" answer and yield only the field it waited through.
+      spider::spider1_stream_wait_field(c);
+    }
   }
 
   // `PSXPORT_DEBUG=ring` — the sector ring's actual state when the guest finds nothing ready.

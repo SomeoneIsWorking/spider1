@@ -2,10 +2,9 @@
 //
 // THE SEAM IS THE GUEST'S OWN submitFrame (FUN_80061308), NOT GameHooks::drawOTag.
 //
-// The framework's `GameHooks::drawOTag` has exactly two call sites, both inside
-// `native_step_frame`, and this port never enters that loop — `SpiderRuntime::bootInit` dispatches
-// the guest's own `main()` (0x8002C354), which never returns (claim C025, still holds).
-// Implementing that hook here would be dead code, so it stays a fail-fast stub.
+// The title-local FrameDriver dispatches this measured seam directly and does not use the generic
+// `GameHooks::drawOTag` route. C025's old non-returning-guest-main premise is falsified; the
+// submitFrame address remains the narrower engine boundary.
 //
 // The reachable seam is the engine's own frame-submit function. From the Ghidra decompile
 // (docs/re-frontier.md RE-19, claim C029):
@@ -38,3 +37,7 @@ class Game; // external/psxport/runtime/recomp/game.h
 // by SpiderRuntime::registerOverrides before native_boot_run(), which is where the render policy is
 // read, so an explicit setting still wins over the default set here.
 void spiderman_install_render_seam(Game *g);
+
+// Transfer HACK-03's per-frame Gte-only presentation policy to the title driver. Reading consumes
+// the decision, mechanically requiring one presentation fence per retail submission.
+bool spiderman_take_guest_frame_fallback();

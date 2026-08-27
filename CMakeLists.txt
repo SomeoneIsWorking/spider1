@@ -52,9 +52,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 include(CTest)
-if(BUILD_TESTING)
-  find_package(Python3 REQUIRED COMPONENTS Interpreter)
-endif()
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
 find_package(ZLIB REQUIRED)
 find_package(zstd CONFIG QUIET)
@@ -131,6 +129,10 @@ if(BUILD_TESTING)
     game/core/game_config.cpp
     game/core/game_hooks.cpp
     titles/spiderman1/spider1_runtime.cpp
+    titles/spiderman1/spider1_frame_driver.cpp
+    titles/spiderman1/spider1_mode_driver.cpp
+    titles/spiderman1/spider1_widescreen.cpp
+    game/render/guest_frame_fallback.cpp
     game/core/spider_context.cpp
     game/core/allocator_audit.cpp)
   spider_read_title(spiderman1 SPIDER1_TEST)
@@ -144,6 +146,27 @@ if(BUILD_TESTING)
     SPIDER_TITLE_EXECUTABLE_SHA256="${SPIDER1_TEST_EXECUTABLESHA256}")
   target_link_libraries(spider_runtime_test PRIVATE psxport)
   add_test(NAME spider_runtime COMMAND spider_runtime_test)
+  add_test(
+    NAME spider1_native_frame_ownership
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/test_spider1_native_frame_ownership.py
+  )
+  add_test(
+    NAME spider1_movie_fiber_generator
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/generate_spider1_movie_fiber.py --selftest
+  )
+  add_executable(spider1_mode_transition_test tests/spider1_mode_transition_test.cpp)
+  target_include_directories(spider1_mode_transition_test PRIVATE titles/spiderman1)
+  add_test(NAME spider1_mode_transition COMMAND spider1_mode_transition_test)
+  add_executable(spider1_field_schedule_test tests/spider1_field_schedule_test.cpp)
+  target_include_directories(spider1_field_schedule_test PRIVATE titles/spiderman1)
+  add_test(NAME spider1_field_schedule COMMAND spider1_field_schedule_test)
+  add_executable(spider1_widescreen_test
+    tests/spider1_widescreen_test.cpp
+    titles/spiderman1/spider1_widescreen.cpp)
+  target_include_directories(spider1_widescreen_test PRIVATE
+    game game/core titles/spiderman1 ${PSXPORT_DIR}/runtime/recomp)
+  target_link_libraries(spider1_widescreen_test PRIVATE psxport)
+  add_test(NAME spider1_widescreen COMMAND spider1_widescreen_test)
   add_executable(enter_electro_runtime_test
     tests/enter_electro_runtime_test.cpp
     game/core/spider_runtime.cpp
@@ -173,6 +196,20 @@ if(BUILD_TESTING)
   add_test(
     NAME launcher_policy
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/run.py --selftest
+  )
+  if(TARGET spiderman_port)
+    add_test(
+      NAME launcher_help
+      COMMAND
+        ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/test_help_contract.py
+        --executable $<TARGET_FILE:spiderman_port>
+    )
+  endif()
+  add_test(
+    NAME psxport_pin
+    COMMAND
+      ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/psxport_sync.py
+      --check --build-dir ${CMAKE_BINARY_DIR}
   )
   add_test(
     NAME cpp_policy

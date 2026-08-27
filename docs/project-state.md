@@ -5,7 +5,7 @@ work. Evidence details name only what has been observed; gaps remain explicit.
 
 ## Current focus
 
-S007 — Spider-Man pre-GTE animated pose and vertex contract.
+S002 — Spider-Man native frame-loop ownership and finite boot.
 
 ## Capability inventory
 
@@ -18,7 +18,7 @@ S007 — Spider-Man pre-GTE animated pose and vertex contract.
 | S005 | Spider-Man render seam owns frame policy and a native frame envelope | partial | S002 | G002, G003 |
 | S006 | Spider-Man scenes have complete native display-list producers | missing | S005, S007 | G002, G003 |
 | S007 | Animated mesh input, pose identity, and pre-GTE composition contracts are available to a native producer | partial | S005 | G002, G003 |
-| S008 | Spider-Man publishes a title-correct widescreen projection from active game state | missing | S006 | G002 |
+| S008 | Spider-Man publishes a title-correct widescreen projection from active game state | partial | S002 | G002 |
 | S009 | Spider-Man presents true per-object interpolated 60fps | missing | S006, S007 | G002 |
 | S010 | Unported Spider-Man scenes remain runnable through explicit non-interpolated guest-frame debt | verified | S005 | G002, G003 |
 | S011 | Maintainer gates can verify hermetic contracts and bounded product behavior | partial | S001 | G004 |
@@ -36,16 +36,30 @@ after provisioning/build without launching.
 
 Evidence: `run.sh`, `bootstrap.py`, `tools/run.py --selftest`, `tools/title_catalog.py`, and the
 launcher-policy CTest cover the two known serials plus missing, unknown, ambiguous, and mismatched
-inputs. The direct frozen `--prepare-only` route has built Spider-Man from the player tree.
+inputs. `launcher_help` runs both `-h` and `--help` through the actual shell launcher and product
+executable with all `PSXPORT_*` variables removed, proving usage exits 0 before dependency, disc,
+asset or executable-identity discovery. The direct frozen `--prepare-only` route has built
+Spider-Man from the player tree.
 
 ### S002 — Spider-Man boot and scene reach
 
-Demonstrated subset: bounded headless evidence reaches guest main, the render seam, `dem1`, and
-`l1a1`, with the authenticated Spider-Man substrate.
+Demonstrated subset: the bounded real-disc product reaches guest main, both intro movies, the render
+seam and `dem1` with the authenticated Spider-Man substrate. The current tree replaces the
+non-returning guest main with a title-local finite prefix plus finite native owners for the
+`0x8002C354` outer selector, `0x8002C174` primary loop, `0x800604CC` two-submit transition,
+`0x800160EC` menu loop, and `0x8006F294` alternate loop. The authenticated jump-table map, static
+ownership gate, transition test, and focused runtime test cover the route. Issue 0021's build-derived
+STR body yields at the three authenticated field boundaries while retaining the generated super;
+title-local ownership also supplies asynchronous stream fields and the exact 300-field post-logo
+pad/input wait. `scratch/logs/spider1-postlogo-owned-live.log` completes both movies, completes the
+finite prefix, enters `dem1` at host frame 4941, reconciles 5,400/5,400 fences and exits 0 without a
+guest VSync call.
 
-Gap: issue 0018 records an intermittent STR VLC overrun before `dem1`; issue 0015 prevents the boot
-supervisor from cleanly terminating every progressing capped run. This item therefore does not claim
-deterministic full boot or finished gameplay. The exact-pinned `99a42aa3` meshprobe attempt in
+Gap: the inspected `dem1` captures render real characters but retain a sparse black background, and
+the run did not yet reach `l1a1` or prove real selector transitions through every finite mode. Issue 0018 records an intermittent
+STR VLC overrun before `dem1`; issue 0015 prevents the boot supervisor from cleanly terminating every
+progressing capped run. This item therefore does not claim deterministic full boot or finished
+gameplay. The exact-pinned `99a42aa3` meshprobe attempt in
 `scratch/logs/gate-boot-20260826-235605.log` reproduced the issue 0018 allocator-fault signature at
 frame 2 after one render-seam call. A preceding missing `TTSLOGO.STR` lookup is recorded as a separate
 event; this run provides no evidence that it caused the allocator damage.
@@ -62,18 +76,35 @@ temporal interpolation, runtime-module, or rendered-pixel claim exists.
 
 ### S004 — Native platform service ownership
 
-Demonstrated subset: Spider-Man owns libetc field timing/VSync callback delivery, native CD sector
-service, memory card handling, base-relative runtime module routing, and the measured guest program
-image through cohesive game/framework seams.
+Demonstrated subset: `Spider1FrameDriver` owns display-field timing, VSync callback delivery,
+per-field audio, per-frame pad service, and the single-fence invariant. `Spider1ModeDriver` owns the
+retail field waits and submit ordering across primary, transition, menu, alternate, countdown, and
+invalid-selector states. Repeated display fields pace the held image without rotating temporal
+logic history; true no-submit early exits use an unpresented fence. Libetc VSync `0x80084BE0` is an
+all-mode abort and cannot be replaced by a title handler. Native CD sector service, memory card
+handling, base-relative runtime module routing, and the measured guest program image remain on
+cohesive game/framework seams.
 
-Gap: legacy `GameConfig`/`GameHooks` compatibility views remain for measured Spider-Man facts, and
-FMV/audio synchronization remains incomplete under S013.
+Earlier live evidence: `scratch/logs/gate-boot-20260827-022304.log` aborted at the stock CdInit controller
+timeout's `VSync(-1)`. The public CdInit boundary now installs the authenticated callback table
+synchronously through the host CD owner. `scratch/logs/gate-boot-20260827-022834.log` advances past
+that boundary and aborts at the next residual call, the STR player's initial `VSync(0)`.
+`scratch/logs/finite-str-wide-20260827.log` crossed that call but its seven inspected captures were
+black and it never exited boot. That falsified the first fiber scheduling order. The corrected
+real-disc run `scratch/logs/spider1-postlogo-owned-live.log` visibly renders and completes both logo
+movies, completes the exact post-logo wait, reaches `dem1`, reconciles every capped frame and exits
+0. The VSync trap remains installed, and the product made no guest VSync call.
+
+Gap: Legacy `GameConfig`/`GameHooks`
+compatibility views remain for measured Spider-Man facts, and FMV/audio synchronization remains
+incomplete under S013.
 
 ### S005 — Render seam and frame envelope
 
 Demonstrated subset: the override of retail submitFrame `FUN_80061308` is reached and owns the frame
 policy boundary; the native envelope reproduces executable-derived DRAWENV/DISPENV words; the
-game-local frame commit maps retail completion to the framework queue fence.
+title-local frame and mode drivers map every finite retail submit completion to one framework queue
+fence, including the transition/menu/alternate paths.
 
 Gap: the envelope's only fully owned scene is a black boot-init frame, so its producer A/B cannot
 falsify pixel output (issue 0013). Named scenes still lack complete native geometry and use S010.
@@ -106,18 +137,32 @@ No interpolation or draw is enabled by this item.
 
 ### S008 — Spider-Man widescreen projection
 
-Missing capability: no Spider-Man title owner publishes a wider game projection from its active
-viewport. The framework can present a wider span, but presentation width alone does not change the
-game's culling, H, camera pose, or native geometry.
+Demonstrated subset: `Spider1Widescreen` overrides the title's sole world-render/projection boundary
+`FUN_80075D0C`, reads its active viewport descriptor, publishes that native geometry through the
+framework's guest-projection latch, and widens the descriptor before the unchanged retail renderer
+computes frustum planes, GTE H/offset, culling and object output. Width and lens divisor scale by the
+same ratio, preserving focal length while expanding horizontal view; disabling widescreen restores
+the observed native descriptor rather than scaling an already-widened value. The production helper
+test covers the retail 512 -> 684 16:9 result, byte-identical native output, and both bound
+orientations. The first live mapping instrument exposed issue 0022's cumulative descriptor bug
+(`512 -> 684 -> 912 -> 1024`); scoping the projected tuple around the retail super-call removed it.
+Final real-disc evidence `scratch/logs/spider1-wide-scoped-final.log` records exactly one stable
+`512x240 -> 684x240` / lens `2365 -> 3159` mapping across repeated `dem1` renders, reconciles
+5,150/5,150 fences, and its inspected capture contains live demo character/text output.
+Spider-Man's runtime exposes this policy without enabling its missing native renderer or
+interpolation controls.
 
-Required owner: target `game/render/spider_projection.*`, derived from the retail
-`FUN_80075D0C` projection boundary and its pre-GTE state.
+Gap: `l1a1` and a paired standard-aspect leg have not been captured on the new finite route, so the
+live proof establishes stable expansion/reach but not a complete scene-by-scene A/B. Compare those
+legs for genuinely expanded
+world content with no stretch, missing edge geometry, or HUD displacement. Enter Electro remains
+separate under S016.
 
 ### S009 — True interpolated 60fps
 
 Missing capability: Spider-Man has no complete native producer whose previous/current authored
-state can be sampled for extra presentation frames. The framework temporal decorator and title
-capability declaration exist, but guest-frame output is mechanically non-interpolated.
+state can be sampled for extra presentation frames. Its runtime therefore exposes neither native
+rendering nor temporal interpolation; guest-frame output is mechanically non-interpolated.
 
 Required owner: target `game/render/mesh_pose_history.*` plus native producer integration after S006
 and live validation of S007.
@@ -151,8 +196,9 @@ behavior recorded in the durable issue/claim ledgers.
 
 ### S013 — FMV and audio
 
-Demonstrated subset: both intro logo movies deliver sectors and decode frames; the host advances the
-SPU mixer and XA samples are produced in headless capture.
+Demonstrated subset: both intro logo movies deliver sectors, decode visible frames, and complete
+under the native field owner; the host advances the SPU mixer and XA samples are produced in
+headless capture. The 5,400-field real-disc run continues through the post-logo wait into `dem1`.
 
 Gap: no durable A/V synchronization measurement exists, audio has not been user-confirmed, and issue
 0018 keeps the STR decode path nondeterministic.
@@ -163,9 +209,9 @@ Observable conditions: title selection is serial-keyed; each title target links 
 namespace and one derived runtime; the address-free lineage base owns no guest address; Enter
 Electro refuses unknown behavior rather than borrowing Spider-Man values.
 
-Evidence: C050, C051, C052 and focused `spider_runtime` / `enter_electro_runtime` tests. The runtime
-capability assertions additionally distinguish Spider-Man native+temporal from Enter Electro
-widescreen-only policy.
+Evidence: C050, C051, C052 and focused `spider_runtime` / `enter_electro_runtime` tests. Both title
+runtimes currently expose only their implemented GTE/widescreen presentation; their independent
+tests prevent either title from inheriting unimplemented native/temporal capability by lineage.
 
 ### S015 — C++ policy
 

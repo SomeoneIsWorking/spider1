@@ -10,16 +10,12 @@ ALREADY-BUILT binary.
 
     cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build --target spiderman_port -j$(nproc)
 
-WHY IT IS NOT A COPY OF Tomba2Engine/tools/gate.py. That gate drives the game over the framework
-REPL. THIS PORT NEVER ENTERS THE FRAMEWORK FRAME LOOP THAT SERVICES THE REPL:
-SpiderRuntime::bootInit rec_dispatches the guest main, which never returns, and the legacy
-frameUpdate/drawOTag callbacks are deliberate
-abort() fail-fasts. `PSXPORT_REPL=1` is reported by the port's own cfg audit as an UNKNOWN knob that
-"did NOTHING in this run". So this gate cannot step the game; it launches it capped and keys on the
-PORT'S OWN LOG LINES. Every assertion below quotes the line it reads.
+Spider-Man now enters the framework loop through its title-local FrameDriver. This gate still
+launches the already-built product with a bounded supervisor and keys on the port's own log lines;
+interactive stepping remains outside this product-behavior check.
 
 WHAT A PASS MEANS, STATED SO IT CANNOT BE OVERREAD. A green gate means: the binary launched headless,
-loaded the boot executable, dispatched the guest main on the substrate, the render seam installed AND
+loaded the boot executable, completed the finite guest prefix, entered the native driver, the render seam installed AND
 FIRED, the frame/submit counters ADVANCED at a rate near the recorded baseline, the run got past the
 boot-init scene '....' into named scenes, and no failure pattern appeared. It says NOTHING about
 pixels, about the native render leg (the default leg is psx_render, the reference), or about anything
@@ -83,8 +79,10 @@ MIN_SCENE_CHANGES = 2
 # Each regex is quoted from a real measured run (scratch/logs/probe-boot400.log).
 # "[boot] loaded scratch/bin/spiderman/SLUS_008.75: entry 0x8008739C load 0x80010000 text 0xB6800 ..."
 RE_BOOT_LOADED = re.compile(r'\[boot\] loaded \S+: entry 0x([0-9A-Fa-f]+)')
-# "[boot] Phase 0: dispatching guest main() 0x8002C354 on the recompiled substrate"
-RE_GUEST_MAIN = re.compile(r'\[boot\] Phase 0: dispatching guest main\(\) 0x([0-9A-Fa-f]+)')
+# "[boot] Spider-Man 1 finite guest prefix complete; native driver owns outer dispatcher 0x8002C354 and all mode loops"
+RE_NATIVE_DRIVER = re.compile(
+    r'\[boot\] Spider-Man 1 finite guest prefix complete; native driver owns outer dispatcher '
+    r'0x([0-9A-Fa-f]+) and all mode loops')
 # "[rseam] render seam installed at 0x80061308 (the engine's submitFrame ...)"
 RE_SEAM_INSTALLED = re.compile(r'\[rseam\] render seam installed at 0x([0-9A-Fa-f]+)')
 # "[rseam] submitFrame override REACHED — call #1 at frame 2, ra=80061218, leg=psx_render ..."
@@ -189,7 +187,7 @@ def analyse(out: str, rc: int | None, secs: float, label: str, log_hint: str = '
                       f"is proven. {log_hint}")
 
     boot = RE_BOOT_LOADED.search(out)
-    gmain = RE_GUEST_MAIN.search(out)
+    native_driver = RE_NATIVE_DRIVER.search(out)
     seam_inst = RE_SEAM_INSTALLED.search(out)
     seam_fire = RE_SEAM_REACHED.search(out)
     prog = RE_PROGRESS.findall(out)
@@ -228,7 +226,7 @@ def analyse(out: str, rc: int | None, secs: float, label: str, log_hint: str = '
     print(f"[gate:{label}] scanned {lines} line(s) against {len(FAIL_PATTERNS)} failure pattern(s) "
           f"and {len(DEVICE_LOSS_PATTERNS)} GPU-device-loss pattern(s)")
     print(f"[gate:{label}] boot exe entry={('0x' + boot.group(1)) if boot else 'NOT SEEN'} · "
-          f"guest main={('0x' + gmain.group(1)) if gmain else 'NOT SEEN'} · "
+          f"native outer dispatcher={('0x' + native_driver.group(1)) if native_driver else 'NOT SEEN'} · "
           f"seam installed at={('0x' + seam_inst.group(1)) if seam_inst else 'NOT SEEN'} · "
           f"seam FIRED at frame={seam_fire.group(1) if seam_fire else 'NEVER'}")
     print(f"[gate:{label}] reach: frame {maxframe if maxframe >= 0 else 'NONE'} · "
@@ -266,8 +264,8 @@ def analyse(out: str, rc: int | None, secs: float, label: str, log_hint: str = '
     if not boot:
         fail("no '[boot] loaded …: entry 0x…' line — the boot executable was never loaded, so the "
              "guest never started. This is not a pass.")
-    if not gmain:
-        fail("no '[boot] Phase 0: dispatching guest main()' line — the substrate was never entered.")
+    if not native_driver:
+        fail("no finite-prefix/native-driver ownership line — the native frame loop was not entered.")
     if not seam_inst:
         fail("no '[rseam] render seam installed at 0x…' line — the render seam was NOT wired, so this "
              "run's picture is entirely the guest's and the port's one native producer is absent.")
@@ -332,7 +330,7 @@ def analyse(out: str, rc: int | None, secs: float, label: str, log_hint: str = '
 
     if bad:
         return 1
-    print(f"[gate:{label}] PASS — launched headless, loaded the boot exe, dispatched the guest main, "
+    print(f"[gate:{label}] PASS — launched headless, loaded the boot exe, entered the native driver, "
           f"seam installed AND fired, advanced to frame {maxframe} / {maxcalls} submitFrame calls / "
           f"{scene_changes} scene changes ({', '.join(named) if named else 'no named scene'}), "
           f"no failure pattern matched. Says NOTHING about pixels, about the pc_render leg, or about "
@@ -455,7 +453,7 @@ GOOD_LOG = """\
 [cd] continuous-read pump installed on StGetNext (0x80086B10)
 [cfg:warn] UNKNOWN knob PSXPORT_SPIDERMAN_DISC is set and matched nothing — it did NOTHING in this run
 [render] render path = gte — geometry from the GUEST (its own GTE + ordering table)
-[boot] Phase 0: dispatching guest main() 0x8002C354 on the recompiled substrate
+[boot] Spider-Man 1 finite guest prefix complete; native driver owns outer dispatcher 0x8002C354 and all mode loops
 [scene] FIRST scene identity: name='....' raw=00,00,00,00 code=0xFFFFFFD0 printable=0 (call #1, frame 2)
 [rseam] submitFrame override REACHED — call #1 at frame 2, ra=80061218, leg=psx_render (reference), scene='....' code=0xFFFFFFD0
 [rseam] submitFrame calls=512 frame=1214 leg=psx scene='....' code=0xFFFFFFD0 sceneChanges=1

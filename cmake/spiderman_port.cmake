@@ -16,6 +16,23 @@ endif()
 
 spider_read_title(spiderman1 SPIDER1)
 
+# The proprietary executable-derived body stays outside the repository. Derive the resumable STR
+# override from the user's locally generated substrate, validating the three authenticated VSync
+# return PCs before compiling it. The original gen_func_8002AA0C remains in GEN_REC_SRCS as its
+# runtime super/oracle.
+set(SPIDER1_MOVIE_FIBER_SOURCE
+  "${CMAKE_BINARY_DIR}/generated/spider1_movie_body.cpp")
+add_custom_command(
+  OUTPUT "${SPIDER1_MOVIE_FIBER_SOURCE}"
+  COMMAND
+    "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tools/generate_spider1_movie_fiber.py"
+    --input "${CMAKE_SOURCE_DIR}/generated/shard_6.c"
+    --output "${SPIDER1_MOVIE_FIBER_SOURCE}"
+  DEPENDS
+    "${CMAKE_SOURCE_DIR}/tools/generate_spider1_movie_fiber.py"
+    "${CMAKE_SOURCE_DIR}/generated/shard_6.c"
+  VERBATIM)
+
 # ---- game source list -------------------------------------------------------------------------
 # Phase 0: the seam only. No game behaviour is owned natively yet — every guest function runs on the
 # substrate. Ported subsystems get added here as they land (see docs/codemap.md).
@@ -25,13 +42,15 @@ set(GAME_SRC
   game/core/executable_identity.cpp  # serial + byte identity before Game construction
   game/core/spider_runtime.cpp    # address-free lineage runtime base
   titles/spiderman1/spider1_runtime.cpp  # title behavior and legacy migration boundary
+  titles/spiderman1/spider1_frame_driver.cpp  # finite boot + cadence/service ownership
+  titles/spiderman1/spider1_mode_driver.cpp  # finite outer selector and subordinate mode states
+  titles/spiderman1/spider1_widescreen.cpp  # title-owned guest projection/culling publication
   game/core/spider_context.cpp    # per-Core Spider runtime subsystem aggregate
   game/core/allocator_audit.cpp   # opt-in retail allocator first-corruption discriminator
   game/core/irq_poll_audit.cpp    # compile-time full-R3000 deferred-work discriminator
   game/core/game_config.cpp       # measured legacy address facts awaiting typed interfaces
   game/core/game_hooks.cpp        # bounded compatibility callbacks awaiting typed interfaces
   game/core/recomp_register.cpp   # the generated-substrate seam
-  game/core/sync_native.cpp       # RE'd PSX hardware-sync primitives (libetc VSync)
   game/core/cd_stream.cpp         # continuous-read (XA/STR) pump, driven from StGetNext
   game/core/diag_overrides.cpp    # observe-only overrides (log + super-call), channel-gated
   game/core/str_skip_oracle.cpp   # opt-in retail STR skip discriminator + selftest
@@ -51,8 +70,8 @@ set(GAME_SRC
   game/render/gpu_env.cpp         # DRAWENV/DISPENV lenses + the ported libgpu word builders
   game/render/frame_envelope.cpp  # THE FIRST NATIVE PRODUCER: page flip + draw area + clear
   game/render/guest_frame_fallback.cpp  # HACK-03 mutually exclusive guest-frame safety gate
-  game/render/guest_frame_commit.cpp  # game-owned queue fence at retail submitFrame
-  game/render/render_seam.cpp)    # the render seam on the engine's submitFrame (RE-20)
+  game/render/render_seam.cpp     # the render seam on the engine's submitFrame (RE-20)
+  ${SPIDER1_MOVIE_FIBER_SOURCE})  # executable-derived STR body with native field-yield seams
 
 # ---- the recompiled substrate -----------------------------------------------------------------
 # emit.py writes the exact TU list to generated/rec_sources.cmake (GEN_REC_SRCS, basenames).
@@ -69,6 +88,9 @@ list(TRANSFORM GEN_REC_SRCS PREPEND generated/)
 set_source_files_properties(${GEN_REC_SRCS}
   PROPERTIES LANGUAGE CXX
   COMPILE_OPTIONS "-w;-O1;-foptimize-sibling-calls;-fno-strict-aliasing;-fwrapv")
+set_source_files_properties("${SPIDER1_MOVIE_FIBER_SOURCE}"
+  PROPERTIES GENERATED TRUE LANGUAGE CXX
+  COMPILE_OPTIONS "-w;-O1;-fno-strict-aliasing;-fwrapv")
 
 add_executable(spiderman_port ${GAME_SRC} ${GEN_REC_SRCS})
 

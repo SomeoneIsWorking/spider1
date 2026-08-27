@@ -26,6 +26,14 @@ ROOT = Path(__file__).resolve().parents[1]
 CYAN = "\033[1;36m"
 RED = "\033[1;31m"
 RESET = "\033[0m"
+USAGE = """Usage: ./run.sh [--prepare-only] [disc.chd]
+
+Build and launch the detected Neversoft Spider title from a user-supplied disc.
+
+Options:
+  --prepare-only  Provision and build the selected title without launching it.
+  -h, --help      Show this help and exit.
+"""
 
 
 class LauncherError(RuntimeError):
@@ -608,6 +616,9 @@ def launch(argv: Sequence[str]) -> int:
 
 def main(argv: Sequence[str] | None = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
+    if arguments in (["-h"], ["--help"]):
+        print(USAGE, end="")
+        return 0
     if arguments == ["--selftest"]:
         return selftest()
     try:

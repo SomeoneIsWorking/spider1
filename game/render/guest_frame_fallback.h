@@ -35,8 +35,8 @@ struct GuestFrameFallbackInputs {
 GuestFrameFallbackDecision decideGuestFrameFallback(const GuestFrameFallbackInputs &inputs);
 const char *guestFrameFallbackDecisionName(GuestFrameFallbackDecision decision);
 
-// During the guest body, Gte is the one mode whose definition is exactly "guest geometry from the
-// OT, PC rasterizer, no native enhancements". Restore the caller's path before presentation.
+// During the guest body and its one presentation fence, Gte is the one mode whose definition is
+// exactly "guest geometry from the OT, PC rasterizer, no native enhancements".
 class GuestFrameFallbackModeScope {
 public:
   explicit GuestFrameFallbackModeScope(RenderMode &mode);

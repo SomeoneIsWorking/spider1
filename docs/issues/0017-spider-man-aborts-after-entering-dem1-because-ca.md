@@ -27,9 +27,11 @@ frames until the fail-fast reported `65291 + 312 > 65536`.
 
 ## Resolution
 
-`game/render/guest_frame_commit.cpp` owns the derived per-game runtime responsibility and commits
-exactly once after the binary-proven complete `FUN_80061308` retail body. HACK-03 keeps its temporary
-Gte scope active through commit/present, so queue delivery cannot re-enable native enhancements.
+The binary-proven boundary remains `FUN_80061308`. As of 2026-08-27,
+`Spider1FrameDriver::stepFrame` owns it: the driver dispatches that retail body and commits exactly
+once immediately afterward. The prior `game/render/guest_frame_commit.cpp` bridge was removed when
+the title gained a finite native loop; leaving both would create two presentation owners. HACK-03
+still keeps its temporary Gte scope active while the retail body captures the whole guest frame.
 
 Evidence:
 

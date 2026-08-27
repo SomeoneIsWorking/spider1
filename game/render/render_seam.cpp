@@ -41,7 +41,6 @@
 #include "frame_envelope.h"
 #include "game.h"
 #include "game_iface.h"
-#include "guest_frame_commit.h"
 #include "guest_frame_fallback.h"
 #include "recomp_iface.h"
 #include "render_stats.h"
@@ -258,6 +257,8 @@ void trampoline(Core *c) {
   g_seam.submitFrame(c);
 }
 
+bool g_guestFrameFallbackPending = false;
+
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
 
 void RenderSeam::superCall(Core *c) {
@@ -306,6 +307,7 @@ void RenderSeam::censusTick(Core *c, const SceneName &scene) {
 }
 
 void RenderSeam::submitFrame(Core *c) {
+  g_guestFrameFallbackPending = false;
   ++mCalls;
   const bool psxLeg = c->rsub.mode.psxRender();
   const unsigned long long envelopeBefore = mEnvelope.produced();
@@ -343,9 +345,7 @@ void RenderSeam::submitFrame(Core *c) {
       }
       GuestFrameFallbackModeScope pureGuestPackets(c->rsub.mode);
       superCall(c);
-      // Keep the Gte scope active through presentation: this debt path must not gain native
-      // enhancements merely because its guest packets have already been captured.
-      spiderman::render::commitCapturedGuestFrame(c);
+      g_guestFrameFallbackPending = true;
       ++mFallbackSubmitted;
       if (mFallbackSubmitted <= 8 || mFallbackSubmitted % kReportEvery == 0) {
         lucent::info(
@@ -357,7 +357,6 @@ void RenderSeam::submitFrame(Core *c) {
       }
     } else {
       superCall(c);
-      spiderman::render::commitCapturedGuestFrame(c);
     }
     // THE EQUIVALENCE CHECK RUNS AFTER THE SUPER-CALL, and the ordering is the whole point: the
     // guest builds this frame's DR_ENV inside PutDrawEnv, so before the super-call the packet in
@@ -368,6 +367,12 @@ void RenderSeam::submitFrame(Core *c) {
     const DrawBuffer post(c, c->mem_r32(kCurrentDb));
     mEnvelope.verifyAgainstGuest(c, post.drawEnv());
   }
+}
+
+bool takeGuestFrameFallback() {
+  const bool pending = g_guestFrameFallbackPending;
+  g_guestFrameFallbackPending = false;
+  return pending;
 }
 
 FrameSubmission RenderSeam::seamPass(Core *c, bool psxLeg) {
@@ -593,6 +598,10 @@ void RenderSeam::install() {
 }
 
 } // namespace
+
+bool spiderman_take_guest_frame_fallback() {
+  return takeGuestFrameFallback();
+}
 
 void spiderman_install_render_seam(Game *g) {
   // THE DEFAULT LEG, expressed as the render path's DEFAULT LAYER rather than by poking the live
