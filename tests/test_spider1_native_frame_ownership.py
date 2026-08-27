@@ -77,6 +77,20 @@ def main() -> None:
     require(driver, "game_.spu_audio.frame()", "Spider1FrameDriver")
     require(driver, "game_.presentation.commit(", "Spider1FrameDriver")
     require(driver, "mode step {} returned without a frame fence", "Spider1FrameDriver")
+    step_frame = driver[driver.index("void Spider1FrameDriver::stepFrame") :]
+    otattr_boundary = "core.rsub.otAttr.beginLogicFrame(frame);"
+    if step_frame.count(otattr_boundary) != 1:
+        raise AssertionError(
+            "Spider1FrameDriver must declare exactly one OtAttr frame at its logic-step boundary"
+        )
+    if not (
+        step_frame.index("game_.timing.logicFrame = frame;")
+        < step_frame.index(otattr_boundary)
+        < step_frame.index("game_.pad.serviceFrame();")
+    ):
+        raise AssertionError(
+            "Spider1FrameDriver must declare the OtAttr frame before frame-owned guest services"
+        )
     forbid(driver, "primary mode exited", "Spider1FrameDriver")
     forbid(driver, "register_(kVsync,", "Spider1FrameDriver")
     forbid(driver, "spiderman_vsync", "Spider1FrameDriver")

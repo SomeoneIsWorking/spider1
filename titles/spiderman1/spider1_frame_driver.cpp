@@ -501,6 +501,7 @@ void Spider1FrameDriver::stepFrame(Core &core, uint32_t frame) {
   }
 
   game_.timing.logicFrame = frame;
+  core.rsub.otAttr.beginLogicFrame(frame);
   game_.pad.serviceFrame();
   fieldsSinceCommit_ = 0;
   frameCommitted_ = false;
