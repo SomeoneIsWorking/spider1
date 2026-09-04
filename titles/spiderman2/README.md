@@ -10,9 +10,11 @@ The manifest also owns the measured 786,432-byte executable identity and SHA-256
 media, and the native target repeats the serial/size/PS-X EXE/SHA-256 check before constructing
 `Game`; matching the filename alone is never sufficient.
 
-Implemented boundary: a resident-only generated substrate plus the executable's measured crt0 group
-(8/8 fields) reaches an explicit refusal at the first game-owned call, `gameMain 0x80031F54`
-(`EE-02`). No gameplay, rendering, widescreen, native producer, or runtime-module support is claimed.
+Measured boundary: the executable's crt0 group (8/8 fields) and the retired resident-only bring-up
+path reached an explicit refusal at the first game-owned call, `gameMain 0x80031F54` (`EE-02`). No
+gameplay, Lightrec execution, rendering, widescreen, native producer, or runtime-module support is
+claimed. Enter Electro follows only after Spider-Man passes its representative-gameplay migration
+gate.
 The required current-frame `guestVramIsPicture()` query likewise refuses with the Enter Electro
 frontier: execution cannot reach presentation before EE-02, and no Spider-Man 1 render-ownership
 policy is substituted for the unmeasured title.

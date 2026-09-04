@@ -1,12 +1,12 @@
 ---
 id: 21
 title: boot STR player retains a guest-owned VSync frame loop before the finite mode driver
-status: resolved
+status: investigating
 symptom: fatal guest VSync at 0x80084BE0 from FUN_8002AA0C return 0x8002AC8C after render seam frame 1
-state_items: S002,S004,S013
-tags: frame-loop,fmv,vsync,spiderman1,re-22
+state_items: S002,S004,S013,S018
+tags: frame-loop,fmv,vsync,spiderman1,re-22,dynarec,lightrec
 created: 2026-08-27
-updated: 2026-08-27
+updated: 2026-09-04
 ---
 
 ## Root cause
@@ -30,14 +30,12 @@ guest-owned loop behind a title exception while leaving cadence ownership in ret
 skip the intro movies merely to reach the menu; issue 0004 has prior real-disc evidence that both
 shipped logos decode and display when their service dependencies are correct.
 
-## Resolution
+## Prior generated-path discriminator
 
-The original `gen_func_8002AA0C` remains compiled. A build-time
-derivative from the player's local generated substrate preserves its body and replaces exactly the
-three authenticated VSync calls with `Spider1FrameDriver` fiber yields; the generator refuses a
-changed return-PC set or any residual VSync call. Boot and later mode steps run on the framework's
-stack-preserving `Coro`, while the host delivers each field, callback, audio tick, pad sample and
-presentation fence. The protected VSync handler remains the all-mode abort.
+The retired product used a build-time derivative of `FUN_8002AA0C` that replaced exactly the three
+authenticated VSync calls with `Spider1FrameDriver` fiber yields. That established the field
+boundaries and exposed real scheduling-order defects, but offline rewriting of a generated guest body
+is not the target architecture. It is preserved here only as evidence about behavior.
 
 The first bounded real run, `scratch/logs/finite-str-wide-20260827.log`, crossed the former
 `0x8002AC8C` abort and reconciled 2,600 host frames with no VSync timeout. It did not prove the fix:
@@ -74,3 +72,15 @@ remaining scene/rendering gap, not part of this now-resolved cadence issue.
 Evidence: `scratch/logs/gate-boot-20260827-022834.log` reaches render-seam call 1 / frame 1, reports
 the expected TTSLOGO miss, then aborts at `VSync` with `ra=0x8002AC8C`; the native outer-dispatcher
 ownership line is correctly absent.
+
+## Open native/Lightrec resolution
+
+The shipping fix is to execute the unchanged retail movie body through Lightrec and return a bounded
+executor exit at `0x8002AC8C`, `0x8002AE1C`, or `0x8002AFEC`. `Spider1FrameDriver` delivers the field,
+callback, audio, input, and presentation work, then resumes the same guest CPU state. No generator,
+body derivative, interpreter fallback, or conditional successful VSync HLE is permitted.
+
+Acceptance requires both movies and the post-logo wait to complete and early `dem1` to run with
+nonzero Lightrec blocks. That closes the first discriminator only. This issue cannot authorize
+deleting the old pipeline until S019's representative-gameplay, invalidation, original-call,
+independent-oracle, host-performance, and no-interpreter gates pass.

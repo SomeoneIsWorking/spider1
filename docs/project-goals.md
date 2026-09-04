@@ -15,8 +15,10 @@ Success conditions:
 
 - A supplied disc selects exactly one product by authenticated boot serial, size, PS-X EXE identity,
   and SHA-256.
-- Each title has its own generated substrate and derived runtime.
-- Shared lineage code contains no title address or generated thunk.
+- Each title has its own authenticated runtime image and derived native policy.
+- Shared lineage code contains no title address, emitted guest body, or title-specific dispatch.
+- All guest behavior not replaced natively executes on demand through Lightrec from the player's
+  original executable or runtime-loaded module.
 - Both titles reach playable game-owned execution through their own measured boundaries.
 
 Constraints and non-goals:
@@ -37,7 +39,7 @@ it cannot produce correct widescreen, native depth, or interpolated 60fps.
 
 Success conditions:
 
-- Complete picture-producing scenes in both titles run without a generated render body.
+- Complete picture-producing scenes in both titles run without an offline-generated render body.
 - Native geometry comes from pre-GTE game state and joins the framework depth/render queues.
 - Each title publishes widescreen projection from its own active viewport/camera contract.
 - Animated objects interpolate stable authored poses between game frames without replaying guest
@@ -55,8 +57,8 @@ Related state: S005, S006, S007, S008, S009, S010, S016.
 
 ## G003 — RE-driven native subsystem ownership
 
-Move platform and game execution to cohesive native owners while retaining the recompiled substrate
-as a faithful, differential reference.
+Move platform and selected game behavior to cohesive native owners while executing every remaining
+guest instruction through a runtime Lightrec cache.
 
 Why it matters: readable game-state ownership is the route to a maintainable port; emulating more
 hardware or fabricating state only hides the missing owner.
@@ -64,13 +66,19 @@ hardware or fabricating state only hides the missing owner.
 Success conditions:
 
 - Each native boundary is derived from executable evidence and has a falsifying test or instrument.
-- Generated code remains regenerated output and is never hand-edited.
+- A normal guest call honors image-aware native overrides; a scoped original call bypasses only its
+  current override and executes through Lightrec.
+- Executable-memory writes and runtime module replacement invalidate every affected translated block.
+- The gameplay product neither links nor selects an interpreter and has no interpreter fallback.
+- Offline guest-code emission, generated corpora, and generated-symbol dispatch are absent from a
+  fresh product build.
 - Platform, rendering, audio, input, storage, and diagnostics remain separate cohesive owners.
 - Approved debt is explicit, bounded, and mechanically excluded from capabilities it cannot support.
 
 Constraints and non-goals:
 
 - No magic guest addresses, guessed constants, swallowed failures, or test-only reimplementations.
+- An interpreter is allowed only in a separately built test/diagnostic target.
 - psxport remains game-agnostic; Spider-specific behavior stays in this repository.
 
 Related state: S004, S005, S006, S007, S010, S012, S013.
@@ -84,11 +92,14 @@ Why it matters: a warm maintainer checkout or hand-driven run is not a shipping 
 
 Success conditions:
 
-- `./run.sh` enters one frozen Python environment and launches the selected current product.
+- `./run.sh` enters one frozen Python environment and launches the selected native/Lightrec product
+  directly from authenticated user-supplied game files.
 - Missing native dependencies produce exact user-run platform package commands.
 - GCC, Clang, and AppleClang remain accepted player compilers; maintainer evidence uses Clang.
 - Hermetic tests, format, clang-tidy, structure, registry, and bounded product gates cover their
   stated denominators and refuse when they cannot assert them.
+- Representative interactive gameplay is verified on each released host architecture before the
+  offline-generated path is deleted.
 
 Constraints and non-goals:
 

@@ -29,13 +29,45 @@ Statuses: ✅ re-verified · 🟡 re-partial (honest gap) · 🔬 in-progress ·
 
 ## Frontier
 
-### RE-00 — Provision + statically recompile the executable
+### RE-00 — Authenticate the Spider-Man executable as a runtime image
 - status: re-verified
 - deps:
-- evidence: PS-X EXE header: entry 0x8008739C, load 0x80010000, text 0xB6800; the corpus verified current under psxport 3418a79b contains 1672 resident fragments from 738 discovery roots. `game/recomp_seeds.json` keeps `main` empty and contains one retail-measured `main_reentry`: CdInit's HookEntryInt continuation 0x8008B990
-- where: 
+- evidence: PS-X EXE header: entry 0x8008739C, load 0x80010000, text 0xB6800; title selection authenticates serial, size, PS-X EXE identity, and SHA-256 before guest execution. CdInit's HookEntryInt continuation is binary-measured at 0x8008B990.
+- where: titles/spiderman1/title.json; game/core/executable_identity.*; runtime-image provisioner target in docs/migration.md
 - gap:
-- notes: 
+- notes: This step proves the image identity and binary facts only. It does not claim Lightrec execution; the old emitted-corpus counts are not part of the target product contract.
+
+### DYN-00 — Integrate per-Core Lightrec execution in psxport
+- status: todo
+- deps: RE-00
+- evidence: The portfolio audit selected maintained pinned Lightrec for PSX and requires one resident override plus two address-reusing module images before title migration.
+- where: target external/psxport runtime executor
+- gap: No gameplay product currently executes Spider guest instructions through Lightrec. The separate test interpreter must be absent from the product link and selector surface.
+- notes: Lightrec owns translation/cache memory; psxport owns Core synchronization, bounded exits, runtime dispatch, original calls, and invalidation.
+
+### DYN-01 — Route image-aware Spider calls and module invalidation through the executor
+- status: todo
+- deps: DYN-00, RE-09
+- evidence: RE-09 proves that CD.WAD modules coexist at guest-allocated bases, so address-only cache and override keys are insufficient.
+- where: target psxport executor dispatch plus titles/spiderman1 runtime registration
+- gap: Replace generated-symbol registration with executable/module-generation plus address identity; prove a native override, a scoped original call, and positive/negative invalidation.
+- notes:
+
+### DYN-02 — Reach dem1 and resume the retail movie body dynamically
+- status: todo
+- deps: DYN-01, RE-04, RE-22
+- evidence: The retired product completed both logo movies and reached dem1. FUN_8002AA0C reaches libetc VSync from 0x8002AC8C, 0x8002AE1C, and 0x8002AFEC; issue 0021 preserves the observed cadence and ordering failures.
+- where: target Lightrec resume/executor-exit integration with Spider1FrameDriver
+- gap: Run nonzero Lightrec blocks from the authenticated executable, complete both logos, and reach early dem1 without generating or rewriting the movie body.
+- notes: This is the first implementation discriminator, not representative gameplay or static-path deletion authority.
+
+### DYN-03 — Representative gameplay and offline-pipeline retirement
+- status: todo
+- deps: DYN-02
+- evidence: docs/migration.md defines the bounded acceptance surface; the central portfolio plan explicitly says boot, logos, demos, and FMV are not representative gameplay.
+- where: product launcher/build, runtime verification, and deletion set in docs/migration.md
+- gap: Prove a representative interactive route, independent-oracle state comparison, native/original dispatch, module invalidation, host correctness/performance, and no interpreter in the product. Then delete the generator, corpus, emission-only seeds, generated dispatch/tests, and obsolete provisioning/build documentation atomically.
+- notes: No compatibility selector, interpreter fallback, or pre-populated cache may remain.
 
 ### RE-01 — crt0 / boot seam
 - status: re-verified
@@ -414,13 +446,13 @@ first-write evidence owns that allocator signature as downstream VLC free-list d
 not capture the first write again, and the ordering of the missing-file message before the allocator
 fault proves no causal relationship between those events.
 
-### RE-22 — Own the frame loop: a native FUN_8002C174, and what it is actually worth
+### RE-22 — Own the frame loop around resumable guest execution
 - status: re-partial
 - deps: RE-19, RE-21
-- evidence: STATIC IMPLEMENTATION 2026-08-27 (C056). `Spider1Runtime::bootInit` no longer dispatches non-returning FUN_8002C354. `Spider1FrameDriver` installs the exact 72-byte persistent main frame and owns field/audio/pad/presentation service. `Spider1ModeDriver` owns the authenticated ten-entry selector table at 0x80093C3C and finite state for FUN_8002C174, FUN_800604CC, FUN_800160EC, and FUN_8006F294. It preserves retail phase order, splits FUN_800604CC's two submissions across two host steps, paces held-image countdown fields without rotating interpolation history, and maps every step to exactly one submitted, repeated-field, or measured unpresented fence. Generated supers remain compiled. Authenticated RAM bytes at 0x80093C3C are `58c50280 7cc40280 f8c50280 9cc50280 9cc50280 00c50280 78c50280 e4c40280 7cc40280 74c50280`; focused policy tests reject a successful VSync owner or cross-title reuse. REAL PRODUCT: `scratch/logs/spider1-postlogo-owned-live.log` visibly completes both logo movies, completes the exact 300-field post-logo input wait, prints the finite-prefix/outer-owner line, enters `dem1` at frame 4941, reconciles 5,400/5,400 fences and exits 0 with the protected VSync trap quiet.
+- evidence: NATIVE-OWNER IMPLEMENTATION 2026-08-27 (C056), exercised through the retired generated-code product. `Spider1FrameDriver` installs the exact 72-byte persistent main frame and owns field/audio/pad/presentation service. `Spider1ModeDriver` owns the authenticated ten-entry selector table at 0x80093C3C and finite state for FUN_8002C174, FUN_800604CC, FUN_800160EC, and FUN_8006F294. It preserves retail phase order, splits FUN_800604CC's two submissions across two host steps, paces held-image countdown fields without rotating interpolation history, and maps every step to exactly one submitted, repeated-field, or measured unpresented fence. Authenticated RAM bytes at 0x80093C3C are `58c50280 7cc40280 f8c50280 9cc50280 9cc50280 00c50280 78c50280 e4c40280 7cc40280 74c50280`. `scratch/logs/spider1-postlogo-owned-live.log` visibly completes both logo movies, completes the exact 300-field post-logo input wait, enters `dem1` at frame 4941, reconciles 5,400/5,400 fences and exits 0 with the protected VSync trap quiet.
 - where: `titles/spiderman1/spider1_frame_driver.*`, `titles/spiderman1/spider1_mode_driver.*`, `titles/spiderman1/spider1_runtime.*`; guest FUN_8002C354, FUN_8002C174, FUN_800604CC, FUN_800160EC, FUN_8006F294.
-- gap: The native owner is live through boot and early `dem1`, but the product corpus has not yet exercised every finite outer selector/mode transition or reached `l1a1` on this new route. Enter Electro needs its own addresses and driver. This does not complete the native renderer: the large retail phase callees remain substrate code and RE-21 still owns native geometry.
-- notes: Frame ownership moved presentation, per-field audio, callback delivery and pad service out of the deleted `game/core/sync_native.cpp`. VSync 0x80084BE0 is now only the framework's protected all-mode abort. `tools/generate_spider1_movie_fiber.py` keeps the proprietary body outside the repo, preserves the generated super, and replaces only AC8C/AE1C/AFEC with Coro yields. The title also owns dry STR polling, stock inner CdSync's synchronous completion, and the post-logo per-field pad-service wait without skipping retail work.
+- gap: The native owner has not run around Lightrec. The build-derived movie body must be replaced by suspension and resumption of the unchanged runtime guest body at the three authenticated exits, then exercised through `dem1`. Every finite mode transition and representative gameplay remain unverified. Enter Electro needs its own addresses and driver.
+- notes: Frame ownership moved presentation, per-field audio, callback delivery and pad service out of `game/core/sync_native.cpp`. VSync 0x80084BE0 remains the protected all-mode abort. The title also owns dry STR polling, stock inner CdSync's synchronous completion, and the post-logo per-field pad-service wait without skipping retail work. The movie-fiber generator is retirement debt, not a future execution owner.
 
 ### RE-23 — Scene identity: the game's own level-name lens (0x800A568C / FUN_8005A734)
 - status: re-verified
@@ -455,13 +487,13 @@ fault proves no causal relationship between those events.
 ## boot
 
 
-### EE-00 — Enter Electro serial-bound provisioning and resident substrate
+### EE-00 — Enter Electro serial-bound runtime image
 - status: re-verified
 - deps:
-- evidence: USA disc SYSTEM.CNF boots SLUS_013.78;1; selected-media inspection rejects SLUS_008.75 before cached executable use. PS-X EXE is 786432 bytes, entry 0x80093C68, load 0x80010000, text 0xBF800 (loaded end 0x800CF800). The generated registry has 1653 candidate entry points from 366 discovery roots, with its highest resident entry at 0x800C28C8; the independently derived BSS starts at 0x800C2AF4 and the corresponding executable bytes from there through 0x800CF0DC are zero. GuestProgramImage therefore routes the pre-BSS resident span [0x00010000,0x000C2AF4), not the payload extent or heap boundary. No copyrighted output is tracked.
-- where: tools/title_catalog.py; tools/ensure_recomp.py --title spiderman2; titles/spiderman2/title.json; titles/spiderman2/recomp_seeds.json
+- evidence: USA disc SYSTEM.CNF boots SLUS_013.78;1; selected-media inspection rejects SLUS_008.75 before cached executable use. PS-X EXE is 786432 bytes, entry 0x80093C68, load 0x80010000, text 0xBF800 (loaded end 0x800CF800). Binary analysis found the highest resident entry at 0x800C28C8; the independently derived BSS starts at 0x800C2AF4 and executable bytes from there through 0x800CF0DC are zero. The runtime image must therefore route the pre-BSS resident span [0x00010000,0x000C2AF4), not the payload extent or heap boundary. No copyrighted output is tracked.
+- where: tools/title_catalog.py; titles/spiderman2/title.json; target runtime-image provisioner
 - gap: Resident executable only. The 28 CD.WAD runtime modules are deliberately not claimed before EE-02 reaches the game loader.
-- notes: Both-answer tests accept SLUS_008.75 and SLUS_013.78 and reject missing, unknown, ambiguous, and mismatched media identities.
+- notes: Both-answer tests accept SLUS_008.75 and SLUS_013.78 and reject missing, unknown, ambiguous, and mismatched media identities. The old generated registry established entry metadata only; it is not a product dependency.
 
 ### EE-01 — Enter Electro crt0 and direct derived runtime
 - status: re-verified
@@ -469,11 +501,11 @@ fault proves no causal relationship between those events.
 - evidence: Shipping crt0_extract over the real USA SLUS_013.78 resolves 8/8 fields: BSS 0x800C2AF4..0x800CF0DC, stack globals 0x800C0D10/0x800C0D0C with bias -8, heap 0x800CF0DC, gp 0x800C1764, libcInit 0x800988B0; disassembly establishes first game call 0x80031F54. Focused runtime test proves null legacy config/hooks/context and proves the newly required guest-VRAM picture query aborts rather than borrowing Spider-Man 1's policy. The real derived executable on psxport d2266f4b reaches shipping crt0_setup, reports 10 AGREE / 0 DISAGREE / 0 unresolved, initializes heap 0x800CF0E0 size 0x728F1C, and then emits the named EE-02 refusal with no recomp-MISS (`scratch/logs/enter-electro-boundary.log`).
 - where: titles/spiderman2/enter_electro_runtime.{h,cpp}; tests/enter_electro_runtime_test.cpp; runtime audit in psxport crt0_setup
 - gap:
-- notes: No Spider-Man 1 GameConfig, GameHooks, generated thunk, or title context is bound.
+- notes: No Spider-Man 1 GameConfig, GameHooks, title address, or title context is bound.
 
 ### EE-02 — Enter Electro first game-owned call
 - status: todo
-- deps: EE-01
+- deps: EE-01, DYN-03
 - evidence: crt0 jal 0x80031F54 at 0x80093D04; the derived runtime names this exact boundary and aborts rather than dispatching unported behavior.
 - where: guest FUN_80031F54; EnterElectroRuntime::bootInit
 - gap: Reverse-engineer and execute the title own gameMain initialization without copying SLUS_008.75 addresses or hooks.

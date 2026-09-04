@@ -3,16 +3,24 @@
 This is the authoritative capability inventory. It is independent of epic goals and ordered RE
 work. Evidence details name only what has been observed; gaps remain explicit.
 
+## Comparison baseline
+
+The comparison baseline is the original USA PSX releases as run in a faithful emulator. The current
+repository also has a retired intermediate baseline: a native-enhanced product whose remaining guest
+code was emitted offline as C and compiled into per-title corpora. Evidence from that path remains
+valid only for the exact behavior it observed; it is not evidence that the native/Lightrec product
+exists or conforms.
+
 ## Current focus
 
-S002 — Spider-Man native frame-loop ownership and finite boot.
+S017 — per-Core Lightrec execution with the interpreter absent from the gameplay product.
 
 ## Capability inventory
 
 | ID | Capability / observable outcome | State | Dependencies | Goals |
 |---|---|---|---|---|
-| S001 | Frozen launcher selects and authenticates one title, provisions it, and builds its product target | verified | — | G001, G004 |
-| S002 | Spider-Man boots through guest main and reaches game scenes | partial | S001 | G001 |
+| S001 | Frozen launcher selects and authenticates one title and provisions its executable | partial | — | G001, G004 |
+| S002 | Spider-Man reaches both intro movies and early `dem1` under its native owners | partial | S001 | G001 |
 | S003 | Enter Electro executes through its measured crt0 and first game-owned-call boundary | partial | S001, S014 | G001 |
 | S004 | Spider-Man platform services are owned through measured native seams | partial | S002 | G003 |
 | S005 | Spider-Man render seam owns frame policy and a native frame envelope | partial | S002 | G002, G003 |
@@ -20,42 +28,49 @@ S002 — Spider-Man native frame-loop ownership and finite boot.
 | S007 | Animated mesh input, pose identity, and pre-GTE composition contracts are available to a native producer | partial | S005 | G002, G003 |
 | S008 | Spider-Man publishes a title-correct widescreen projection from active game state | partial | S002 | G002 |
 | S009 | Spider-Man presents true per-object interpolated 60fps | missing | S006, S007 | G002 |
-| S010 | Unported Spider-Man scenes remain runnable through explicit non-interpolated guest-frame debt | verified | S005 | G002, G003 |
+| S010 | Unported Spider-Man scenes can use an explicit non-interpolated whole guest frame | verified | S005 | G002, G003 |
 | S011 | Maintainer gates can verify hermetic contracts and bounded product behavior | partial | S001 | G004 |
 | S012 | Input, memory card, and runtime module placement support Spider-Man gameplay | verified | S002, S004 | G003 |
 | S013 | FMV and audio delivery run through host-owned services | partial | S004 | G003 |
-| S014 | Same-engine lineage keeps title identity, facts, generated code, and capability policy isolated | verified | — | G001 |
+| S014 | Same-engine lineage keeps title identity, facts, runtime images, and capability policy isolated | verified | — | G001 |
 | S015 | First-party C++ passes Clang build, format, clang-tidy, and structure policy | verified | — | G004 |
 | S016 | Enter Electro has title-derived native producers, widescreen projection, and temporal interpolation | missing | S003 | G002 |
+| S017 | psxport executes remaining Spider guest code through a per-Core Lightrec runtime, with no interpreter in the gameplay product | missing | S001 | G001, G003, G004 |
+| S018 | Spider-Man reaches `dem1` dynamically and resumes the retail movie player through host-owned field boundaries | missing | S004, S017 | G001, G003 |
+| S019 | Representative Spider-Man gameplay conforms on each released host and permits deletion of the static pipeline | missing | S006, S008, S009, S013, S018 | G001, G002, G003, G004 |
 
 ### S001 — Authenticated default launcher
 
-Observable conditions: the slim shell shim enters frozen `uv`; the Python launcher discovers the
-disc boot serial, authenticates the extracted executable, selects one title target, and can stop
-after provisioning/build without launching.
+Demonstrated subset: the slim shell shim enters frozen `uv`; the Python launcher discovers the disc
+boot serial, authenticates the extracted executable, and selects one title target.
 
-Evidence: `run.sh`, `bootstrap.py`, `tools/run.py --selftest`, `tools/title_catalog.py`, and the
+Evidence from the retired pipeline: `run.sh`, `bootstrap.py`, `tools/run.py --selftest`, `tools/title_catalog.py`, and the
 launcher-policy CTest cover the two known serials plus missing, unknown, ambiguous, and mismatched
 inputs. `launcher_help` runs both `-h` and `--help` through the actual shell launcher and product
 executable with all `PSXPORT_*` variables removed, proving usage exits 0 before dependency, disc,
 asset or executable-identity discovery. The direct frozen `--prepare-only` route has built
 Spider-Man from the player tree.
 
+Gap: the launcher still provisions and builds offline-generated guest code. It does not yet launch a
+native/Lightrec product directly from the authenticated image, so the complete launcher capability is
+partial.
+
 ### S002 — Spider-Man boot and scene reach
 
-Demonstrated subset: the bounded real-disc product reaches guest main, both intro movies, the render
-seam and `dem1` with the authenticated Spider-Man substrate. The current tree replaces the
+Demonstrated subset from the retired generated-code product: a bounded real-disc run reached guest
+main, both intro movies, the render seam and `dem1`. The current tree replaces the
 non-returning guest main with a title-local finite prefix plus finite native owners for the
 `0x8002C354` outer selector, `0x8002C174` primary loop, `0x800604CC` two-submit transition,
 `0x800160EC` menu loop, and `0x8006F294` alternate loop. The authenticated jump-table map, static
 ownership gate, transition test, and focused runtime test cover the route. Issue 0021's build-derived
-STR body yields at the three authenticated field boundaries while retaining the generated super;
+STR derivative yields at the three authenticated field boundaries while retaining the emitted body;
 title-local ownership also supplies asynchronous stream fields and the exact 300-field post-logo
 pad/input wait. `scratch/logs/spider1-postlogo-owned-live.log` completes both movies, completes the
 finite prefix, enters `dem1` at host frame 4941, reconciles 5,400/5,400 fences and exits 0 without a
 guest VSync call.
 
-Gap: the inspected `dem1` captures render real characters but retain a sparse black background, and
+Gap: none of this route has run through Lightrec. The inspected `dem1` captures render real
+characters but retain a sparse black background, and
 the run did not yet reach `l1a1` or prove real selector transitions through every finite mode. Issue 0018 records an intermittent
 STR VLC overrun before `dem1`; issue 0015 prevents the boot supervisor from cleanly terminating every
 progressing capped run. This item therefore does not claim deterministic full boot or finished
@@ -66,8 +81,9 @@ event; this run provides no evidence that it caused the allocator damage.
 
 ### S003 — Enter Electro measured boot boundary
 
-Demonstrated subset: `SLUS_013.78` has an authenticated manifest, separate generated namespace,
-direct `EnterElectroRuntime`, and 8/8 executable-derived crt0 facts. It refuses at gameMain
+Demonstrated subset: `SLUS_013.78` has an authenticated manifest, title-isolated executable facts,
+direct `EnterElectroRuntime`, and 8/8 executable-derived crt0 facts. The retired bring-up path
+refuses at gameMain
 `0x80031F54` and declares widescreen-only rendering capabilities, so Spider-Man native/60fps controls
 are not exposed.
 
@@ -205,11 +221,13 @@ Gap: no durable A/V synchronization measurement exists, audio has not been user-
 
 ### S014 — Two-title isolation
 
-Observable conditions: title selection is serial-keyed; each title target links one generated
-namespace and one derived runtime; the address-free lineage base owns no guest address; Enter
+Observable conditions: title selection is serial-keyed; the address-free lineage base owns no guest
+address; Enter
 Electro refuses unknown behavior rather than borrowing Spider-Man values.
 
-Evidence: C050, C051, C052 and focused `spider_runtime` / `enter_electro_runtime` tests. Both title
+Evidence: C050, C051, C052 and focused `spider_runtime` / `enter_electro_runtime` tests. The old
+targets also kept their emitted namespaces isolated, establishing why runtime image identity must be
+title-specific. Both title
 runtimes currently expose only their implemented GTE/widescreen presentation; their independent
 tests prevent either title from inheriting unimplemented native/temporal capability by lineage.
 
@@ -231,3 +249,27 @@ projection publication, pose history, or temporal interpolation product. Its cur
 Required capability: after EE-02 and the title's render ownership boundary are RE-derived, implement
 Enter Electro's own native+wide+temporal path without copying Spider-Man addresses or claiming the
 current capability refusal is permanent.
+
+### S017 — Runtime Lightrec execution
+
+Missing capability: integrate the maintained pinned Lightrec revision into psxport as a per-`Core`
+executor. The framework must synchronize CPU/device state, dispatch image-aware overrides and scoped
+original calls, bound host exits, and invalidate translated code when executable memory or module
+residency changes. Build/link and selector inspection must prove that the gameplay product neither
+contains nor can select the separate test interpreter.
+
+### S018 — `dem1` dynamic discriminator
+
+Missing capability: run the authenticated Spider-Man image through Lightrec with nonzero translated
+blocks, preserve the title's native frame/service owners, complete both intro movies, and reach early
+`dem1`. Replace the build-derived `FUN_8002AA0C` movie-fiber body with resumable guest execution at
+the authenticated `0x8002AC8C`, `0x8002AE1C`, and `0x8002AFEC` field boundaries. This is a first
+wiring discriminator only, not gameplay conformance or static-path deletion authority.
+
+### S019 — Representative gameplay and static retirement
+
+Missing capability: a bounded representative interactive Spider-Man scenario must reach at least the
+current verified frontier with native and scoped-original dispatch, executable-module invalidation,
+independent-oracle state checks, and the declared correctness/frame-time budget on each released host.
+Only then remove the generator, generated corpus, emission-only seeds, generated dispatcher/tests,
+and all build/provisioning documentation for that path. No legacy selector or fallback remains.
