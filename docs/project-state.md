@@ -188,8 +188,11 @@ Evidence: `tools/source_policy.py` rejects the retired path, identifiers, and ge
 Demonstrated subset: `tools/verify.py` delegates one exact-pinned Clang/Ninja configure, both-title
 product build, all 17 title CTests, and the self-tested repository/CMake/linked-product execution
 boundary inspection to PSXPort's shared consumer verifier. This passed locally against PSXPort
-`639e3630` and Lightrec `b764c4c9`. The asset-free Linux workflow invokes the same entry point, but
-has not run from this working tree. The retired static-product gate is absent.
+`639e3630` and Lightrec `b764c4c9`. The asset-free Linux x86-64 workflow invokes the same entry point
+and passed the product composition gate on main commit
+`265ff0862820052fe6d84daf45e5b2e257701f02` in
+[run 33960072758](https://github.com/SomeoneIsWorking/spider1/actions/runs/33960072758).
+This is composition evidence only; the retired static-product gate is absent.
 
 Gap: issue 0015 leaves the progressing live boot supervisor unable to terminate/reap every capped
 run. Issue 0009 records that fixed present indices are not content-stable, so visual comparisons need
@@ -285,7 +288,7 @@ been removed break-first; none may return as a fallback.
 
 | Platform boundary | CI state | Exact gap |
 |---|---|---|
-| Linux x86-64 | partial | The exact-pinned asset-free Clang/Ninja products, 17 CTests, and linked boundary inspection pass locally. CI is configured to invoke the same verifier, but its first hosted run is pending. Authenticated gameplay and release performance are unverified. |
+| Linux x86-64 | partial | The asset-free product composition gate passes locally and in the hosted run recorded in S011. Authenticated gameplay and release performance are unverified. |
 | Windows x86-64 | missing | No qualified PSXPort/Lightrec product backend or Spider build contract exists. |
 | macOS x86-64 | missing | No qualified PSXPort/Lightrec product backend or Spider build contract exists. |
 | macOS arm64 | missing | The AArch64 emitter, executable-memory/ICache boundary, packaging, and gameplay qualification are absent. |
