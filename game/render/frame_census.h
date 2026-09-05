@@ -58,7 +58,7 @@ struct FrameCensus {
   }
 
   // Primitives that can put different pixels in VRAM. The envelope-only claim in frame_envelope.h
-  // rests on this being zero for the boot-init frame, and render_seam.cpp CHECKS it every time
+  // rests on this being zero for the boot-init frame; historical runtime evidence checked it
   // rather than trusting the measurement that motivated it.
   int pixelWriters() const {
     return poly3 + poly4 + line + rect + sprite + fill + vramCopy + upload;

@@ -8,7 +8,7 @@ created: 2026-08-12
 updated: 2026-08-12
 ---
 
-MEASURED 2026-08-12. 28 tools in tools/; ZERO match /^gate/; 'grep -ln spiderman_port tools/*.py' returns nothing. The 5 tools that shell out invoke discdump, ghidra, emit.py and cmake — never the port binary. What verification exists is STATIC or POST-HOC: check_reloc_model.py (a shape check with a --selftest that refuses on a missing corpus), check_resume_switch.py, callee_contract.py, ra_classes.py, and the present_*/gp0_*/prim_* analysers that read dumps a run left behind. docs/codemap.md:49 calls check_reloc_model.py a 'gate', which invites exactly the wrong conclusion — it is not a run gate.
+MEASURED 2026-08-12. 28 tools in tools/; ZERO match /^gate/; 'grep -ln spiderman_port tools/*.py' returned nothing. The tools that spawned processes invoked discdump, Ghidra, the retired offline translator, and CMake — never the port binary. Verification was static or post-hoc: a relocation shape check, resume-switch and ABI analysers, and presentation/GP0/primitive analysers that read dumps a run left behind. The then-current codemap called a shape check a 'gate', which invited exactly the wrong conclusion — it was not a run gate.
 
 THE PREMISE'S IMPLIED FIX IS ONLY HALF RIGHT, and this is the part to remember: Tomba2Engine/tools/gate.py drives the game over the REPL, and THIS PORT NEVER ENTERS THE FRAMEWORK FRAME LOOP THAT SERVICES THE REPL (game/core/game_hooks.cpp:39-42 rec_dispatches the guest main, which never returns; frameUpdate/drawOTag are deliberate abort() fail-fasts). So a REPL-driven gate cannot work here as-is. A gate for this port has to key on its own log lines from a plain capped launch, or the port needs the framework loop first.
 

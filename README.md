@@ -10,7 +10,7 @@ No disc image, executable, or game asset is included. Supply a legally obtained 
 
 | Title | Executable identity | Current evidence |
 | --- | --- | --- |
-| Spider-Man | `SLUS_008.75` | The retired generated-code path reached both intro movies and early `dem1`; native frame, service, render-seam, and widescreen owners exist. Runtime Lightrec gameplay is not implemented yet. |
+| Spider-Man | `SLUS_008.75` | Historical evidence reached both intro movies and early `dem1`; finite native frame/service work is preserved but not attached to the product. The asset-free product now builds against Lightrec, but authenticated gameplay has not been run through it. |
 | Spider-Man 2: Enter Electro | `SLUS_013.78` | Identity, eight crt0 facts, and first game-owned call `0x80031F54` are measured. Gameplay and rendering are absent. |
 
 The serial, PS-X EXE header, size, and SHA-256 jointly select a title. Names are labels, never
@@ -19,33 +19,45 @@ selectors, and no title may borrow another title's addresses or behavior.
 ## Migration status
 
 The former product emitted guest code as C at provisioning time and compiled a per-title generated
-corpus. That architecture is retired. Do not regenerate, build, or run it for new evidence. The
-current work is documentation and planning for the replacement described in
-[`docs/migration.md`](docs/migration.md).
+corpus. That architecture is removed. The generator, corpora, emission-only seeds, static
+dispatcher/tests, and old build/provisioning path are absent. The only product target accepts the
+authenticated executable and enters psxport's runtime guest-execution boundary.
 
 The first implementation discriminator is deliberately narrow: execute the authenticated Spider-Man
 image through Lightrec, preserve the current native owners, reach `dem1`, and replace the generated
 movie-fiber derivative with resumable runtime guest execution at the three binary-proven STR field
-boundaries. This demonstrates that real title code is running dynamically; it is not permission to
-delete the old corpus.
+boundaries. This demonstrates that real title code is running dynamically.
 
-Deletion requires one bounded representative interactive gameplay milestone that also proves:
+A bounded representative interactive gameplay milestone must also prove:
 
-- nonzero Lightrec blocks and no interpreter in the gameplay link or selector surface;
+- nonzero Lightrec blocks, no interpreter gameplay selector, and bounded reason-coded fallback below
+  its declared threshold;
 - a native override and an override-bypassing original guest call through the shipping dispatcher;
 - positive and controlled-negative invalidation for executable module changes;
 - timing, memory, interrupts, and relevant device state against an independent oracle; and
 - the declared correctness and frame-time budget on every released host architecture.
 
-Only after that gate passes are the generator, generated corpus, emission-only seeds, static
-dispatcher, and generated-symbol tests removed together. No compatibility mode remains.
+The removed pipeline cannot return as a compatibility mode while this work is incomplete.
+
+The consumer is pinned to PSXPort
+`639e3630af3af9ed519bffa7da53c229c689b4d1`, whose runtime dependency requires maintained Lightrec
+`b764c4c9f4bc425a56bfc4c32333ff8200ce8ab9`. Both revisions are immutable build inputs; CMake refuses
+a dirty or mismatched Lightrec checkout and the consumer pin test refuses a different PSXPort build.
 
 ## Intended player experience
 
-The finished `./run.sh` path will enter the frozen `uv` environment, select and authenticate the
-disc, build the native/Lightrec product without offline guest translation, and launch the selected
-title. The existing launcher still drives the retired generated pipeline, so it is not a valid
-product or verification path during this migration.
+`./run.sh` enters the frozen `uv` environment, selects and authenticates the disc, provisions only
+the PS-X EXE, builds the native/Lightrec product without offline guest translation, and launches the
+selected title. The maintained Lightrec backend is linked; title gameplay remains unverified until a
+real authenticated run reaches the declared discriminator with measured translation and fallback
+counters.
+
+Hosted CI is configured to build and test the real asset-free Linux x86-64 boundary; the new
+workflow has not run from this working tree yet. Windows, macOS, Apple Silicon, and Android jobs
+remain absent because their PSXPort/Lightrec product backends are not implemented or qualified;
+policy-only jobs do not stand in for those missing platform boundaries.
+The local and hosted verifier is `uv run --frozen python tools/verify.py`; it delegates the shared
+Clang/Ninja configure, build, CTest, and linked-product inspection sequence to the pinned PSXPort.
 
 Player builds will accept GCC, Clang, and AppleClang. Maintainer C++ verification uses Clang together
 with the tracked `clang-format` and `clang-tidy` policy. Missing native dependencies must be refused

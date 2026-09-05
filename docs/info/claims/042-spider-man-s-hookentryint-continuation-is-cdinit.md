@@ -3,24 +3,24 @@ id: C042
 kind: claim
 status: holds
 created: 2026-08-21
-tags: recomp,bios,interrupt
-depends: game/recomp_seeds.json
+tags: jit,bios,interrupt
+depends: docs/issues/framework-agnosticism-warts.md#wart-05--cdinit-s-first-two-driver-table-stores-live-in-branch-delay-slots,docs/re-frontier.md#RE-08
 reconfirmed: 2026-08-21 14:15:27
 verified_at: 2026-08-21 14:15:27
 ---
 
 ## Claim
 
-Spider-Man's HookEntryInt continuation is CdInit's mid-function PC 0x8008B990, which must be a main_reentry discovery root for psxport's modeled BIOS exception exit
+Spider-Man's HookEntryInt continuation is CdInit's mid-function PC 0x8008B990, which the dynamic runtime must resume as an ordinary guest PC after the modeled BIOS exception exit
 
 ## Evidence
 
-The retail CdInit instruction stream calls setjmp at 0x8008B988 and resumes at 0x8008B990; the live HookEntryInt buffer at 0x800B28BC independently stores ra=0x8008B990. A 9f1 run without that root fail-fast reported recomp-MISS 0x8008B990. Adding only main_reentry regenerated 738 roots into 1672 resident fragments with wrapper, body, and dispatch case. The final pinned `692b9b20` Clang build passes all four CTests and scratch/logs/re21-asset-owner-live-692b9b20.log reaches the exact Dem1 geometry/texture/CLUT binding and unload evidence with zero recomp-MISS. psxport's hermetic emitter test also proves the opposite answer: the same interior PC is absent when not listed.
+The retail CdInit instruction stream calls `setjmp` at 0x8008B988 and resumes at 0x8008B990; the live HookEntryInt buffer at 0x800B28BC independently stores `ra=0x8008B990`. Historical execution failed precisely when the retired dispatcher did not admit that interior PC and progressed when it did. That result establishes the guest continuation address, not a permanent discovery or code-generation rule. The current PSXPort/Lightrec runtime must accept the restored PC through ordinary runtime block discovery and cache ownership.
 
 ## What would falsify it
 
-The exact retail disassembly or live jmp_buf names a different continuation, removing the root still lets a clean regenerated 9f1+ substrate execute the modeled custom exit without a dispatch miss, or the seeded continuation falls through instead of returning through B0:17
+The exact retail disassembly or live `jmp_buf` names a different continuation, or a runtime trace shows the modeled exit resumes at a different guest PC.
 
 ## Re-confirmed 2026-08-21 14:15:27
 
-Final psxport 3418a79b verification: ensure_recomp extracted all 30 retail modules and accepted the current 738-root/1672-fragment corpus; the fresh Clang 22.1.8 build passed all six CTests. Bounded retail Native log scratch/logs/re21-guest-fallback-3418a79b.log crossed the modeled interrupt/CD path into dem1 and l1a1 with zero recomp-MISS, retaining the seeded 0x8008B990 continuation evidence.
+Historical bounded execution crossed the modeled interrupt/CD path into `dem1` and `l1a1` after admitting 0x8008B990. This reconfirmed the continuation address only; authenticated Lightrec execution has not yet re-verified the resume route.

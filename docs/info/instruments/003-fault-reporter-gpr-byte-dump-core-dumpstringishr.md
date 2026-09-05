@@ -7,7 +7,7 @@ created: 2026-07-30
 
 ## Instrument
 
-fault-reporter GPR byte dump (Core::dumpStringishRegs, psxport runtime/recomp/mem.cpp)
+fault-reporter GPR byte dump (Core::dumpStringishRegs, psxport runtime/psx/mem.cpp)
 
 ## Validated by
 

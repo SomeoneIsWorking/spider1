@@ -7,7 +7,7 @@ created: 2026-08-06
 
 ## Instrument
 
-PSXPORT_WWATCH=<lo>,<hi> as a POINTER-PROVENANCE reader (external/psxport/runtime/recomp/mem.cpp Core::wwatch_check_slow) — read a runtime-allocated guest pointer WITHOUT adding any code
+PSXPORT_WWATCH=<lo>,<hi> as a POINTER-PROVENANCE reader (external/psxport/runtime/psx/mem.cpp Core::wwatch_check_slow) — read a runtime-allocated guest pointer WITHOUT adding any code
 
 ## Validated by
 

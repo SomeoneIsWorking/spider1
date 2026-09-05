@@ -4,7 +4,7 @@ kind: claim
 status: holds
 created: 2026-08-06
 tags: render,classifyScene,scene-identity,module-registry,re-13,tomba2-pattern
-depends: game/core/module_loader.cpp, external/psxport/runtime/recomp/overlay_router.cpp, docs/re-frontier.md
+depends: game/core/module_loader.cpp, the retired static overlay registry, docs/re-frontier.md
 reconfirmed: 2026-08-22 19:16:22
 verified_at: 2026-08-22 19:16:22
 ---

@@ -20,7 +20,7 @@ MEASURED on the presented picture (scratch/c0work/shots/after_present_10000.ppm,
 Display mode confirmed from the run log: GP1(08)=08000002, 512x240, 15-bit.
 
 ROOT CAUSE — the present plan uses the FRAMEBUFFER's dimensions as the DISPLAY ASPECT:
-    runtime/recomp/present_plan.h:
+    runtime/psx/present_plan.h:
       p.viewport = pane_letterbox(in.disp_w, PRESENT_DISPLAY_ASPECT_H /*240*/, in.sink_w, in.sink_h);
 That is a faithful port of the older gpu_vk.cpp `letterbox(disp_w, 240, sw, sh)`, so the defect
 predates the present-image-sink refactor — but I reproduced it unquestioned and wrote a comment
@@ -260,7 +260,7 @@ the fix is in the shared framework and its tree does not carry the patch yet.
 ### Note (2026-08-06)
 CROSS-REFERENCED INTO spyro 2026-08-06. This entry's own closing line said "NOT VERIFIED: spyro", and spyro's catalog (46 entries at the time) had NO entry for this defect — a spyro session searching "letterbox"/"1.6x" got "(no matches)" and would have re-derived the whole thing. It is now spyro docs/issues/0047, status OPEN there, cross-referenced back to here as the canonical record.
 
-CONFIRMED IN SPYRO'S OWN TREE, not inferred from this one: spyro's external/psxport is dbc5a5e1 (CLEAN) and still carries the pre-refactor form, external/psxport/runtime/recomp/gpu_vk.cpp:1047 `letterbox(disp_w, 240, sw, sh)`. That tree has no runtime/recomp/present_plan.h and no PresentInputs.native_w — the fix does not exist there, so spyro is UNFIXED and will only get it via a framework pin bump.
+CONFIRMED IN SPYRO'S OWN TREE, not inferred from this one: spyro's external/psxport is dbc5a5e1 (CLEAN) and still carries the pre-refactor form in its GPU presentation code: `letterbox(disp_w, 240, sw, sh)`. That tree has no `present_plan.h` and no PresentInputs.native_w — the fix does not exist there, so spyro is UNFIXED and will only get it via a framework pin bump.
 
 ONE NEW PIECE OF EVIDENCE FOR THE "visibly changes shape at every FMV<->gameplay transition" prediction, found while mirroring: the SAME FILE already contains the correct form. gpu_vk_present_image() (the RGBA still-image path) uses `letterbox(4, 3, sw, sh)` at gpu_vk.cpp:1128, while show_composite() (the game picture) uses `letterbox(disp_w, 240, ...)` at :1047. The two present paths in one file disagree about what the display aspect is, which makes the shape change checkable from any two captures either side of such a transition rather than only from the display-mode log.
 

@@ -2,8 +2,8 @@
 //
 // Spider-Man's target-only composition entry point. Shared process boot lives in spider_port.cpp.
 //
-// Phase 0 (see docs/re-frontier.md): every guest function runs on the recompiled substrate. The
-// native boot reproduces crt0 and then SpiderRuntime dispatches the guest's own main().
+// The shared process owner authenticates the original executable and enters its crt0 through
+// psxport's per-Core runtime executor.
 #include "spider1_runtime.h"
 #include "spider_port.h"
 

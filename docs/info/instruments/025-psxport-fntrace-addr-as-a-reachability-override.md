@@ -7,7 +7,7 @@ created: 2026-08-06
 
 ## Instrument
 
-PSXPORT_FNTRACE=<addr>,... AS A REACHABILITY + OVERRIDE-ABILITY census (external/psxport/runtime/recomp/fntrace.cpp, wired last by SpiderRuntime::registerOverrides)
+PSXPORT_FNTRACE=<addr>,... AS A REACHABILITY + OVERRIDE-ABILITY census (the former PSXPort function-trace owner, wired last by SpiderRuntime::registerOverrides)
 
 ## Validated by
 

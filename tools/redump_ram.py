@@ -29,7 +29,7 @@ def main():
     out = sys.argv[2] if len(sys.argv) > 2 else DEFAULT_OUT
 
     if not os.path.isfile(exe):
-        sys.exit(f"redump_ram: {exe} not found — run ./run.sh (or tools/ensure_recomp.py) first")
+        sys.exit(f"redump_ram: {exe} not found — provision the authenticated executable first")
 
     data = open(exe, "rb").read()
     if data[:8] != b"PS-X EXE":

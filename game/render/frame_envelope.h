@@ -1,7 +1,7 @@
-// frame_envelope.h — FrameEnvelope: THE FIRST NATIVE PRODUCER behind this port's render seam.
+// frame_envelope.h — preserved native DRAWENV/DISPENV producer awaiting JIT integration.
 //
-// WHAT IT DRAWS, and why it is first. The seam (`game/render/render_seam.cpp`) sits on the engine's
-// own submitFrame, guest `FUN_80061308`:
+// WHAT IT DRAWS. Historical evidence at the engine's submitFrame guest boundary `FUN_80061308`
+// established this sequence:
 //
 //     ResetGraph(1); PutDispEnv(db + 0x5C); PutDrawEnv(db + 0x00); DrawOTag(db->ot + 0x3FFC);
 //
@@ -27,8 +27,8 @@
 // A producer for it is a producer for the envelope, and nothing else.
 //
 // THE PICTURE RULE (coord/PROTOCOL.md), checkably satisfied:
-//   1. No `gen_func_*` body runs on a native-owned frame — the seam does not super-call there, and
-//      nothing here calls into the substrate. HACK-03 whole-guest frames skip this producer.
+//   1. No guest body runs on a native-owned frame — the seam does not call the ordinary path, and
+//      nothing here enters guest execution.
 //   2. Every input is the game's own submission INPUT: the DRAWENV and DISPENV blocks the engine
 //      fills in and hands to libgpu, plus libgpu's own VRAM-extent and video-standard bytes.
 //      Nothing is recovered from an OT link, a GP0 packet, or a GTE register.
@@ -63,9 +63,8 @@ public:
   void produce(Core *c, uint32_t drawEnvAddr, uint32_t dispEnvAddr);
 
   // ---- the reach evidence, emitted DURING the run --------------------------------------------
-  // Same reasoning as the seam's own counters (see render_seam.cpp): the watchdog `_exit()`s, so an
-  // atexit summary would never print. `produced()` is bumped unconditionally on the same line as
-  // the work, so "0 produced" is a real measurement and not the absence of one.
+  // `produced()` is bumped unconditionally with the work, so "0 produced" is a real measurement
+  // and not the absence of one.
   unsigned long long produced() const {
     return mProduced;
   }

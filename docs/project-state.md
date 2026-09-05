@@ -13,7 +13,7 @@ exists or conforms.
 
 ## Current focus
 
-S017 — per-Core Lightrec execution with the interpreter absent from the gameplay product.
+S017 — per-Core Lightrec execution with no selectable interpreter gameplay mode and bounded fallback.
 
 ## Capability inventory
 
@@ -28,16 +28,16 @@ S017 — per-Core Lightrec execution with the interpreter absent from the gamepl
 | S007 | Animated mesh input, pose identity, and pre-GTE composition contracts are available to a native producer | partial | S005 | G002, G003 |
 | S008 | Spider-Man publishes a title-correct widescreen projection from active game state | partial | S002 | G002 |
 | S009 | Spider-Man presents true per-object interpolated 60fps | missing | S006, S007 | G002 |
-| S010 | Unported Spider-Man scenes can use an explicit non-interpolated whole guest frame | verified | S005 | G002, G003 |
+| S010 | The shipping Spider-Man path has no whole-frame compatibility fallback | verified | — | G002, G003 |
 | S011 | Maintainer gates can verify hermetic contracts and bounded product behavior | partial | S001 | G004 |
 | S012 | Input, memory card, and runtime module placement support Spider-Man gameplay | verified | S002, S004 | G003 |
 | S013 | FMV and audio delivery run through host-owned services | partial | S004 | G003 |
 | S014 | Same-engine lineage keeps title identity, facts, runtime images, and capability policy isolated | verified | — | G001 |
 | S015 | First-party C++ passes Clang build, format, clang-tidy, and structure policy | verified | — | G004 |
 | S016 | Enter Electro has title-derived native producers, widescreen projection, and temporal interpolation | missing | S003 | G002 |
-| S017 | psxport executes remaining Spider guest code through a per-Core Lightrec runtime, with no interpreter in the gameplay product | missing | S001 | G001, G003, G004 |
+| S017 | psxport executes remaining Spider guest code through a per-Core Lightrec runtime with no selectable interpreter mode | partial | S001 | G001, G003, G004 |
 | S018 | Spider-Man reaches `dem1` dynamically and resumes the retail movie player through host-owned field boundaries | missing | S004, S017 | G001, G003 |
-| S019 | Representative Spider-Man gameplay conforms on each released host and permits deletion of the static pipeline | missing | S006, S008, S009, S013, S018 | G001, G002, G003, G004 |
+| S019 | Representative Spider-Man gameplay conforms on each released host through the native/Lightrec product | missing | S006, S008, S009, S013, S018 | G001, G002, G003, G004 |
 
 ### S001 — Authenticated default launcher
 
@@ -51,9 +51,9 @@ executable with all `PSXPORT_*` variables removed, proving usage exits 0 before 
 asset or executable-identity discovery. The direct frozen `--prepare-only` route has built
 Spider-Man from the player tree.
 
-Gap: the launcher still provisions and builds offline-generated guest code. It does not yet launch a
-native/Lightrec product directly from the authenticated image, so the complete launcher capability is
-partial.
+The current launcher provisions only the authenticated executable and builds the native/Lightrec
+product. Gap: no authenticated title run has yet demonstrated that the launcher reaches Spider-Man's
+first runtime discriminator with nonzero translated blocks and bounded fallback.
 
 ### S002 — Spider-Man boot and scene reach
 
@@ -111,19 +111,18 @@ real-disc run `scratch/logs/spider1-postlogo-owned-live.log` visibly renders and
 movies, completes the exact post-logo wait, reaches `dem1`, reconciles every capped frame and exits
 0. The VSync trap remains installed, and the product made no guest VSync call.
 
-Gap: Legacy `GameConfig`/`GameHooks`
-compatibility views remain for measured Spider-Man facts, and FMV/audio synchronization remains
-incomplete under S013.
+The legacy `GameConfig`/`GameHooks` static-product adapters are removed; measured facts now belong to
+the title runtime or cohesive native owners. Gap: those preserved owners still need image-aware
+registration and FMV/audio synchronization remains incomplete under S013.
 
 ### S005 — Render seam and frame envelope
 
-Demonstrated subset: the override of retail submitFrame `FUN_80061308` is reached and owns the frame
-policy boundary; the native envelope reproduces executable-derived DRAWENV/DISPENV words; the
-title-local frame and mode drivers map every finite retail submit completion to one framework queue
-fence, including the transition/menu/alternate paths.
+Partial capability. Historical evidence proved a submit-frame boundary and executable-derived
+DRAWENV/DISPENV calculations. The static dispatch seam was removed during break-first migration;
+the preserved envelope and finite frame/mode owners are not attached to the current product.
 
-Gap: the envelope's only fully owned scene is a black boot-init frame, so its producer A/B cannot
-falsify pixel output (issue 0013). Named scenes still lack complete native geometry and use S010.
+Gap: first establish JIT gameplay conformance, then attach a new image-aware render boundary. Named
+scenes still lack complete native geometry.
 
 ### S006 — Complete native display-list production
 
@@ -138,9 +137,8 @@ OT, packet, scratchpad, and rendered-VRAM output are excluded as producer inputs
 
 Demonstrated subset: `mesh_animated_vertex.*` decodes projection/reuse/retain flags and both near/far
 fixed-point staging modes. `mesh_pose_contract.*` decodes the base transform, secondary rotation,
-authored pose, and owner+pose temporal identity. Hermetic opposite-answer tests exercise the shipping
-decoders. Observe-only `mesh_probe.cpp` captures the exact pre-GTE records and retail CR0..CR7 only as
-a post-super-call oracle (C054, C055).
+authored pose, and owner+pose temporal identity. Historical probe evidence records the exact pre-GTE
+records and retail CR0..CR7 (C054, C055); the retired runtime probe source is not part of the product.
 
 Gap: the first serialized product attempt ran on clean framework `99a42aa3`, but
 `scratch/logs/gate-boot-20260826-235605.log` terminated at frame 2 with issue 0018's allocator-fault
@@ -153,20 +151,14 @@ No interpolation or draw is enabled by this item.
 
 ### S008 — Spider-Man widescreen projection
 
-Demonstrated subset: `Spider1Widescreen` overrides the title's sole world-render/projection boundary
-`FUN_80075D0C`, reads its active viewport descriptor, publishes that native geometry through the
-framework's guest-projection latch, and widens the descriptor before the unchanged retail renderer
-computes frustum planes, GTE H/offset, culling and object output. Width and lens divisor scale by the
-same ratio, preserving focal length while expanding horizontal view; disabling widescreen restores
-the observed native descriptor rather than scaling an already-widened value. The production helper
-test covers the retail 512 -> 684 16:9 result, byte-identical native output, and both bound
-orientations. The first live mapping instrument exposed issue 0022's cumulative descriptor bug
-(`512 -> 684 -> 912 -> 1024`); scoping the projected tuple around the retail super-call removed it.
+Historical evidence showed the title's world-render/projection boundary and exposed issue 0022's
+cumulative descriptor bug (`512 -> 684 -> 912 -> 1024`); scoping the projected tuple around the
+retail guest call removed it.
 Final real-disc evidence `scratch/logs/spider1-wide-scoped-final.log` records exactly one stable
 `512x240 -> 684x240` / lens `2365 -> 3159` mapping across repeated `dem1` renders, reconciles
 5,150/5,150 fences, and its inspected capture contains live demo character/text output.
-Spider-Man's runtime exposes this policy without enabling its missing native renderer or
-interpolation controls.
+The retained `Spider1Widescreen` owner now contains only the pure aspect calculation. Its former
+static guest-call attachment was removed, so the current product exposes no widescreen override.
 
 Gap: `l1a1` and a paired standard-aspect leg have not been captured on the new finite route, so the
 live proof establishes stable expansion/reach but not a complete scene-by-scene A/B. Compare those
@@ -183,19 +175,21 @@ rendering nor temporal interpolation; guest-frame output is mechanically non-int
 Required owner: target `game/render/mesh_pose_history.*` plus native producer integration after S006
 and live validation of S007.
 
-### S010 — Explicit guest-frame debt
+### S010 — No whole-frame compatibility fallback
 
-Observable conditions: an unported named scene can run the actual retail submit body for the whole
-frame, with native envelope/geometry overlap and interpolation refused.
+Observable condition: the former whole-guest-frame compatibility owner, its selector, and its tests
+are absent. Gameplay enters the runtime JIT product path; unported native presentation remains an
+explicit missing capability rather than switching to a second whole-frame product.
 
-Evidence: `guest_frame_fallback.*`, its CTest, C044, and HACK-03 record the mutually exclusive policy
-and denominators. This capability is compatibility debt, not native-producer progress.
+Evidence: `tools/source_policy.py` rejects the retired path, identifiers, and generated source roots.
 
 ### S011 — Verification coverage
 
-Demonstrated subset: hermetic CTests cover production contracts, title runtimes, executable identity,
-launcher policy, C++ policy, and render policy; `tools/gate.py check-log` recognizes known-good and
-known-broken captures and prints denominators.
+Demonstrated subset: `tools/verify.py` delegates one exact-pinned Clang/Ninja configure, both-title
+product build, all 17 title CTests, and the self-tested repository/CMake/linked-product execution
+boundary inspection to PSXPort's shared consumer verifier. This passed locally against PSXPort
+`639e3630` and Lightrec `b764c4c9`. The asset-free Linux workflow invokes the same entry point, but
+has not run from this working tree. The retired static-product gate is absent.
 
 Gap: issue 0015 leaves the progressing live boot supervisor unable to terminate/reap every capped
 run. Issue 0009 records that fixed present indices are not content-stable, so visual comparisons need
@@ -205,9 +199,9 @@ content identity rather than an index alone.
 
 Observable conditions: forced pad input changes the menu, a 128 KiB memory-card image is created and
 the card check completes, and concurrently live CD.WAD modules occupy distinct guest allocations
-without a recomp miss.
+without a guest-execution miss.
 
-Evidence: resolved issue 0001, the measured module relocation claim C013, and the input/memory-card
+Evidence: resolved issue 0001, the measured multi-image residency claim C013, and the input/memory-card
 behavior recorded in the durable issue/claim ledgers.
 
 ### S013 — FMV and audio
@@ -252,24 +246,50 @@ current capability refusal is permanent.
 
 ### S017 — Runtime Lightrec execution
 
-Missing capability: integrate the maintained pinned Lightrec revision into psxport as a per-`Core`
-executor. The framework must synchronize CPU/device state, dispatch image-aware overrides and scoped
-original calls, bound host exits, and invalidate translated code when executable memory or module
-residency changes. Build/link and selector inspection must prove that the gameplay product neither
-contains nor can select the separate test interpreter.
+Implemented subset: the product enters authenticated crt0 through psxport's per-`Core`
+`dispatchGuest` boundary. Spider pins PSXPort `639e3630af3af9ed519bffa7da53c229c689b4d1`, which
+requires maintained Lightrec runtime ABI `b764c4c9f4bc425a56bfc4c32333ff8200ce8ab9`; the exact pair
+links into both title products. Image-aware native
+dispatch, scoped `callOriginal`, invalidation, typed exits, and translation/fallback counters are
+present, and the old generator/dispatcher/selector/product are absent. The shared Linux x86-64
+synthetic contract proves nonzero translated blocks, native/original dispatch, and self-modifying-code
+retranslation without fallback. It separately admits one classified difficult block under the
+configured limit and refuses a zero-limit block before any interpreter instruction executes.
+
+Gap: no authenticated Spider-Man run has yet proved CPU/device synchronization, native/original title
+dispatch, or address-reusing runtime-module invalidation. Authenticated Spider gameplay has not
+exercised the enforced per-execution limit or established an aggregate fallback-share release
+threshold. Multi-`Core` and host backends outside Linux x86-64 also remain absent; no interpreter
+gameplay selector may be added to cover those gaps.
 
 ### S018 — `dem1` dynamic discriminator
 
-Missing capability: run the authenticated Spider-Man image through Lightrec with nonzero translated
-blocks, preserve the title's native frame/service owners, complete both intro movies, and reach early
-`dem1`. Replace the build-derived `FUN_8002AA0C` movie-fiber body with resumable guest execution at
-the authenticated `0x8002AC8C`, `0x8002AE1C`, and `0x8002AFEC` field boundaries. This is a first
-wiring discriminator only, not gameplay conformance or static-path deletion authority.
+Missing capability: the authenticated Spider-Man image has not yet reached `dem1` through Lightrec.
 
-### S019 — Representative gameplay and static retirement
+Implemented prerequisite: the build-derived movie-fiber source is gone and `Spider1MovieExecution`
+expresses unchanged-retail `FUN_8002AA0C` execution through the scoped-original runtime boundary.
+
+Gap: run the authenticated Spider-Man image through Lightrec with nonzero translated blocks,
+preserve the title's native frame/service owners, complete both intro movies, and reach early `dem1`,
+including the authenticated `0x8002AC8C`, `0x8002AE1C`, and `0x8002AFEC` field exits.
+
+### S019 — Representative gameplay conformance
 
 Missing capability: a bounded representative interactive Spider-Man scenario must reach at least the
 current verified frontier with native and scoped-original dispatch, executable-module invalidation,
 independent-oracle state checks, and the declared correctness/frame-time budget on each released host.
-Only then remove the generator, generated corpus, emission-only seeds, generated dispatcher/tests,
-and all build/provisioning documentation for that path. No legacy selector or fallback remains.
+The obsolete generator, corpus, seeds, dispatcher/tests, and build/provisioning route have already
+been removed break-first; none may return as a fallback.
+
+## Hosted platform coverage
+
+| Platform boundary | CI state | Exact gap |
+|---|---|---|
+| Linux x86-64 | partial | The exact-pinned asset-free Clang/Ninja products, 17 CTests, and linked boundary inspection pass locally. CI is configured to invoke the same verifier, but its first hosted run is pending. Authenticated gameplay and release performance are unverified. |
+| Windows x86-64 | missing | No qualified PSXPort/Lightrec product backend or Spider build contract exists. |
+| macOS x86-64 | missing | No qualified PSXPort/Lightrec product backend or Spider build contract exists. |
+| macOS arm64 | missing | The AArch64 emitter, executable-memory/ICache boundary, packaging, and gameplay qualification are absent. |
+| Android arm64-v8a | missing | The AArch64 backend, shared Android packaging/runtime integration, touch layer, and device performance qualification are absent. |
+
+The hosted workflow is configured for only the real Linux x86-64 product boundary. A policy-only
+job is not counted as Windows, macOS, or Android support.

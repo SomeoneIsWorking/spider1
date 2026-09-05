@@ -3,7 +3,7 @@
 #include "coro.h"
 #include "game_runtime.h"
 #include "spider1_mode_driver.h"
-#include "spider1_movie_driver.h"
+#include "spider1_movie_execution.h"
 
 #include <cstdint>
 #include <memory>
@@ -57,6 +57,7 @@ private:
   Game &game_;
   std::unique_ptr<Spider1ModeDriver> modes_;
   std::unique_ptr<Coro> activeCoro_;
+  Spider1MovieExecution movieExecution_;
   Core *activeCore_ = nullptr;
   ActivePhase activePhase_ = ActivePhase::None;
   uint32_t vsyncCallback_ = 0;

@@ -712,7 +712,7 @@ measured any more.
 
 ## Frontier
 
-### RE-00 — Provision + statically recompile the executable
+### RE-00 — Authenticate and map the runtime executable
 - status: re-verified
 - deps:
 - where-2: a hand-added field this tool has no schema for; INST-14 recorded one being deleted
@@ -727,8 +727,7 @@ the `CINEMAS/*.STR` movies.
 **Qualified 2026-07-29, and the distinction matters:** "no overlay files" is NOT
 "all code is in the executable". See RE-09.
 
-**Expires if:** a seed is added without a recorded rationale, or a different
-region/revision of the disc is used.
+**Expires if:** a different region/revision of the disc is used without recording its identity.
 
 ---
 
@@ -751,7 +750,7 @@ region/revision of the disc is used.
 PROSE_MARKERS = [
     "**HACK-01 (shell's measured load base) is RETIRED 2026-07-29.**",
     "**Qualified 2026-07-29, and the distinction matters:**",
-    "**Expires if:** a seed is added without a recorded rationale, or a different",
+    "**Expires if:** a different region/revision of the disc is used without recording its identity.",
     "### The loader, RE'd end to end — `re-verified`",
     "| `FUN_8001B990(name)` | loads `<name>.bin`, relocates in place, calls the base |",
     "- correction: this line looks like a field but is PROSE inside the entry body.",

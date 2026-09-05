@@ -4,7 +4,7 @@ kind: claim
 status: holds
 created: 2026-08-05
 tags: black-screen,windowed,headless,swapchain,vsync,gpu,starvation,re-07
-depends: external/psxport/runtime/recomp/gpu_vk.cpp, external/psxport/runtime/recomp/gpu_native.cpp, game/core/sync_native.cpp
+depends: external/psxport/runtime/psx/gpu_vk.cpp, external/psxport/runtime/psx/gpu_native.cpp, game/core/sync_native.cpp
 ---
 
 ## Claim

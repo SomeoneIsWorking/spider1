@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Prove launcher and native executable help require no game assets or disc discovery."""
 
 from __future__ import annotations

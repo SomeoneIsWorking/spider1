@@ -4,7 +4,7 @@ kind: claim
 status: holds
 created: 2026-08-05
 tags: audio,xa,spu,intro,fmv,sync,re-07,issue-0005
-depends: game/core/sync_native.cpp, game/core/main.cpp, external/psxport/runtime/recomp/spu_audio.cpp, external/psxport/runtime/recomp/xa_stream.cpp
+depends: game/core/sync_native.cpp, game/core/main.cpp, external/psxport/runtime/psx/spu_audio.cpp, external/psxport/runtime/psx/xa_stream.cpp
 ---
 
 ## Claim

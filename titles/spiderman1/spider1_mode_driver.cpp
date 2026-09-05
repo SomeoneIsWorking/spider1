@@ -1,7 +1,7 @@
 #include "spider1_mode_driver.h"
 
 #include "core.h"
-#include "recomp_iface.h"
+#include "native_dispatch.h"
 
 #include <cstdlib>
 #include <lucent/log.h>
@@ -107,7 +107,10 @@ constexpr uint32_t kAlternateRelease = 0x800165FCu;
 
 void call(Core &core, uint32_t entry, uint32_t returnPc) {
   core.r[31] = returnPc;
-  rec_dispatch(&core, entry);
+  psx::cpu::dispatchGuestToReturn(core,
+                                  entry,
+                                  psx::cpu::ExecutionBudget::currentTurn(core),
+                                  "Spider-Man mode synchronous guest call");
 }
 
 class GuestStackFrame final {
@@ -529,7 +532,10 @@ void Spider1ModeDriver::finishMenu(Core &core) {
                                   static_cast<int16_t>(core.mem_r16(vtable + 8u))));
     core.r[5] = 3;
     core.r[31] = 0x80016388u;
-    rec_dispatch(&core, core.mem_r32(vtable + 12u));
+    psx::cpu::dispatchGuestToReturn(core,
+                                    core.mem_r32(vtable + 12u),
+                                    psx::cpu::ExecutionBudget::currentTurn(core),
+                                    "Spider-Man menu vtable synchronous guest call");
   }
   core.mem_w8(kDisplayBuffer0 + 24u, 1);
   core.mem_w8(kDisplayBuffer0 + 144u, 1);

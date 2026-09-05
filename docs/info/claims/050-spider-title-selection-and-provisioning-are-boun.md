@@ -4,7 +4,7 @@ kind: claim
 status: holds
 created: 2026-08-22
 tags: 
-depends: tools/title_catalog.py#TitleCatalog, tools/ensure_recomp.py#verify_selected_media, tools/ensure_recomp.py#provision_executable, game/core/executable_identity.cpp#verifyExecutable, game/core/spider_port.cpp#runPort, titles/spiderman2/port.cmake
+depends: tools/title_catalog.py#TitleCatalog,tools/provision.py#provision_executable,game/core/executable_identity.cpp#verifyExecutable,game/core/spider_port.cpp#runPort,CMakeLists.txt
 reconfirmed: 2026-08-22 19:58:25
 verified_at: 2026-08-22 19:58:25
 ---
@@ -13,17 +13,17 @@ verified_at: 2026-08-22 19:58:25
 
 Spider title selection and provisioning are bound to the disc's SYSTEM.CNF serial and the selected
 executable's measured size/SHA-256 before Game construction, with SLUS_008.75 and SLUS_013.78
-selecting distinct derived runtimes and generated substrates. Filename agreement alone is rejected
+selecting distinct runtime targets. Filename agreement alone is rejected
 as insufficient identity.
 
 ## Evidence
 
-Against clean psxport d2266f4b, tests/title_catalog and launcher_policy pass both supported serials and refuse missing, ambiguous, unknown, and human-generic identities; real ensure_recomp accepts the USA SLUS_013.78 disc and refuses selecting spiderman2 with media booting SLUS_008.75; enter_electro_port given the Spider-Man 1 executable returns 2 before Game construction.
+`tests/test_title_catalog.py`, `tests/test_provision.py`, and the executable-identity CTest cover both supported serials and refuse missing, ambiguous, unknown, mutated, and human-generic identities. Provisioning validates the executable before replacing any previously valid destination. Each title is a distinct CMake runtime target, and `runPort` verifies the selected bytes again before constructing `Game`.
 
 ## What would falsify it
 
 A selected title accepts media or an executable whose SYSTEM.CNF/filename serial differs, accepts
-renamed or mutated executable bytes, both targets link the same generated registry, or the launcher
+renamed or mutated executable bytes, both targets collapse to one title identity, or the launcher
 constructs Game before serial and byte authentication.
 
 ## Re-confirmed 2026-08-22 19:58:25

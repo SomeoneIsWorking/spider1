@@ -17,7 +17,7 @@ per-vertex depth and 84.6–86.0% of renderer depth lookups hit.
 ## Evidence (REPLACES the pre-2026-08-24 evidence; see history below)
 
 MEASURED 2026-08-24 with a whole-run instrument that cannot alias (INST-29): `render_depth_coverage_report()`
-(external/psxport/runtime/recomp/gpu_native.cpp — LIFETIME totals, never reset) now called from the port's
+(external/psxport/runtime/psx/gpu_native.cpp — LIFETIME totals, never reset) now called from the port's
 own submitFrame seam every 2048 calls (game/render/render_seam.cpp, kDepthReportEvery). Two independent runs:
 
     @2048 submits : 471561 of  741781 prims = 63.57% real-depth | cache 4186747 records, hits 1664616 / misses 270090  (86.04%)

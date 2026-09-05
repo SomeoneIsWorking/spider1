@@ -34,7 +34,7 @@ shipped logos decode and display when their service dependencies are correct.
 
 The retired product used a build-time derivative of `FUN_8002AA0C` that replaced exactly the three
 authenticated VSync calls with `Spider1FrameDriver` fiber yields. That established the field
-boundaries and exposed real scheduling-order defects, but offline rewriting of a generated guest body
+boundaries and exposed real scheduling-order defects, but offline rewriting of executable guest code
 is not the target architecture. It is preserved here only as evidence about behavior.
 
 The first bounded real run, `scratch/logs/finite-str-wide-20260827.log`, crossed the former

@@ -36,7 +36,7 @@ caught lying, mark it distrusted and re-check every result that used it.
 
 ## INST-18 — `PSXPORT_SHOT_AT` / `GpuVkState::shot()` PPM histogram — **DISTRUSTED 2026-08-05 for "what the player sees"; trusted for guest VRAM content**
 
-*What it ACTUALLY shows:* `GpuVkState::shot()` (`external/psxport/runtime/recomp/gpu_vk.cpp:1202`)
+*What it ACTUALLY shows:* `GpuVkState::shot()` (`external/psxport/runtime/psx/gpu_vk.cpp:1202`)
 calls `dump_to()` (`:1171`), which reads back the **guest VRAM texture `s_vram_tex`** and decodes
 the display region itself. It never samples the swapchain. It is a measurement of VRAM CONTENT at a
 present index, and of nothing downstream of that.
@@ -88,7 +88,7 @@ this repo asks. TWO halves, each with a demonstrated negative:
 2. **STATIC** — tools/re08_store_sites.py: walks the same images the substrate was built from
    (MAIN + all 30 overlay modules from `scratch/overlays/spiderman1`, function boundaries taken from
    the generated dispatch tables,
-   analysis imported from emit.py rather than re-derived) and counts every vertex-store form with
+   analysis imported from the former offline translator rather than re-derived) and counts every vertex-store form with
    denominators on every line. REFUSES (exit 2) on missing/mismatched corpus instead of printing an
    empty table — refusal observed live during development (28 images vs 30 dispatch tables).
    Hermetic gate tests/test_re08_store_sites.py feeds a synthetic module carrying all four store
@@ -395,12 +395,12 @@ the 1.714x reading was taken), spyro I042 (the repaired copy and its selftest).
 
 ---
 
-## INST-26 — `PSXPORT_DEBUG=ndepth`, the `3D%=` coverage line (`external/psxport/runtime/recomp/gpu_native.cpp:1646`) — **DISTRUSTED 2026-08-06: it printed `3D%=0.0` for an entire run while measuring nothing at all**
+## INST-26 — `PSXPORT_DEBUG=ndepth`, the `3D%=` coverage line (`external/psxport/runtime/psx/gpu_native.cpp:1646`) — **DISTRUSTED 2026-08-06: it printed `3D%=0.0` for an entire run while measuring nothing at all**
 
 *The failure in one line:* it prints a ONE-FRAME sample formatted as a coverage measurement, and it
 prints the SAME `0.0` when it has no data whatsoever.
 
-**MECHANISM, read out of the code (this tree, `runtime/recomp/gpu_native.cpp`):**
+**MECHANISM, read out of the code (this tree, `runtime/psx/gpu_native.cpp`):**
 
     :1646   the report is gated  `if (s_frame > 0 && (s_frame % 60) == 0)`
     :1673   `core->rsub.stats.nd3d = core->rsub.stats.nd2d = 0;`   — runs on EVERY present, unconditionally
@@ -605,7 +605,7 @@ this ledger opens with has a sibling — **a counter's sample POINT is part of w
 ## INST-19 — The frame-progress watchdog (`PSXPORT_WATCHDOG=<sec>`) used as a GUEST-progress gate — **DISTRUSTED 2026-08-05; see INST-03 for what it is genuinely good at**
 
 *The defect, and it is structural rather than a bug:* `watchdog_pet()` is called from
-`gpu_present_ex` (`external/psxport/runtime/recomp/gpu_native.cpp:1399`). Presents are driven by the
+`gpu_present_ex` (`external/psxport/runtime/psx/gpu_native.cpp:1399`). Presents are driven by the
 host-turn timer whether or not the GUEST advances, so the pet has **no guest-side denominator at
 all**. A run can be completely wedged in guest terms and the watchdog will never fire.
 
@@ -871,7 +871,7 @@ recomp-MISS `0x800C6684`?
 
 *The answer is that you cannot reach a state where they do.* The check is not a tool you remember to
 run against a dump; it is enforced on **every** placement, in
-`external/psxport/runtime/recomp/overlay_router.cpp:132-151`:
+the former static overlay registry in the pre-migration PSXPort revision:
 
 ```cpp
     // The invariant the base-relative design rests on: no two resident modules overlap. Checked on
@@ -897,7 +897,7 @@ from this registry."*
 *Why this is a better instrument than any dump scanner.* A scanner samples ONE instant and its clean
 verdict has to carry "cannot rule out an overlap before or after the dump". This has no sampling
 window at all: `overlay_place()` is the single writer of `Core::ovBase`/`ovDelta` (see
-`runtime/recomp/core.h:114`), so a violating state is unreachable, not merely unobserved. And a
+the pre-migration core implementation), so a violating state is unreachable, not merely unobserved. And a
 scanner's silence is ambiguous — the abort's silence is not, because the *absence* of the abort over
 a run is the same evidence as a green check at every load in that run.
 
@@ -1133,7 +1133,7 @@ zero result as "unproven", never as "does not happen".
 ## INST-05 — `PSXPORT_DEBUG=cdc` (framework CD-controller channel) — **trusted**
 
 *What it shows:* every command the guest issues to the modelled CD controller
-(`external/psxport/runtime/recomp/cdc_native.c`), with its parameters, and whether the model handled it.
+(`external/psxport/runtime/psx/cdc_native.cpp`), with its parameters, and whether the model handled it.
 
 *Validated:* it distinguishes answers — it names a specific command byte and reports handled versus
 `UNHANDLED`, and it is the reason RE-03 has a mechanism rather than a guess. It turned "CdInit returns

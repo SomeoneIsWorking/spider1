@@ -69,7 +69,8 @@ Success conditions:
 - A normal guest call honors image-aware native overrides; a scoped original call bypasses only its
   current override and executes through Lightrec.
 - Executable-memory writes and runtime module replacement invalidate every affected translated block.
-- The gameplay product neither links nor selects an interpreter and has no interpreter fallback.
+- The gameplay product exposes no interpreter mode or selector; backend fallback is accepted only
+  after a classified JIT refusal and remains reason-coded, bounded, and measured.
 - Offline guest-code emission, generated corpora, and generated-symbol dispatch are absent from a
   fresh product build.
 - Platform, rendering, audio, input, storage, and diagnostics remain separate cohesive owners.
@@ -78,7 +79,7 @@ Success conditions:
 Constraints and non-goals:
 
 - No magic guest addresses, guessed constants, swallowed failures, or test-only reimplementations.
-- An interpreter is allowed only in a separately built test/diagnostic target.
+- An interpreter-only mode is allowed only in a separately built test/diagnostic target.
 - psxport remains game-agnostic; Spider-specific behavior stays in this repository.
 
 Related state: S004, S005, S006, S007, S010, S012, S013.
@@ -98,8 +99,8 @@ Success conditions:
 - GCC, Clang, and AppleClang remain accepted player compilers; maintainer evidence uses Clang.
 - Hermetic tests, format, clang-tidy, structure, registry, and bounded product gates cover their
   stated denominators and refuse when they cannot assert them.
-- Representative interactive gameplay is verified on each released host architecture before the
-  offline-generated path is deleted.
+- Representative interactive gameplay is verified on each released host architecture before that
+  host is described as supported.
 
 Constraints and non-goals:
 

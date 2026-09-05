@@ -6,7 +6,6 @@ from __future__ import annotations
 import hashlib
 import os
 import runpy
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -21,6 +20,7 @@ from launcher_dependencies import (
     platform_family,
     require_native_dependencies,
 )
+from provision import ProvisionError, provision_executable
 from title_catalog import Title, TitleCatalogError, load_catalog
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -117,33 +117,25 @@ def announce_framework(framework_text: str, framework: Path) -> None:
     )
 
 
-def submodule_sync_invocation(framework: Path) -> tuple[list[str], Path]:
-    """Return the framework-owned sync command and its repository root."""
+def submodule_sync_invocation(framework: Path, python: str) -> tuple[list[str], Path]:
+    """Return psxport's poison-gitlink-aware dependency sync command."""
     framework_root = framework.resolve()
-    return ["bash", str(framework_root / "scripts/sync-submodules.sh")], framework_root
+    return [python, str(framework_root / "scripts" / "sync_submodules.py")], framework_root
 
 
-def sync_submodules(framework: Path) -> None:
-    command, framework_root = submodule_sync_invocation(framework)
-    script = Path(command[1])
-    if shutil.which("git") and script.is_file():
-        run_or_refuse(
-            command,
-            "submodule sync failed",
-            cwd=framework_root,
-        )
-        return
-    say(
-        "WARNING: external/psxport/scripts/sync-submodules.sh is absent — the framework's nested "
-    )
-    say("         submodules (vendor/beetle-psx, vendor/lucent) were NOT synced.")
+def sync_submodules(framework: Path, python: str) -> None:
+    command, framework_root = submodule_sync_invocation(framework, python)
+    synchronizer = Path(command[1])
+    if not synchronizer.is_file():
+        raise LauncherError(f"psxport dependency synchronizer is missing: {synchronizer}")
+    run_or_refuse(command, "submodule sync failed", cwd=framework_root)
 
 
 def player_build_root(cc: str, cxx: str) -> Path:
     """Return an isolated build root without classifying compiler identity."""
     contract = f"{cc}\0{cxx}\0BUILD_TESTING=OFF\0PSXPORT_BUILD_TESTS=OFF"
     key = hashlib.sha256(contract.encode()).hexdigest()[:12]
-    return Path("scratch/build/player") / key
+    return Path("build/player") / key
 
 
 def discdump_commands(
@@ -371,19 +363,23 @@ def selftest() -> int:
             )
 
     fake_framework = Path("external/psxport")
-    sync_command, sync_root = submodule_sync_invocation(fake_framework)
+    sync_command, sync_root = submodule_sync_invocation(fake_framework, "/locked/python")
     checks += 1
     if (
         sync_root != fake_framework.resolve()
-        or Path(sync_command[1]).parent.parent != sync_root
+        or sync_command
+        != [
+            "/locked/python",
+            str(sync_root / "scripts" / "sync_submodules.py"),
+        ]
     ):
-        return refuse("launcher selftest failed: submodule sync is not framework-owned")
+        return refuse("launcher selftest failed: nested dependency sync contract")
     catalog = load_catalog(ROOT)
     spider1 = catalog.by_id("spiderman1")
     spider2 = catalog.by_id("spiderman2")
     commands = port_commands(
         fake_framework,
-        Path("scratch/build/player/toolchain/spiderman1"),
+        Path("build/player/toolchain/spiderman1"),
         "/usr/bin/cc",
         "/usr/bin/c++",
         "/locked/python",
@@ -402,7 +398,7 @@ def selftest() -> int:
     checks += 1
     if commands[0][commands[0].index("-B") + 1] == "build" or not commands[0][
         commands[0].index("-B") + 1
-    ].startswith("scratch/build/player/"):
+    ].startswith("build/player/"):
         return refuse("launcher selftest failed: product build is not isolated")
     checks += 1
     if "-DBUILD_TESTING=OFF" not in commands[0] or any(
@@ -412,7 +408,7 @@ def selftest() -> int:
     checks += 1
     spider2_commands = port_commands(
         fake_framework,
-        Path("scratch/build/player/toolchain/spiderman2"),
+        Path("build/player/toolchain/spiderman2"),
         "/opt/gcc",
         "/opt/g++",
         "/locked/python",
@@ -428,7 +424,7 @@ def selftest() -> int:
     checks += 1
     tools_commands = discdump_commands(
         fake_framework,
-        Path("scratch/build/player/toolchain/framework"),
+        Path("build/player/toolchain/framework"),
         "/opt/gcc",
         "/opt/g++",
         "/locked/python",
@@ -436,7 +432,7 @@ def selftest() -> int:
     )
     if (
         tools_commands[0][tools_commands[0].index("-B") + 1]
-        != "scratch/build/player/toolchain/framework"
+        != "build/player/toolchain/framework"
         or "-DBUILD_TESTING=OFF" not in tools_commands[0]
         or "-DPSXPORT_BUILD_TESTS=OFF" not in tools_commands[0]
         or any(
@@ -560,7 +556,7 @@ def launch(argv: Sequence[str]) -> int:
     if not (framework / "cmake/psxport.cmake").is_file():
         raise LauncherError(f"PSXPORT_DIR={framework_text} is not a psxport checkout")
     announce_framework(framework_text, framework)
-    sync_submodules(framework)
+    sync_submodules(framework, python)
 
     catalog = load_catalog(ROOT)
     try:
@@ -595,19 +591,10 @@ def launch(argv: Sequence[str]) -> int:
     title = detect_title(discdump, disc)
     say(f"title: {title.label} ({title.serial})")
 
-    title.generated_directory.mkdir(parents=True, exist_ok=True)
-    Path("scratch/bin").mkdir(parents=True, exist_ok=True)
-    provision_env = dict(os.environ)
-    provision_env["PSXPORT_DISCDUMP"] = str(discdump)
-    run_or_refuse(
-        [python, "tools/ensure_recomp.py", "--title", title.id, disc],
-        "recomp provisioning failed",
-        env=provision_env,
-    )
-    if not title.guest_executable.is_file():
-        raise LauncherError(
-            f"ensure_recomp.py did not produce {title.guest_executable}"
-        )
+    try:
+        provision_executable(ROOT, discdump, Path(disc), title)
+    except ProvisionError as exc:
+        raise LauncherError(str(exc)) from exc
 
     say(f"building the native port (CMake -j{jobs})…")
     port_build = build_root / title.id
@@ -618,14 +605,15 @@ def launch(argv: Sequence[str]) -> int:
     run_or_refuse(build_port, "port build failed")
 
     if prepare_only:
-        say(f"{title.label} is built and ready at {title.port_executable}")
+        say(f"{title.label} is built and ready at {port_build / 'bin' / title.target}")
         return 0
 
     say(f"launching {title.label} (native PC port)…")
     launch_env = launch_environment(os.environ, framework_text, disc, title)
+    port_executable = port_build / "bin" / title.target
     os.execvpe(
-        str(title.port_executable),
-        [str(title.port_executable), str(title.guest_executable)],
+        str(port_executable),
+        [str(port_executable), str(title.guest_executable)],
         launch_env,
     )
     return 0

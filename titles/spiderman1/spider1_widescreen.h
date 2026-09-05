@@ -25,15 +25,6 @@ Spider1ViewportHorizontal spider1ProjectViewport(Spider1ViewportHorizontal nativ
 class Spider1Widescreen final : public GuestWidescreenProjection {
 public:
   PresentationAspect presentationAspect(const Core &) const override;
-  void install() const;
-
-private:
-  void publishAndRender(Core &core) const;
-  static void publishAndRenderOverride(Core *core);
-
-  mutable bool initialized_ = false;
-  mutable Spider1ViewportHorizontal native_{};
-  mutable Spider1ViewportHorizontal applied_{};
 };
 
 } // namespace spider

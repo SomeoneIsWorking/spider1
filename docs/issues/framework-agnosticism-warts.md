@@ -18,7 +18,7 @@ the reasoning is what makes the next one recognisable.
 
 ## WART-01 — `PlatformHle::initBuiltins()` registered the reference consumer's addresses — **FIXED upstream (psxport 7c212eb5)**
 
-`runtime/recomp/sync_overrides.cpp` used to register the hardware-sync HLE table from hardcoded
+The former static runtime's `sync_overrides.cpp` used to register the hardware-sync HLE table from hardcoded
 literals: VSync `0x80085900`, CdReadSync `0x8008A96C`, CdDataSync `0x8008B4B8`, the CdInit handshake
 `0x8008B2D8`, the libgpu DMA-timeout pair, and the task-switch funnel `0x80080880` — all Tomba!2's
 addresses.
@@ -86,7 +86,7 @@ That is `re-frontier` RE-07.
 
 ## WART-03 — `guest_memset_install()` is dead code carrying a game-specific address — **no action needed**
 
-`runtime/recomp/mem.cpp` defines `guest_memset_install()`, which installs an override at
+The pre-migration memory runtime defined `guest_memset_install()`, which installed an override at
 `0x8009A420` (Tomba!2's guest `memset`). Nothing in the framework calls it — it is defined and never
 referenced.
 
@@ -135,7 +135,7 @@ rerun reached the Dem1 asset-owner proof with zero recomp misses; the final `692
 same. The analysis below is the derivation history of the defect, not current framework guidance.
 
 *What it was:* the framework accepted every interrupt-registration call a guest could make and discarded
-all of them. `B(19h) HookEntryInt` assigns `hle.int_handler` (`runtime/recomp/hle.cpp:176`) and no
+all of them. `B(19h) HookEntryInt` assigns `hle.int_handler` (the pre-migration `hle.cpp:176`) and no
 other line in the runtime reads that field — the declaration and the assignment are its only two
 mentions. `C(02h)/C(03h) SysEnqIntRP/DeqIntRP` return `$a1` and record nothing. So guest code that
 waits on an interrupt-delivered completion waits until its own timeout, every time.
@@ -215,10 +215,9 @@ Three things fall out, and the third is the one that matters:
    stack distinct from the interrupted `sp` — while `fp` holds the interrupted `0x807FFFF8`. This also
    cross-checks the `A(13h) setjmp` implementation landed earlier today: it writes that exact layout.
 2. **`ra` is MID-FUNCTION.** `0x8008B990` is the instruction immediately after `jal 0x80091340`
-   (setjmp) inside `CdInit`, which begins at `0x8008B928`. A static recompile addresses function
-   ENTRIES; it cannot dispatch into the middle of one. Any design that "just calls the custom exit"
-   is unimplementable as written, and would have surfaced as a runtime recomp-MISS rather than at
-   design time.
+   (`setjmp`) inside `CdInit`, which begins at `0x8008B928`. The runtime must therefore resume an
+   arbitrary guest PC through ordinary JIT block discovery; a native function-entry-only dispatch
+   boundary cannot model this path.
 3. **So the custom exit is not a per-interrupt trampoline — it is libcd's `longjmp` error recovery.**
    `A(13h) setjmp` at `0x8008B988` fills the buffer; `B(19h)` registers it; a CD error unwinds to
    `0x8008B990` with `$v0 != 0`, so the `beqz` falls through to `jal 0x8008BA00` — the routine that
@@ -381,7 +380,7 @@ effectively would.
 open this run, and this repo does not edit `external/psxport` without one.**
 
 ```cpp
-// runtime/recomp/gpu_native.cpp, in GpuState::gpu_native_load_image
+// historical gpu_native.cpp, in GpuState::gpu_native_load_image
 // "Register texture-region uploads (anything right of the two 320-wide framebuffers) ...
 //  Framebuffer uploads (x<320) are NOT atlas data."
 if (x >= 320) vram_register_atlas(x, y, w, h, (w <= 16) ? "clut" : "atlas");

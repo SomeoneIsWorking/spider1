@@ -37,7 +37,7 @@ Every second present is a FULL FIELD late. The port submits two frames 1 ms apar
 
 TWO CLOCKS RUNNING AT DIFFERENT RATES, one on each side of the same wait loop.
 
-  * `gpu_pace_subframe` (external/psxport/runtime/recomp/gpu_native.cpp:1568) sleeps to a deadline
+  * `gpu_pace_subframe` (external/psxport/runtime/psx/gpu_native.cpp:1568) sleeps to a deadline
     advanced by `quota * 1000.0 / 60.0` ms — exactly **60.000 Hz**.
   * `vblank_advance` (game/core/sync_native.cpp) derives the field count from elapsed real time at
     `60000/1001` — exactly **59.940 Hz**, the NTSC field rate this US release actually runs at.
@@ -109,7 +109,7 @@ levels, water, damage/hit overlays, and any scene this one recorded replay does 
 framework constant that assumes 60 Hz for every game; the field rate is a per-game property
 (`kFieldRateMilliHz = 59940` already exists in this port and is already handed to
 `rec_host_turn_register`). The fix is to feed the pacer that same rate rather than a literal 60.0 —
-framework-side, `external/psxport/runtime/recomp/gpu_native.cpp`, and it needs a claim under
+framework-side, `external/psxport/runtime/psx/gpu_native.cpp`, and it needs a claim under
 external/psxport/docs/workspace/PROTOCOL.md. Deliberately not done here: G6 was scoped game-side/measurement-only, and the two
 framework claims open this session own other files.
 

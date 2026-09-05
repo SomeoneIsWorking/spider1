@@ -23,15 +23,13 @@
 #include "cfg.h"
 #include "core.h"
 #include "game.h"
-#include "override_registry.h"
+#include "native_execution.h"
 #include "spider1_stream_driver.h"
 #include <lucent/log.h>
 
 // StGetNext(&addr, &header) — 0x80086B10. Returns 0 when it hands back a ready ring slot, non-zero
 // when none is ready. Read from its body: it takes the ring slot at DAT_800c1510 + index*0x20 when
 // the slot's status short is 2, and marks it 4.
-extern void gen_func_80086B10(Core *);
-
 // The libstr sector ring's control block. Every one of these was read out of the ring's own three
 // routines, decompiled with `tools/ghidra_query.py func 0x80086B10 0x800872AC 0x80085000`:
 //
@@ -52,7 +50,9 @@ static constexpr uint32_t kRingSlotCount = 0x800C1520u;  // slots in the ring
 static constexpr uint32_t kRingSlotStride = 0x20u;       // bytes per slot header
 
 static void spiderman_stgetnext(Core *c) {
-  gen_func_80086B10(c);
+  if (!spider::callOriginalOrPropagate(*c, 0x80086B10u)) {
+    return;
+  }
   // Non-zero means "no sector ready" — exactly when the drive owes the guest one. Pump a sector and
   // answer again. EXACTLY ONE retry: if the stream still has nothing after being pumped, "not
   // ready" is the honest answer and the guest is entitled to keep spinning. Looping here until
@@ -60,10 +60,12 @@ static void spiderman_stgetnext(Core *c) {
   // the game.
   if (c->r[2] != 0) {
     c->game->cd.pumpStream(c, 1);
-    gen_func_80086B10(c);
+    if (!spider::callOriginalOrPropagate(*c, 0x80086B10u)) {
+      return;
+    }
     if (c->r[2] != 0) {
       // On hardware the display clock and SPU keep advancing while libstr polls for an
-      // asynchronous sector. A static recompile would otherwise spin here inside one host step,
+      // asynchronous sector. A guest runtime would otherwise spin here inside one host step,
       // eventually filling the XA ring and preventing the next movie VSync boundary forever.
       // Preserve StGetNext's "not ready" answer and yield only the field it waited through.
       spider::spider1_stream_wait_field(c);
@@ -104,7 +106,7 @@ static void spiderman_stgetnext(Core *c) {
 }
 
 void spiderman_install_cd_stream(Game *g) {
-  engine_set_override_main(0x80086B10u, spiderman_stgetnext, gen_func_80086B10);
+  spider::installNativeOverride(
+      g->core, 0x80086B10u, "Spider StGetNext stream pump", spiderman_stgetnext);
   lucent::info("cd", "continuous-read pump installed on StGetNext (0x80086B10)");
-  (void)g;
 }

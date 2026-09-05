@@ -14,7 +14,7 @@ MEASURED 2026-08-24 (RE-08): over a 240s headless run, 60.91% of prims carry rea
 ABSENT class, read from disassembly (disasm.py spot-check after Ghidra,
 FUN_80028304..8002831C in FUN_80028030): the guest reads projected XY via mfc2, SPILLS it as a stack
 word (sw t0,0x90(sp)), reloads it (lw v1,0x90(sp)), and stores HALFWORDS into the packet
-(sh v1,(t7) / sh v0,-4(s0)). Neither emitter tap form sees this: emit.py _track_value collects sw
+(sh v1,(t7) / sh v0,-4(s0)). Neither retired translator tap form saw this: its value tracker collected sw
 only and does not track through memory; a direct mfc2->sh corpus scan finds ZERO pairs, so a naive
 sh extension closes nothing. DESIGNED FIX (not built; owned by the framework recomp-emitter area):
 one-hop spill-through tracking + sh targets + gte_record_pz keying the containing aligned word

@@ -8,7 +8,7 @@ distrusted_on: 2026-08-05
 
 ## Instrument
 
-The frame-progress watchdog (PSXPORT_WATCHDOG=<sec>) as a GUEST-progress gate — watchdog_pet() from gpu_present_ex, external/psxport/runtime/recomp/gpu_native.cpp:1399
+The frame-progress watchdog (PSXPORT_WATCHDOG=<sec>) as a GUEST-progress gate — watchdog_pet() from gpu_present_ex, external/psxport/runtime/psx/gpu_native.cpp:1399
 
 ## Validated by
 

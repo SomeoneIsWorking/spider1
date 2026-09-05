@@ -20,11 +20,7 @@ class Title:
     serial: str
     disc_env: str
     target: str
-    port_executable: Path
     guest_executable: Path
-    generated_directory: Path
-    generated_main: str
-    seeds: Path
     runtime_modules: bool
     file_size: int
     executable_sha256: str
@@ -38,11 +34,7 @@ class Title:
             "serial",
             "discEnv",
             "target",
-            "portExecutable",
             "guestExecutable",
-            "generatedDirectory",
-            "generatedMain",
-            "seeds",
             "runtimeModules",
             "fileSize",
             "executableSha256",
@@ -72,11 +64,7 @@ class Title:
             serial=serial,
             disc_env=str(data["discEnv"]),
             target=str(data["target"]),
-            port_executable=Path(data["portExecutable"]),
             guest_executable=Path(data["guestExecutable"]),
-            generated_directory=Path(data["generatedDirectory"]),
-            generated_main=str(data["generatedMain"]),
-            seeds=Path(data["seeds"]),
             runtime_modules=runtime_modules,
             file_size=file_size,
             executable_sha256=executable_sha256,

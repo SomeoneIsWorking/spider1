@@ -8,7 +8,7 @@ distrusted_on: 2026-08-06
 
 ## Instrument
 
-PSXPORT_DEBUG=ndepth — the '3D%=' coverage line (external/psxport/runtime/recomp/gpu_native.cpp:1646) [POINTER ENTRY — canonical record is docs/info/instruments.md INST-26]
+PSXPORT_DEBUG=ndepth — the '3D%=' coverage line (external/psxport/runtime/psx/gpu_native.cpp:1646) [POINTER ENTRY — canonical record is docs/info/instruments.md INST-26]
 
 ## Validated by
 

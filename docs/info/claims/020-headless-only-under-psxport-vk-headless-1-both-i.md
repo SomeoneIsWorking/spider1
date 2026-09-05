@@ -4,7 +4,7 @@ kind: claim
 status: holds
 created: 2026-08-05
 tags: fmv,mdec,re-07,headless,scoped
-depends: external/psxport/runtime/recomp/dma_irq.h, external/psxport/runtime/recomp/mem.cpp, external/psxport/runtime/recomp/gpu_vk.cpp, external/psxport/tools/recomp/emit.py, game/core/cd_stream.cpp
+depends: external/psxport/runtime/psx/dma_irq.h, external/psxport/runtime/psx/mem.cpp, external/psxport/runtime/psx/gpu_vk.cpp, game/core/cd_stream.cpp
 ---
 
 ## Claim

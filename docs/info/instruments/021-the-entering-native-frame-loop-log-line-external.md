@@ -7,7 +7,7 @@ created: 2026-08-06
 
 ## Instrument
 
-The 'entering native frame loop' log line (external/psxport/runtime/recomp/native_boot.cpp:295) as a NATIVE-FRAME-LOOP REACHABILITY test — the cheap way to ask 'is this GameHooks member ever called?'
+The 'entering native frame loop' log line (external/psxport/runtime/psx/native_boot.cpp:295) as a NATIVE-FRAME-LOOP REACHABILITY test — the cheap way to ask 'is this GameHooks member ever called?'
 
 ## Validated by
 

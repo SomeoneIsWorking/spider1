@@ -1,0 +1,84 @@
+name: Asset-free native runtime contract
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  linux-x86_64:
+    name: Linux x86-64 native/Lightrec product
+    runs-on: ubuntu-26.04
+    timeout-minutes: 45
+    env:
+      PSXPORT_LIGHTREC_DIR: ${{ github.workspace }}/shared/lightrec
+      PSXPORT_LIGHTNING_PREFIX: ${{ github.workspace }}/shared/lightning/build/install/linux-x86_64
+    steps:
+      - name: Check out Spider with full history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check out the exact psxport revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: SomeoneIsWorking/psxport
+          ref: 639e3630af3af9ed519bffa7da53c229c689b4d1
+          path: external/psxport
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Restore exact psxport dependencies
+        run: |
+          git -C external/psxport submodule update --init \
+            external/psycross vendor/beetle-psx vendor/lucent
+          git -C external/psxport/vendor/beetle-psx submodule update --init deps/libchdr
+      - name: Check out the exact maintained Lightrec revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: SomeoneIsWorking/lightrec
+          ref: b764c4c9f4bc425a56bfc4c32333ff8200ce8ab9
+          path: shared/lightrec
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check out the exact maintained GNU lightning revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: SomeoneIsWorking/lightning
+          ref: f305e50483e9794e8fb0b99fb77d82954a4924e5
+          path: shared/lightning
+          fetch-depth: 0
+          persist-credentials: false
+          submodules: recursive
+      - name: Check out the exact shared policy tools
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: SomeoneIsWorking/re-harness
+          ref: 121ec25c31577188f8c45e605c36a13bb9da8c9f
+          path: external/re-harness
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Select Python 3.13
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13.15"
+      - name: Install uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: "0.10.12"
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes \
+            autoconf automake clang clang-format clang-tidy cmake glslc libfreetype-dev libtool \
+            libsdl3-dev libsdl3-image-dev libssl-dev libzstd-dev ninja-build pkg-config zlib1g-dev
+      - name: Create the locked Python environment
+        run: uv sync --frozen
+      - name: Build the pinned GNU lightning dependency
+        run: >-
+          uv run --frozen python shared/lightning/tools/build_lightning.py
+          --clean --cc clang --jobs 2
+      - name: Verify the real asset-free consumer boundary
+        run: uv run --frozen python tools/verify.py

@@ -1,7 +1,7 @@
 # Native/Lightrec migration
 
-This is the only Spider product-execution plan. It follows
-`../../../shared/jit-common/docs/migration.md` and replaces the offline-generated-C plan; there is no
+This is the only Spider product-execution plan. It follows the canonical shared dynarec methodology
+and replaces the offline-generated-C plan; there is no
 static compatibility mode.
 
 ## Preserved evidence
@@ -30,37 +30,51 @@ with `Core`, service callbacks, bounded exits, complete image identity, native-o
 scoped original calls, and invalidation. Spider title code owns only measured title policy and native
 behavior.
 
-An interpreter may be linked only into a separate test/diagnostic target. The gameplay executable has
-no interpreter object, selector, or fallback. Static analysis may retain symbols and address metadata;
-it must not emit executable guest function bodies.
+The exact consumer boundary is PSXPort `639e3630af3af9ed519bffa7da53c229c689b4d1` with its required
+Lightrec runtime ABI at `b764c4c9f4bc425a56bfc4c32333ff8200ce8ab9`. `psxport.pin`, the hosted
+checkout, and the CMake dependency refusal must move together; a different or dirty dependency is
+not compatible evidence.
+
+There is no interpreter gameplay mode or selector. The maintained backend may use only classified,
+bounded automatic block fallback after the JIT explicitly refuses a block; fallback reports its
+reason, guest PC, calls, and instruction denominator and must remain below the release threshold. A
+separately selected interpreter remains test/diagnostic-only. Static analysis may retain symbols and
+address metadata; it must not emit executable guest function bodies.
 
 ## Ordered migration
 
-1. **Shared executor prerequisite.** Integrate the maintained pinned Lightrec revision into psxport as
-   a per-`Core` executor. Prove one resident override, an override-bypassing original call, and two
-   module images reusing one address, including positive and controlled-negative invalidation.
-2. **Spider runtime dispatch.** Replace generated-symbol registration with title/image-aware runtime
-   override registration. Route ordinary guest calls and scoped original calls through the executor;
-   express frame, host-service, exception, and process exits as bounded executor results.
-3. **First discriminator: `dem1`.** Execute nonzero Lightrec blocks from the authenticated
+1. **Break-first retirement — complete in the working tree.** The offline generator, emitted corpus,
+   seed manifests, generated dispatch registration, static-only tests, selector/build rules, and
+   generated movie-fiber source are absent. The launcher provisions only the authenticated PS-X EXE,
+   and no old gameplay product remains buildable or selectable.
+2. **Shared executor prerequisite — implemented for Linux x86-64.** psxport links its immutable
+   maintained Lightrec fork and exposes a per-`Core` executor, image-aware native dispatch, scoped
+   original calls, invalidation, typed exits, and exact translation/fallback counters. Its synthetic
+   runtime contract proves translated/native/original control flow and self-modifying-code
+   invalidation. The exact runtime also enforces a typed per-execution fallback-block limit, with
+   positive one-block admission and zero-limit refusal before interpreter execution. Multi-`Core`,
+   aggregate fallback-share, complete executable-writer, and non-Linux host qualification gaps
+   remain owned by psxport.
+3. **Spider runtime dispatch — wired to the boundary.** The product enters the authenticated crt0 via
+   `dispatchGuest`; `Spider1MovieExecution` resumes unchanged retail `FUN_8002AA0C` through
+   `callOriginal`. Native override promotion must use image generation plus address identity.
+4. **First discriminator: `dem1`.** Execute nonzero Lightrec blocks from the authenticated
    `SLUS_008.75`, preserve the existing native CD/input/audio/frame/render-seam owners, complete both
-   logos, and reach early `dem1`. Replace the generated movie-fiber derivative with suspension and
-   resumption of the unchanged retail `FUN_8002AA0C` body at the three authenticated field exits.
-4. **Representative gameplay gate.** Drive a bounded interactive route beyond the boot/demo
+   logos, and reach early `dem1`. Suspend and resume the unchanged retail movie body at the three
+   authenticated field exits.
+5. **Representative gameplay gate.** Drive a bounded interactive route beyond the boot/demo
    checkpoint. Compare timing, interrupts, memory, and relevant device state with an independent
    emulator or separate test oracle; verify native and original calls, module load/unload
    invalidation, correctness, and frame-time budgets on each released host architecture. Inspect the
-   gameplay link and public configuration to prove that no interpreter is present or selectable.
-5. **Atomic retirement.** Only after step 4 passes, delete the generator, generated corpus,
-   emission-only seed manifests, generated dispatcher and symbol tests, build/provisioning rules, and
-   obsolete documentation. A fresh checkout must build and launch from the player's authenticated
-   game files without offline translation or a pre-populated runtime cache.
+   gameplay configuration to prove that no interpreter mode is selectable and that all automatic
+   fallback is classified, bounded, and measured.
 6. **Second title.** Continue Enter Electro from `0x80031F54` only after Spider-Man's declared
    compatibility and performance gates pass. Reuse framework mechanics, never Spider-Man addresses or
    unmeasured title behavior.
 
 ## Completion boundary
 
-Reaching `dem1` is evidence that the replacement executor is wired to real Spider-Man code. It is not
-representative gameplay and cannot trigger static-path deletion. The migration completes only when the
-native/Lightrec product is the sole launcher path and the old generated pipeline is absent.
+The destructive half of the migration and the asset-free Lightrec link are complete. Reaching `dem1`
+will prove that the replacement executor is wired to real Spider-Man code, but migration completion
+still requires representative gameplay, cache/override conformance, bounded fallback, and host
+performance evidence.

@@ -9,8 +9,6 @@ public:
   std::string_view discEnvironment() const override;
   std::string_view defaultExecutable() const override;
   const ExecutableIdentity &executableIdentity() const override;
-  void installRecomp() override;
-
   void *createContext(Core &core) override;
   void destroyContext(void *context) override;
   void registerOverrides(Game &game) override;

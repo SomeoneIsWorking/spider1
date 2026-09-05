@@ -133,10 +133,10 @@ an unbalanced pop, and a matching save/restore path.
 The remaining malformed/misordered-sector branch now has one precise composition test. A continuous
 ReadS starts two independent delivery owners:
 
-- `runtime/recomp/cdc_native.cpp::cdc_drive_service` makes the actual controller FIFO and INT1
+- `runtime/psx/cdc_native.cpp::cdc_drive_service` makes the actual controller FIFO and INT1
   sector-ready event due on the deterministic emulated CPU clock; its shipping test proves zero data
   and zero INT1 at deadline minus one.
-- `runtime/recomp/cd_override.cpp::Cd::pumpStream` invokes the guest's ready callback from a separate
+- `runtime/psx/cd_override.cpp::Cd::pumpStream` invokes the guest's ready callback from a separate
   `std::chrono::steady_clock` budget. It can force callback one at elapsed zero and dispatch up to
   `CD_STREAM_MAX_BURST` callbacks after a host stall, whether or not the CDC has produced that many
   sector-ready events.
@@ -167,7 +167,7 @@ remain zero. This test shows the old and required answers on the same shipping c
 The implementation owner must then replace the duplicate wall-clock entitlement with a consumable
 sector-ready event owned by `CdcState`; whether that event is consumed when INT1 is queued or when it
 becomes current must follow the controller's existing IRQ-order contract, not a new title-specific
-flag. Candidate files are `runtime/recomp/cd_override.cpp`, `runtime/recomp/cd.h`,
-`runtime/recomp/cdc_native.cpp`, `runtime/recomp/cdc_state.h`,
+flag. Candidate files are `runtime/psx/cd_override.cpp`, `runtime/psx/cd.h`,
+`runtime/psx/cdc_native.cpp`, `runtime/psx/cdc_state.h`,
 `tests/test_cd_stream_drive_rate.cpp`, `tests/cdc_test_clock.h`, and a new composition test. They
 remain untouched while Crash Bash owns the CDC area.

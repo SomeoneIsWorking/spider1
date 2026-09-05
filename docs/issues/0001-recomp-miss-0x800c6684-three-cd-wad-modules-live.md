@@ -22,8 +22,9 @@ which in VENOM is `lw $s0,0x10($sp); jr $ra; addiu $sp,$sp,0x20` — an EPILOGUE
 `resident overlay = VENOM` in the miss message is CORRECT (RAM matches venom.bin 100.00% over 37364
 bytes; shell 69%, every other module ~13%).
 
-**DEAD END — do not do this:** adding 0x800C6684 to game/recomp_seeds.json. It is not a function entry
-in the resident module. Seeding it makes the abort vanish while executing the wrong module`s epilogue.
+**DEAD END — do not do this:** treating 0x800C6684 as a function entry in the resident module. It is
+VENOM's epilogue under a stale LIZMAN pointer; dispatching it only hides the residency error while
+executing the wrong module's code.
 
 **Instrument:** `python3 tools/check_module_slot.py scratch/raw/miss_ram.bin` (exit 1 today);
 `--selftest` proves POSITIVE/NEGATIVE/VOID are all reachable.

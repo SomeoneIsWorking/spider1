@@ -37,6 +37,7 @@ because the tool could not assert anything.
 import argparse
 import os
 import re
+import shutil
 import subprocess
 import sys
 
@@ -56,7 +57,9 @@ def shared_candidates():
 
 
 def git(args, cwd, check=False):
-    p = subprocess.run(["git"] + args, cwd=cwd, capture_output=True, text=True)
+    p = subprocess.run(
+        ["git"] + args, cwd=cwd, capture_output=True, text=True, check=False
+    )
     if check and p.returncode != 0:
         raise RuntimeError(f"git {' '.join(args)} failed in {cwd}: {p.stderr.strip()}")
     return p.stdout.strip(), p.returncode
@@ -71,17 +74,18 @@ def read_pin():
     if not os.path.isfile(PIN):
         return None, None
     url, commit = DEFAULT_URL, None
-    for line in open(PIN):
-        line = line.split("#", 1)[0].strip()
-        if not line:
-            continue
-        m = re.match(r"(\w+)\s*=\s*(\S+)", line)
-        if not m:
-            continue
-        if m.group(1) == "url":
-            url = m.group(2)
-        elif m.group(1) == "commit":
-            commit = m.group(2)
+    with open(PIN, encoding="utf-8") as pin_file:
+        for line in pin_file:
+            line = line.split("#", 1)[0].strip()
+            if not line:
+                continue
+            m = re.match(r"(\w+)\s*=\s*(\S+)", line)
+            if not m:
+                continue
+            if m.group(1) == "url":
+                url = m.group(2)
+            elif m.group(1) == "commit":
+                commit = m.group(2)
     return url, commit
 
 
@@ -122,7 +126,7 @@ def dirty(path):
 
 def report(args):
     kind, target = describe_link()
-    url, pin = read_pin()
+    _, pin = read_pin()
     sha = head_of(target) if kind in ("symlink", "clone") else None
     print(f"[psxport] external/psxport : {kind}" + (f" -> {target}" if kind == "symlink" else ""))
     print(f"[psxport] framework HEAD   : {sha or '(none)'}"
@@ -138,7 +142,7 @@ def report(args):
             ahead, _ = git(["rev-list", "--count", f"{pin}..{sha}"], target)
             print(f"[psxport] DRIFT — the checkout is {ahead or '?'} commit(s) off the recorded pin. "
                   f"That is normal WHILE doing framework work; record it before you land game code "
-                  f"that needs it:  python3 tools/psxport_sync.py --bump")
+                  f"that needs it:  uv run --frozen python tools/psxport_sync.py --bump")
     return 0
 
 
@@ -147,25 +151,26 @@ def read_resolved(path):
     if not os.path.isfile(path):
         return None
     d = s = None
-    for line in open(path):
-        k, _, v = line.partition("=")
-        if k.strip() == "dir":
-            d = v.strip()
-        elif k.strip() == "commit":
-            s = v.strip()
+    with open(path, encoding="utf-8") as resolved_file:
+        for line in resolved_file:
+            k, _, v = line.partition("=")
+            if k.strip() == "dir":
+                d = v.strip()
+            elif k.strip() == "commit":
+                s = v.strip()
     return (d, s) if s else None
 
 
 def do_link(args):
     for cand in shared_candidates():
         if is_psxport_checkout(cand):
-            kind, target = describe_link()
+            kind, _ = describe_link()
             if kind == "clone" and not args.force:
-                print(f"[psxport] REFUSED: external/psxport is a real clone. Replacing it would discard "
-                      f"anything unpushed in it. Inspect it, then re-run with --force.")
+                print("[psxport] REFUSED: external/psxport is a real clone. Replacing it would discard "
+                      "anything unpushed in it. Inspect it, then re-run with --force.")
                 return 2
             if kind in ("clone", "plain-dir"):
-                subprocess.run(["rm", "-rf", LINK], check=True)
+                shutil.rmtree(LINK)
             elif kind == "symlink":
                 os.unlink(LINK)
             os.makedirs(os.path.dirname(LINK), exist_ok=True)
@@ -221,7 +226,7 @@ def do_auto(args):
 
 
 def do_bump(args):
-    kind, target = describe_link()
+    _, target = describe_link()
     sha = head_of(target)
     if not sha:
         print("[psxport] REFUSED: external/psxport has no resolvable HEAD — nothing to record.")
@@ -244,7 +249,7 @@ def do_bump(args):
 
 def do_check(args):
     """The precommit check: what you BUILT against must be what this repo RECORDS."""
-    url, pin = read_pin()
+    _, pin = read_pin()
     if not pin:
         print("[psxport] REFUSED: no psxport.pin — this check asserted NOTHING.")
         return 2
@@ -259,9 +264,9 @@ def do_check(args):
         return 0
     print(f"[psxport] check FAILED — you built against {bsha[:8]} (from {bdir}) but this repo records "
           f"{pin[:8]}.")
-    print(f"[psxport]   A fresh clone would build a DIFFERENT framework than you just tested. That is "
-          f"how this tree once recorded a pin whose GameHooks lacked a field the game used.")
-    print(f"[psxport]   Fix:  python3 tools/psxport_sync.py --bump")
+    print("[psxport]   A fresh clone would build a DIFFERENT framework than you just tested. That is "
+          "how this tree once recorded a pin whose GameHooks lacked a field the game used.")
+    print("[psxport]   Fix:  uv run --frozen python tools/psxport_sync.py --bump")
     return 1
 
 

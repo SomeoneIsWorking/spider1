@@ -2,8 +2,6 @@
 
 #include <lucent/log.h>
 
-extern void enter_electro_install_recomp();
-
 namespace spider {
 
 const ExecutableIdentity EnterElectroRuntime::identity_{
@@ -22,10 +20,6 @@ std::string_view EnterElectroRuntime::defaultExecutable() const {
 
 const ExecutableIdentity &EnterElectroRuntime::executableIdentity() const {
   return identity_;
-}
-
-void EnterElectroRuntime::installRecomp() {
-  enter_electro_install_recomp();
 }
 
 void *EnterElectroRuntime::createContext(Core &) {

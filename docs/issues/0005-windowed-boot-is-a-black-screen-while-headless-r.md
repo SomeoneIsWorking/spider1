@@ -33,7 +33,7 @@ Not a degraded picture — nothing at all.
 
 MEASURED (static, in the source):
 
-* `external/psxport/runtime/recomp/gpu_vk.cpp:498` claims the window with
+* `external/psxport/runtime/psx/gpu_vk.cpp:498` claims the window with
   `SDL_ClaimWindowForGPUDevice` and never calls `SDL_SetGPUSwapchainParameters` — the symbol
   appeared nowhere under `runtime/` at the time of measurement.
 * `SDL_WaitAndAcquireGPUSwapchainTexture` is at `gpu_vk.cpp:1007`, inside
@@ -126,7 +126,7 @@ NEGATIVE here.
 
 ## The fix, and what it measured (2026-08-05)
 
-`runtime/recomp/gpu_vk_present_mode.h` adds the pure policy `preferred_present_mode(mailbox_ok,
+`runtime/psx/gpu_vk_present_mode.h` adds the pure policy `preferred_present_mode(mailbox_ok,
 immediate_ok)` -> MAILBOX / IMMEDIATE / VSYNC, and `gpu_vk.cpp` calls
 `SDL_SetGPUSwapchainParameters` immediately after `SDL_ClaimWindowForGPUDevice`, gated on
 `SDL_WindowSupportsGPUPresentMode`, logging the mode actually in effect. Nothing else changed; the
@@ -154,7 +154,7 @@ MEASURED, windowed, `PSXPORT_NOPACE=1`, everything else identical:
 
 That is headless, to within noise. So after the present-mode fix the remaining windowed deficit
 (rebuild_geom 665 vs 1502, vram_writes 11098 vs 12796) is entirely `gpu_pace_subframe`
-(`external/psxport/runtime/recomp/gpu_native.cpp:1340/1348`), which sleeps only when a window is up
+(`external/psxport/runtime/psx/gpu_native.cpp:1340/1348`), which sleeps only when a window is up
 and — because spider1's `GameConfig::paceQuota` is 0 — derives its quota from `mem_r8(0x1F800235)`,
 an un-RE'd scratchpad byte that is ordinary working memory in this game. Separate defect, not fixed
 here.

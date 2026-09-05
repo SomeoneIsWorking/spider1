@@ -30,7 +30,7 @@ registers 24/25/26 and nothing else in the image marks them. It reports the DENO
 walked, functions defined) on every run, so "0 matches" is distinguishable from "I never looked", and
 it is blind to any site Ghidra did not disassemble as code — which it also counts and prints.
 
-Build the project first with tools/ghidra_import.sh. Nothing here ships game data: the project is
+Build the project first with tools/ghidra_import.py. Nothing here ships game data: the project is
 derived from scratch/bin/spiderman/ram.bin, which tools/redump_ram.py produces from your own disc.
 """
 import os

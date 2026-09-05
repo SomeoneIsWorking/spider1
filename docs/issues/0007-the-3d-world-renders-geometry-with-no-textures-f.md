@@ -212,7 +212,7 @@ RULED OUT — the PORT is not the source of the pattern:
   * psxport's native heap HLE (hle.cpp heapAlloc/heapFree, A0:0x33/0x34) does NOT poison memory —
     grepped, there is no fill of any kind in either body. The 0x33/A0:0x33 coincidence is just the
     BIOS malloc function number.
-  * the framework nowhere fills guest RAM with 0x33 (grepped runtime/recomp).
+  * the framework nowhere fills guest RAM with 0x33 (grepped the PSX runtime).
 So the 0x33 is the GUEST's own write, most plausibly a memset(buf, 0x33, n) placeholder (the BIOS
 memset is HLE'd at hle.cpp:368, A0:0x2B) that a later real palette load was supposed to overwrite.
 The 0x44 byte stores at f134 show SOMETHING writes the buffer later — but not real palette data.
@@ -282,8 +282,8 @@ THE ACTUAL ROOT CAUSE — A MISSING FRAMEWORK FEATURE, not a guest bug:
   the port's own unimplemented readback. Both branches of the fork I posed ("never runs" vs "lands
   elsewhere") were wrong, and three lenses said so independently.
 
-CONFIRMED IN CODE BY ME: `grep -rn 'StoreImage' runtime/recomp/` returns nothing, and the 0xC0 arm
-of the GP0 dispatcher did not exist at HEAD (`git show HEAD:runtime/recomp/gpu_native.cpp` has
+CONFIRMED IN CODE BY ME: a search for `StoreImage` in the pre-migration PSX runtime returned nothing, and the 0xC0 arm
+of the GP0 dispatcher did not exist at that revision (its `gpu_native.cpp` had
 op==0xC0 only in the FIFO-length table). The handler now present in the working tree — which reports
 every readback with its rect and destination address, so that silence is evidence of absence — was
 added during this investigation and is NOT yet committed to psxport.

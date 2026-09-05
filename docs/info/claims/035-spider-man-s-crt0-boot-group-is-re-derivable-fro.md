@@ -4,7 +4,7 @@ kind: claim
 status: holds
 created: 2026-08-12
 tags: boot,crt0,heap,re-01
-depends: game/core/game_config.cpp, external/psxport/runtime/recomp/crt0_boot.h
+depends: game/core/game_config.cpp, external/psxport/runtime/psx/crt0_boot.h
 reconfirmed: 2026-08-24 20:28:47
 verified_at: 2026-08-24 20:28:47
 ---

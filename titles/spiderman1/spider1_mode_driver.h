@@ -57,8 +57,7 @@ public:
 
 // Persistent native owner of Spider-Man 1's outer selector and its three subordinate retail mode
 // functions. Every step is finite and reaches exactly one host presentation or unpresented fence.
-// The generated bodies remain compiled as gen_func_8002C354/8002C174/800604CC/800160EC/8006F294
-// for differential super calls; this owner never edits or regenerates them.
+// Synchronous guest leaves execute through the per-Core runtime boundary.
 class Spider1ModeDriver final {
 public:
   explicit Spider1ModeDriver(Spider1ModeHost &host);

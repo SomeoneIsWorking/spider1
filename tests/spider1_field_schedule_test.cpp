@@ -18,7 +18,7 @@ int main() {
       secondYieldSameStep.deliverField || secondYieldSameStep.fieldSatisfied ||
       !secondYieldSameStep.commit || !cleanReturn.valid || cleanReturn.commit ||
       duplicateFence.valid) {
-    std::fprintf(stderr, "Spider1 finite-fiber field scheduling contract failed\n");
+    std::puts("Spider1 finite-fiber field scheduling contract failed");
     return 1;
   }
   std::puts("Spider1 finite fiber: guest work runs between single-field host fences");

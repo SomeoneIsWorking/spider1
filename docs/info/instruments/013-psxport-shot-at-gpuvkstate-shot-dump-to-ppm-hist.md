@@ -8,7 +8,7 @@ distrusted_on: 2026-08-05
 
 ## Instrument
 
-PSXPORT_SHOT_AT / GpuVkState::shot() -> dump_to() PPM histogram (external/psxport/runtime/recomp/gpu_vk.cpp:1202 and :1171)
+PSXPORT_SHOT_AT / GpuVkState::shot() -> dump_to() PPM histogram (external/psxport/runtime/psx/gpu_vk.cpp:1202 and :1171)
 
 ## Validated by
 

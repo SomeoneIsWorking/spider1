@@ -25,8 +25,8 @@ same root: **Tomba!2's pattern presupposes the port OWNS the frame loop, and thi
 `hooks->drawOTag` has exactly **two** call sites in the whole framework
 (`grep -rn drawOTag external/psxport` — 16 hits, 14 of them comments):
 
-    external/psxport/runtime/recomp/native_boot.cpp:173   c->hooks->drawOTag(c, envp + 0x1ffcu);
-    external/psxport/runtime/recomp/native_boot.cpp:194   c->hooks->drawOTag(c, envp + 0x1ffcu);   // dualview only
+    external/psxport/runtime/psx/native_boot.cpp:173   c->hooks->drawOTag(c, envp + 0x1ffcu);
+    external/psxport/runtime/psx/native_boot.cpp:194   c->hooks->drawOTag(c, envp + 0x1ffcu);   // dualview only
 
 Both are inside `native_step_frame`, which is only reached from the frame loop in `game_main`
 (`native_boot.cpp:452`). And this port never gets there:

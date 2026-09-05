@@ -1,12 +1,13 @@
 #include "spider_port.h"
 
-#include "cfg.h"
 #include "core.h"
 #include "executable_identity.h"
 #include "game.h"
+#include "guest_execution.h"
 #include "spider_runtime.h"
 
 #include <cstdio>
+#include <lucent/log.h>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -19,8 +20,6 @@ void watchdog_init(void);
 
 void gte_init(void);
 void load_exe(const char *path, Core *core);
-void native_boot_run(Core *core);
-int selftest_run(const char *path);
 
 namespace spider {
 
@@ -61,19 +60,13 @@ int runPort(SpiderRuntime &runtime, int argc, char **argv) {
   lucent::info("boot", "{}", identity.detail);
 
   // Core snapshots the process-lifetime title runtime. Serial and byte identity are both verified
-  // above, before either this install or Game construction, so a renamed cache cannot borrow the
-  // other title's generated substrate, guest addresses, or compatibility views.
+  // above, before Game construction, so a renamed cache cannot borrow another title's runtime
+  // facts.
   psxport_install_game(runtime);
-  runtime.installRecomp();
 
   auto game = std::make_unique<Game>();
   game->disc.env_key = runtime.discEnvironment().data();
   Core *core = &game->core;
-
-  const char *selftest = cfg_str("PSXPORT_SELFTEST");
-  if (selftest && *selftest) {
-    return selftest_run(path.c_str());
-  }
 
   watchdog_init();
   load_exe(path.c_str(), core);
@@ -83,13 +76,14 @@ int runPort(SpiderRuntime &runtime, int argc, char **argv) {
   game->spu_audio.init();
   game->gpu.gpu_native_init();
   game->pad.overridesInit();
-  core->r[4] = 1;
-  core->r[5] = 0;
-
   core->runtime->registerOverrides(*game);
-  native_boot_run(core);
-  lucent::info("boot", "native boot returned");
-  return 0;
+  const GuestProgramImage *program = runtime.guestProgramImage();
+  if (!program || !program->crt0Entry) {
+    lucent::error("executor", "{} has no authenticated runtime entry", runtime.serial());
+    return 3;
+  }
+  GuestExecution execution(*core);
+  return reportExecutionResult(execution.enter(program->crt0Entry), runtime.serial()) ? 0 : 3;
 }
 
 } // namespace spider

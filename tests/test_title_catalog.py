@@ -24,6 +24,7 @@ def expect_refusal(catalog, contents: str, fragment: str) -> None:
 
 def main() -> int:
     catalog = load_catalog(ROOT)
+    (ROOT / "scratch").mkdir(exist_ok=True)
     checks = 0
 
     checks += 1

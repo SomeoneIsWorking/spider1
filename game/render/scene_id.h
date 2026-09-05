@@ -20,7 +20,7 @@
 #pragma once
 #include <stdint.h>
 
-class Core; // external/psxport/runtime/recomp/core.h
+class Core;
 
 // The 4 ASCII bytes at 0x800A568C that the engine encodes into a scene id, plus the encoding.
 //

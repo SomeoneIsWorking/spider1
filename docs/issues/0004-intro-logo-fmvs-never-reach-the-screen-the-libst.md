@@ -46,7 +46,7 @@ millions of StGetNext calls:
 
     base=0x80139AD4 prod=7 cons=9 d1514=7 | slots: 0 2 2 2 2 2 2 2 0 0 0 0
 
-RE (Ghidra, scratch/ghidra project built from tools/redump_ram.py + tools/ghidra_import.sh):
+RE (Ghidra, scratch/ghidra project built from tools/redump_ram.py + tools/ghidra_import.py):
 
 * `StGetNext` = `FUN_80086b10`. It reads the slot header at `DAT_800c1510 + DAT_800c151c*0x20`.
   Status 1 = wrap marker (resets cons to 0 and re-reads); status 2 = ready (takes it, marks 4,
@@ -99,7 +99,7 @@ ever be marked. Both sides were stuck for the honest reason that the ring's stat
 
 ### The fix
 
-`external/psxport/runtime/recomp/dma_irq.h` (NEW) carries DPCR/DICR as pure rules; `mem.cpp` stores
+`external/psxport/runtime/psx/dma_irq.h` carries DPCR/DICR as pure rules; `mem.cpp` stores
 both registers and gates the DMA3 completion signal on `dma_irq_armed(DICR, 3)`; `hle.cpp`
 acknowledges the channel flag where it dispatches the guest callback, because that dispatch stands
 in for the BIOS DMA handler which would acknowledge first.
