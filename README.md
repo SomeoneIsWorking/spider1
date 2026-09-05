@@ -40,8 +40,8 @@ A bounded representative interactive gameplay milestone must also prove:
 The removed pipeline cannot return as a compatibility mode while this work is incomplete.
 
 The consumer is pinned to PSXPort
-`639e3630af3af9ed519bffa7da53c229c689b4d1`, whose runtime dependency requires maintained Lightrec
-`b764c4c9f4bc425a56bfc4c32333ff8200ce8ab9`. Both revisions are immutable build inputs; CMake refuses
+`eb5f23a8b3506f8853b3cfadcedc024cd90818a0`, whose runtime dependency requires maintained Lightrec
+`b1457137c31cedff5f440d59da29401d021ba2da`. Both revisions are immutable build inputs; CMake refuses
 a dirty or mismatched Lightrec checkout and the consumer pin test refuses a different PSXPort build.
 
 ## Intended player experience

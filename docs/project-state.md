@@ -247,8 +247,8 @@ current capability refusal is permanent.
 ### S017 — Runtime Lightrec execution
 
 Implemented subset: the product enters authenticated crt0 through psxport's per-`Core`
-`dispatchGuest` boundary. Spider pins PSXPort `639e3630af3af9ed519bffa7da53c229c689b4d1`, which
-requires maintained Lightrec runtime ABI `b764c4c9f4bc425a56bfc4c32333ff8200ce8ab9`; the exact pair
+`dispatchGuest` boundary. Spider pins PSXPort `eb5f23a8b3506f8853b3cfadcedc024cd90818a0`, which
+requires maintained Lightrec runtime ABI `b1457137c31cedff5f440d59da29401d021ba2da`; the exact pair
 links into both title products. Image-aware native
 dispatch, scoped `callOriginal`, invalidation, typed exits, and translation/fallback counters are
 present, and the old generator/dispatcher/selector/product are absent. The shared Linux x86-64

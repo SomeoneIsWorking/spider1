@@ -30,8 +30,8 @@ with `Core`, service callbacks, bounded exits, complete image identity, native-o
 scoped original calls, and invalidation. Spider title code owns only measured title policy and native
 behavior.
 
-The exact consumer boundary is PSXPort `639e3630af3af9ed519bffa7da53c229c689b4d1` with its required
-Lightrec runtime ABI at `b764c4c9f4bc425a56bfc4c32333ff8200ce8ab9`. `psxport.pin`, the hosted
+The exact consumer boundary is PSXPort `eb5f23a8b3506f8853b3cfadcedc024cd90818a0` with its required
+Lightrec runtime ABI at `b1457137c31cedff5f440d59da29401d021ba2da`. `psxport.pin`, the hosted
 checkout, and the CMake dependency refusal must move together; a different or dirty dependency is
 not compatible evidence.
 
