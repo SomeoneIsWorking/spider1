@@ -30,10 +30,14 @@ with `Core`, service callbacks, bounded exits, complete image identity, native-o
 scoped original calls, and invalidation. Spider title code owns only measured title policy and native
 behavior.
 
-The exact consumer boundary is PSXPort `eb5f23a8b3506f8853b3cfadcedc024cd90818a0` with its required
+The exact consumer boundary is PSXPort `a5a796521668cf078e150808cc1fc4616d1f31d6` with its required
 Lightrec runtime ABI at `b1457137c31cedff5f440d59da29401d021ba2da`. `psxport.pin`, the hosted
 checkout, and the CMake dependency refusal must move together; a different or dirty dependency is
 not compatible evidence.
+
+WebAssembly is part of the migration release contract: add a browser-capable path that follows
+the same runtime boundary and typed fallback accounting as desktop hosts. If web parity is not yet
+proven, this remains an explicit blocked state with measurable acceptance criteria.
 
 There is no interpreter gameplay mode or selector. The maintained backend may use only classified,
 bounded automatic block fallback after the JIT explicitly refuses a block; fallback reports its

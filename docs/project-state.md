@@ -30,7 +30,7 @@ S017 — per-Core Lightrec execution with no selectable interpreter gameplay mod
 | S009 | Spider-Man presents true per-object interpolated 60fps | missing | S006, S007 | G002 |
 | S010 | The shipping Spider-Man path has no whole-frame compatibility fallback | verified | — | G002, G003 |
 | S011 | Maintainer gates can verify hermetic contracts and bounded product behavior | partial | S001 | G004 |
-| S012 | Input, memory card, and runtime module placement support Spider-Man gameplay | verified | S002, S004 | G003 |
+| S012 | Input, memory card, and runtime module placement support Spider-Man gameplay | partial | S002, S004 | G003 |
 | S013 | FMV and audio delivery run through host-owned services | partial | S004 | G003 |
 | S014 | Same-engine lineage keeps title identity, facts, runtime images, and capability policy isolated | verified | — | G001 |
 | S015 | First-party C++ passes Clang build, format, clang-tidy, and structure policy | verified | — | G004 |
@@ -92,7 +92,7 @@ temporal interpolation, runtime-module, or rendered-pixel claim exists.
 
 ### S004 — Native platform service ownership
 
-Demonstrated subset: `Spider1FrameDriver` owns display-field timing, VSync callback delivery,
+Historical subset: `Spider1FrameDriver` owns display-field timing, VSync callback delivery,
 per-field audio, per-frame pad service, and the single-fence invariant. `Spider1ModeDriver` owns the
 retail field waits and submit ordering across primary, transition, menu, alternate, countdown, and
 invalid-selector states. Repeated display fields pace the held image without rotating temporal
@@ -114,6 +114,15 @@ movies, completes the exact post-logo wait, reaches `dem1`, reconciles every cap
 The legacy `GameConfig`/`GameHooks` static-product adapters are removed; measured facts now belong to
 the title runtime or cohesive native owners. Gap: those preserved owners still need image-aware
 registration and FMV/audio synchronization remains incomplete under S013.
+
+The direct runtime now installs its measured SetGeomOffset, SetGeomScreen, CdRead, CdReadSync, and
+VSync entries through the framework's existing `PlatformHlePlan`; the two pad receive buffers use
+`GuestPadBufferLayout`. The `spider1_runtime_services` regression first failed on the absent VSync
+contract and unchanged pad buffer. With those facts restored, both cases pass all 20 checks against
+framework `a5a79652`: projection setters publish their arguments, VSync returns a protected typed
+frame boundary, game-address HLE registration is refused, and pad writes preserve the retail mirror.
+This is service-binding evidence with zero translated guest instructions; finite frame/movie
+attachment and authenticated gameplay remain unverified.
 
 ### S005 — Render seam and frame envelope
 
@@ -185,11 +194,12 @@ Evidence: `tools/source_policy.py` rejects the retired path, identifiers, and ge
 
 ### S011 — Verification coverage
 
-Demonstrated subset: `tools/verify.py` delegates one exact-pinned Clang/Ninja configure, both-title
-product build, all 17 title CTests, and the self-tested repository/CMake/linked-product execution
-boundary inspection to PSXPort's shared consumer verifier. This passed locally against PSXPort
-`639e3630` and Lightrec `b764c4c9`. The asset-free Linux x86-64 workflow invokes the same entry point
-and passed the product composition gate on main commit
+Demonstrated subset: `tools/verify.py` delegates one exact-pinned configure, both-title product build,
+all 18 title CTests, and the self-tested repository/CMake/linked-product execution boundary inspection
+to PSXPort's shared consumer verifier. The complete gate passed locally on 2026-09-08 with
+Clang/Ninja against PSXPort `a5a79652` and Lightrec `b1457137`; its unchanged build performed zero
+compilations. The asset-free Linux x86-64 workflow invokes the same entry point. Its earlier
+product-composition result passed on main commit
 `265ff0862820052fe6d84daf45e5b2e257701f02` in
 [run 33960072758](https://github.com/SomeoneIsWorking/spider1/actions/runs/33960072758).
 This is composition evidence only; the retired static-product gate is absent.
@@ -200,12 +210,18 @@ content identity rather than an index alone.
 
 ### S012 — Gameplay support services
 
-Observable conditions: forced pad input changes the menu, a 128 KiB memory-card image is created and
+Historical conditions: forced pad input changes the menu, a 128 KiB memory-card image is created and
 the card check completes, and concurrently live CD.WAD modules occupy distinct guest allocations
 without a guest-execution miss.
 
-Evidence: resolved issue 0001, the measured multi-image residency claim C013, and the input/memory-card
-behavior recorded in the durable issue/claim ledgers.
+Historical evidence: resolved issue 0001, the measured multi-image residency claim C013, and the
+input/memory-card behavior recorded in the durable issue/claim ledgers concern the retired product.
+
+Current direct-runtime subset: `Spider1Runtime` supplies the RE-05 receive-buffer layout to the
+shipping `Pad::serviceFrame` owner. The `spider1_runtime_services` CTest writes a held input into the
+retail slot-0 packet, reports slot 1 disconnected, and preserves the game's separate mirror.
+Gap: the native frame owner is not attached, and input, cards, and module placement have not been
+qualified through interactive Lightrec gameplay.
 
 ### S013 — FMV and audio
 
@@ -250,7 +266,7 @@ current capability refusal is permanent.
 ### S017 — Runtime Lightrec execution
 
 Implemented subset: the product enters authenticated crt0 through psxport's per-`Core`
-`dispatchGuest` boundary. Spider pins PSXPort `eb5f23a8b3506f8853b3cfadcedc024cd90818a0`, which
+`dispatchGuest` boundary. Spider pins PSXPort `a5a796521668cf078e150808cc1fc4616d1f31d6`, which
 requires maintained Lightrec runtime ABI `b1457137c31cedff5f440d59da29401d021ba2da`; the exact pair
 links into both title products. Image-aware native
 dispatch, scoped `callOriginal`, invalidation, typed exits, and translation/fallback counters are

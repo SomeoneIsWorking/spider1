@@ -46,7 +46,7 @@ points compose peer owners; they do not absorb rendering, input, storage, or dia
 | Enter Electro enhanced renderer | Title-derived render seam, native producer, wide projection, and temporal history | target beneath `titles/spiderman2/`, plus address-free lineage peers in `game/render/` | target Enter Electro render installer | `docs/re-frontier.md` |
 | Executable identity | Shipping serial, size, magic, and SHA-256 authentication | `game/core/executable_identity.*` | `verifyExecutableIdentity` | `CLAUDE.md` |
 | Frame cadence | Preserved finite Spider-Man 1 field/movie/mode owners awaiting attachment after executable JIT conformance | `titles/spiderman1/spider1_frame_driver.*`, `spider1_movie_execution.*`, `spider1_mode_driver.*` | typed guest-execution calls in those owners | `docs/migration.md` |
-| Platform/HLE bridge | Framework PSX services plus preserved Spider-Man CD-stream owner | framework `PlatformHle`; `game/core/cd_stream.cpp` | image-aware native registration | `docs/re-frontier.md` |
+| Platform/HLE bridge | Measured SCEI service entries and pad receive buffers; framework handlers and preserved Spider-Man CD-stream owner | `titles/spiderman1/spider1_platform_facts.h`; framework `PlatformHle`; `game/core/cd_stream.cpp` | `Spider1Runtime::platformHlePlan`, `guestPadBufferLayout`, `registerOverrides` | `docs/re-frontier.md` |
 | Runtime modules | Guest allocator placement, authenticated image activation, and cache invalidation | title loader observation plus `external/psxport/runtime/cpu/image_identity.*` and `invalidation.*` | image catalog activation | `docs/issues/0001-recomp-miss-0x800c6684-three-cd-wad-modules-live.md` |
 | Scene identity | Binary-derived level/sublevel identity for render policy | `game/render/scene_id.*` | `classifyScene` | `docs/re-frontier.md` |
 | Frame fence | Target mapping from finite retail mode steps onto submitted, repeated-field, or unpresented framework boundaries | preserved `titles/spiderman1/spider1_frame_driver.*`, `spider1_mode_driver.*` | attach only after JIT conformance | `docs/issues/0017-spider-man-aborts-after-entering-dem1-because-ca.md` |
@@ -71,14 +71,14 @@ points compose peer owners; they do not absorb rendering, input, storage, or dia
 ## Source tree
 
 ```text
-game/  —  3,161 lines, 35 files
-├─ core/  517 lines, 11 files
+game/  —  3,160 lines, 35 files
+├─ core/  516 lines, 11 files
 └─ render/  2,644 lines, 24 files
-titles/  —  2,040 lines, 15 files
-├─ spiderman1/  1,930 lines, 12 files
+titles/  —  2,078 lines, 16 files
+├─ spiderman1/  1,968 lines, 13 files
 └─ spiderman2/  110 lines, 3 files
 tools/  —  6,387 lines, 28 files
-tests/  —  411 lines, 12 files
+tests/  —  483 lines, 13 files
 ```
 
 Refresh with:

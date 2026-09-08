@@ -159,6 +159,13 @@ if(BUILD_TESTING)
   add_test(NAME source_policy_selftest
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/source_policy.py --selftest)
   if(TARGET spiderman_port)
+    spider_add_runtime_target(
+      spider1_runtime_services_test spiderman1 SPIDER1
+      tests/spider1_runtime_services_test.cpp titles/spiderman1/spider1_runtime.cpp)
+    target_include_directories(spider1_runtime_services_test PRIVATE ${PSXPORT_DIR}/tests)
+    add_test(NAME spider1_runtime_services COMMAND spider1_runtime_services_test)
+    set_tests_properties(spider1_runtime_services PROPERTIES ENVIRONMENT
+      "PSXPORT_NOWINDOW=1;PSXPORT_NOAUDIO=1;PSXPORT_NOPACE=1")
     add_test(NAME launcher_help
       COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/test_help_contract.py
               --executable $<TARGET_FILE:spiderman_port>)

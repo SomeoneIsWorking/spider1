@@ -26,7 +26,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: SomeoneIsWorking/psxport
-          ref: eb5f23a8b3506f8853b3cfadcedc024cd90818a0
+          ref: a5a796521668cf078e150808cc1fc4616d1f31d6
           path: external/psxport
           fetch-depth: 0
           persist-credentials: false

@@ -7,6 +7,7 @@
 #include "host_turn.h"
 #include "native_execution.h"
 #include "spider1_field_schedule.h"
+#include "spider1_platform_facts.h"
 #include "spider1_stream_driver.h"
 
 #include <cstdlib>
@@ -16,7 +17,6 @@ namespace spider {
 namespace {
 
 // SLUS_008.75 service and finite-boot facts. Enter Electro's addresses stay in its own title tree.
-constexpr uint32_t kVsync = 0x80084BE0u;
 constexpr uint32_t kVsyncCallback = 0x8008B8CCu;
 constexpr uint32_t kResetGraph = 0x80084778u;
 constexpr uint32_t kGuestFieldWait = 0x8005E748u;
@@ -92,9 +92,10 @@ Spider1FrameDriver &Spider1FrameDriver::from(Core &core) {
 }
 
 void Spider1FrameDriver::installOverrides() {
-  // VSync itself is deliberately absent. GameConfig::hle.vsyncTrap declares 0x80084BE0 and
-  // PlatformHle installs the framework's protected all-mode abort. This driver owns the recovered
-  // loop state and the two engine boundaries that would otherwise require a successful VSync.
+  // VSync itself is deliberately absent. The title's platform facts declare its address and
+  // PlatformHle installs the framework's protected typed frame boundary. This driver owns the
+  // recovered loop state and the two engine boundaries that would otherwise require a successful
+  // VSync.
   game_.platform_hle.register_(kVsyncCallback, captureVsyncCallback);
   // FUN_80086F18 calls stock libcd's inner CdSync body directly after the final STR field. Its
   // observable success contract is the same complete/ready result as the public wrapper already
@@ -112,10 +113,11 @@ void Spider1FrameDriver::installOverrides() {
     std::abort();
   }
   installNativeOverride(game_.core, game_.core.cfg->cdInit, "Spider CdInit", initializeCd);
-  lucent::info("frame",
-               "Spider-Man 1 native frame ownership installed: VSync 0x{:08X} remains trapped; "
-               "outer dispatcher and all retail mode loops are host-driven",
-               kVsync);
+  lucent::info(
+      "frame",
+      "Spider-Man 1 native frame ownership installed: VSync 0x{:08X} remains a frame boundary; "
+      "outer dispatcher and all retail mode loops are host-driven",
+      spider1::platformServices.vsyncAddress);
 }
 
 void Spider1FrameDriver::initializeCd(Core *core) {

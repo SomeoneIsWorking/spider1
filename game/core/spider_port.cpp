@@ -1,4 +1,6 @@
 #include "spider_port.h"
+#include "hw_bind.h"
+#include "psx_exe_image.h"
 
 #include "core.h"
 #include "executable_identity.h"
@@ -17,9 +19,6 @@ void mdec_init(void);
 void spu_init(void);
 void watchdog_init(void);
 }
-
-void gte_init(void);
-void load_exe(const char *path, Core *core);
 
 namespace spider {
 

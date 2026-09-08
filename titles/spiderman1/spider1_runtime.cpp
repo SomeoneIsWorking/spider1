@@ -1,8 +1,7 @@
 #include "spider1_runtime.h"
+#include "spider1_platform_facts.h"
 
 #include "game.h"
-
-#include <lucent/log.h>
 
 namespace spider {
 
@@ -30,8 +29,8 @@ void *Spider1Runtime::createContext(Core &) {
 
 void Spider1Runtime::destroyContext(void *) {}
 
-void Spider1Runtime::registerOverrides(Game &) {
-  lucent::info("boot", "Spider-Man runtime starts with no title override registrations");
+void Spider1Runtime::registerOverrides(Game &game) {
+  game.platform_hle.initBuiltins();
 }
 
 void Spider1Runtime::bootInit(Core &) {
@@ -40,6 +39,14 @@ void Spider1Runtime::bootInit(Core &) {
 
 const GuestProgramImage *Spider1Runtime::guestProgramImage() const {
   return &image_;
+}
+
+const PlatformHlePlan *Spider1Runtime::platformHlePlan() const {
+  return &spider1::platformServices;
+}
+
+const GuestPadBufferLayout *Spider1Runtime::guestPadBufferLayout() const {
+  return &spider1::padBuffers;
 }
 
 RenderCapabilities Spider1Runtime::renderCapabilities() const {
