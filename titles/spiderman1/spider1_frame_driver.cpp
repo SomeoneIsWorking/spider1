@@ -2,6 +2,7 @@
 
 #include "cd_control.h"
 #include "core.h"
+#include "execution_control.h"
 #include "execution_services.h"
 #include "game.h"
 #include "host_turn.h"
@@ -57,10 +58,6 @@ uint32_t horizontalCounter(Core &core) {
   return pointer ? core.mem_r32(pointer) : 0u;
 }
 
-bool isMovieFieldReturn(uint32_t returnPc) {
-  return returnPc == 0x8002AC8Cu || returnPc == 0x8002AE1Cu || returnPc == 0x8002AFECu;
-}
-
 } // namespace
 
 Spider1FrameDriver::Spider1FrameDriver(Game &game)
@@ -114,12 +111,55 @@ void Spider1FrameDriver::serviceBootstrapVsync(Core &core) {
   lucent::info("frame", "Spider-Man 1 completed pre-main ResetGraph field at 0x{:08X}", core.pc);
 }
 
+void Spider1FrameDriver::serviceBootstrapMovieVsync(Core &core) {
+  const uint32_t returnPc = core.r[31];
+  if (mainFrameInstalled_ || activeCoro_ || !spider1::isMovieFieldReturn(returnPc) ||
+      core.r[4] != 0) {
+    lucent::error("str",
+                  "Spider-Man 1 refused retail STR field: main={} fiber={} ra=0x{:08X} a0=0x{:08X}",
+                  mainFrameInstalled_,
+                  static_cast<bool>(activeCoro_),
+                  returnPc,
+                  core.r[4]);
+    std::abort();
+  }
+
+  // The direct Lightrec boot has already returned the whole guest CPU state at libetc VSync.
+  // Deliver exactly that field, then continue at the call's authentic return PC. The retail movie
+  // body, including its stack and decode loop, remains the owner of every instruction around it.
+  const uint32_t returnValue =
+      (horizontalCounter(core) - core.mem_r32(kHorizontalCounterBaseline)) & 0xFFFFu;
+  fieldsSinceCommit_ = 0;
+  frameCommitted_ = false;
+  deliverField(core);
+  if (core.executionControl().pending()) {
+    lucent::error("str",
+                  "Spider-Man 1 field callback exited before completing the retail STR field");
+    std::abort();
+  }
+  completeMovieVsync(core, returnValue);
+  commitMovieField(core);
+  // The call site is at the END of guest work for this field. Begin the next logic frame only
+  // after presenting this one, so its OT attributes remain intact through the current fence.
+  ++game_.timing.logicFrame;
+  core.rsub.otAttr.beginLogicFrame(game_.timing.logicFrame);
+  game_.pad.serviceFrame();
+  ++movieFieldCount_;
+  core.pc = returnPc;
+  lucent::info(
+      "str", "Spider-Man 1 resumed retail STR field {} at 0x{:08X}", movieFieldCount_, core.pc);
+}
+
 void Spider1FrameDriver::installBootstrapOverrides() {
   // The first post-ResetGraph hardware query is the stock GPU DMA timeout arm. Its VSync(-1)
   // reads the title field count without waiting, so the complete native leaf below owns it.
   installNativeOverride(
       game_.core, kGpuDmaTimeoutStart, "Spider GPU DMA timeout", startGpuDmaTimeout);
   installNativeOverride(game_.core, spider1::cdInitAddress, "Spider CdInit", initializeCd);
+  if (!game_.platform_hle.register_(kVsyncCallback, captureVsyncCallback)) {
+    lucent::error("frame", "Spider-Man 1 could not bind measured VSyncCallback registration");
+    std::abort();
+  }
   // The directly called stock CdSync body has VSync(-1) timeout polls, while the host CD command
   // completes synchronously. The same complete/ready owner as the public wrapper serves it.
   if (!game_.platform_hle.register_(kInnerCdSync, cd_sync_stock_sync)) {
@@ -133,8 +173,8 @@ void Spider1FrameDriver::installOverrides() {
   // PlatformHle installs the framework's protected typed frame boundary. This driver owns the
   // recovered loop state and the two engine boundaries that would otherwise require a successful
   // VSync.
-  game_.platform_hle.register_(kVsyncCallback, captureVsyncCallback);
-  // The inner CdSync body is already bound by the pre-main bootstrap phase.
+  // VSyncCallback is already bound before crt0 so direct retail boot can publish its field
+  // callback. The inner CdSync body is already bound by the pre-main bootstrap phase.
   installNativeOverride(game_.core, kGuestFieldWait, "Spider field wait", waitGuestFields);
   installNativeOverride(game_.core, kPadService, "Spider pad service", serviceBootTail);
   installNativeOverride(game_.core, kMoviePlayer, "Spider movie player", playMovie);
@@ -253,7 +293,7 @@ void Spider1FrameDriver::playMovie(Core *core) {
 
 void spider1_movie_field(Core *core, uint32_t returnPc) {
   Spider1FrameDriver &driver = Spider1FrameDriver::from(*core);
-  if (!isMovieFieldReturn(returnPc) || core->r[31] != returnPc) {
+  if (!spider1::isMovieFieldReturn(returnPc) || core->r[31] != returnPc) {
     lucent::error("str",
                   "Spider-Man 1 STR body requested an unauthenticated field boundary: "
                   "argument=0x{:08X} ra=0x{:08X}",

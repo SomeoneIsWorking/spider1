@@ -8,6 +8,7 @@
 #include "native_execution.h"
 #include "testutil.h"
 
+#include <array>
 #include <memory>
 
 namespace {
@@ -16,6 +17,17 @@ inline constexpr uint32_t kCdParameter = 0x80112000u;
 inline constexpr uint32_t kCdResult = 0x80113000u;
 inline constexpr uint32_t kCdReturn = 0x80010100u;
 inline constexpr uint32_t kInnerCdSync = 0x8008C944u;
+inline constexpr uint32_t kVsyncCallbackEntry = 0x8008B8CCu;
+inline constexpr uint32_t kSyntheticFieldCallback = 0x80015000u;
+inline constexpr uint32_t kVblankCount = 0x800B397Cu;
+
+struct FieldCallbackProbe {
+  static inline unsigned calls = 0;
+
+  static void invoked(Core *) {
+    ++calls;
+  }
+};
 
 struct CdCallbackProbe {
   static inline unsigned calls = 0;
@@ -158,6 +170,72 @@ void test_stock_cd_command_without_measured_work_area_does_not_write_guest_state
   CHECK(core.imageCatalog().deactivate(image));
 }
 
+void test_retail_movie_field_exit_resumes_at_each_authenticated_return() {
+  spider::Spider1Runtime runtime;
+  psxport_install_game(runtime);
+  auto game = std::make_unique<Game>();
+  Core &core = game->core;
+  auto image = core.imageCatalog().activate(
+      "Spider-Man resident", runtime.guestProgramImage()->residentText, 1u);
+  runtime.registerOverrides(*game);
+  runtime.prepareBootstrap(*game);
+  CHECK(game->platform_hle.lookup(kVsyncCallbackEntry) != nullptr);
+  spider::installNativeOverride(
+      core, kSyntheticFieldCallback, "test display field callback", FieldCallbackProbe::invoked);
+  FieldCallbackProbe::calls = 0;
+  core.r[4] = kSyntheticFieldCallback;
+  core.r[31] = kCdReturn;
+  CHECK(
+      psx::cpu::dispatchGuest(core, kVsyncCallbackEntry, psx::cpu::ExecutionBudget::fromCycles(100))
+          .returned());
+
+  auto unexpected = psx::cpu::ExecutionResult{psx::cpu::ExecutionExitReason::FrameBoundary,
+                                              spider::spider1::platformServices.vsyncAddress,
+                                              0,
+                                              {}};
+  core.pc = unexpected.guestPc;
+  core.r[4] = 0;
+  core.r[31] = 0x80010140u;
+  auto oldFence = game->presentation.fence();
+  auto oldVblank = core.mem_r32(kVblankCount);
+  CHECK(!runtime.resumeBootstrapBoundary(core, unexpected));
+  CHECK_EQ(game->presentation.fence(), oldFence);
+  CHECK_EQ(core.mem_r32(kVblankCount), oldVblank);
+  CHECK_EQ(core.pc, unexpected.guestPc);
+
+  std::array<uint32_t, 3> returns{spider::spider1::movieInitialVsyncReturn,
+                                  spider::spider1::movieFrameVsyncReturn,
+                                  spider::spider1::movieTeardownVsyncReturn};
+  core.r[16] = 0;
+  for (uint32_t index = 0; index < returns.size(); ++index) {
+    uint32_t returnPc = returns[index];
+    uint32_t callPc = returnPc - 8u;
+    core.mem_w32(callPc,
+                 0x0C000000u |
+                     ((spider::spider1::platformServices.vsyncAddress >> 2u) & 0x03FFFFFFu));
+    core.mem_w32(callPc + 4u, 0x24040000u);   // addiu a0, zero, 0: VSync(0) delay slot
+    core.mem_w32(returnPc, 0x26100001u);      // addiu s0, s0, 1: guest continuation
+    core.mem_w32(returnPc + 4u, 0x0000000Du); // break: stop after one resumed instruction
+    core.r[31] = 0;
+    auto exit =
+        psx::cpu::dispatchGuestUntilExit(core, callPc, psx::cpu::ExecutionBudget::fromCycles(100));
+    CHECK_EQ(exit.reason, psx::cpu::ExecutionExitReason::FrameBoundary);
+    CHECK_EQ(exit.guestPc, spider::spider1::platformServices.vsyncAddress);
+    CHECK_EQ(core.r[31], returnPc);
+    CHECK_EQ(core.r[16], index);
+    CHECK(runtime.resumeBootstrapBoundary(core, exit));
+    CHECK_EQ(core.pc, returnPc);
+    CHECK_EQ(game->presentation.fence(), oldFence + index + 1u);
+    CHECK_EQ(core.mem_r32(kVblankCount), oldVblank + index + 1u);
+    CHECK_EQ(FieldCallbackProbe::calls, index + 1u);
+    auto continuation =
+        psx::cpu::dispatchGuestUntilExit(core, core.pc, psx::cpu::ExecutionBudget::fromCycles(100));
+    CHECK_EQ(continuation.reason, psx::cpu::ExecutionExitReason::HostService);
+    CHECK_EQ(core.r[16], index + 1u);
+  }
+  CHECK(core.imageCatalog().deactivate(image));
+}
+
 void test_measured_services_use_the_direct_runtime() {
   spider::Spider1Runtime runtime;
   psxport_install_game(runtime);
@@ -245,6 +323,7 @@ void test_pad_service_writes_retail_receive_buffers_only() {
 } // namespace
 
 int main() {
+  RUN(retail_movie_field_exit_resumes_at_each_authenticated_return);
   RUN(stock_cd_command_preserves_measured_guest_state_and_pending_result);
   RUN(stock_cd_command_without_measured_work_area_does_not_write_guest_state);
   RUN(measured_services_use_the_direct_runtime);

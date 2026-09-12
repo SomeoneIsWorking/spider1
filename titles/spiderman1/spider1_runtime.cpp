@@ -51,11 +51,18 @@ void Spider1Runtime::prepareBootstrap(Game &game) {
 
 bool Spider1Runtime::resumeBootstrapBoundary(Core &core, const psx::cpu::ExecutionResult &result) {
   if (result.reason != psx::cpu::ExecutionExitReason::FrameBoundary ||
-      result.guestPc != spider1::platformServices.vsyncAddress ||
-      core.r[31] != spider1::resetGraphVsyncReturn) {
+      result.guestPc != spider1::platformServices.vsyncAddress || core.pc != result.guestPc ||
+      core.r[4] != 0) {
     return false;
   }
-  Spider1FrameDriver::from(core).serviceBootstrapVsync(core);
+  Spider1FrameDriver &driver = Spider1FrameDriver::from(core);
+  if (core.r[31] == spider1::resetGraphVsyncReturn) {
+    driver.serviceBootstrapVsync(core);
+  } else if (spider1::isMovieFieldReturn(core.r[31])) {
+    driver.serviceBootstrapMovieVsync(core);
+  } else {
+    return false;
+  }
   return true;
 }
 

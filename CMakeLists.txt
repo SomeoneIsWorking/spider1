@@ -170,7 +170,7 @@ if(BUILD_TESTING)
     target_include_directories(spider1_runtime_services_test PRIVATE ${PSXPORT_DIR}/tests)
     add_test(NAME spider1_runtime_services COMMAND spider1_runtime_services_test)
     set_tests_properties(spider1_runtime_services PROPERTIES ENVIRONMENT
-      "PSXPORT_NOWINDOW=1;PSXPORT_NOAUDIO=1;PSXPORT_NOPACE=1")
+      "PSXPORT_NOWINDOW=1;PSXPORT_NOAUDIO=1;PSXPORT_NOPACE=1;PSXPORT_ASSET_DIR=${PSXPORT_DIR}")
     add_test(NAME launcher_help
       COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/test_help_contract.py
               --executable $<TARGET_FILE:spiderman_port>)

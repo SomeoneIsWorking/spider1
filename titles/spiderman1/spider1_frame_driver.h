@@ -23,6 +23,7 @@ public:
   void installOverrides();
   void installBootstrapOverrides();
   void serviceBootstrapVsync(Core &core);
+  void serviceBootstrapMovieVsync(Core &core);
   void runBootPrefix(Core &core);
   void stepFrame(Core &core, uint32_t frame) override;
   static Spider1FrameDriver &from(Core &core);

@@ -7,6 +7,14 @@ namespace spider::spider1 {
 
 // ResetGraph's pre-main VSync(0) return site, measured in SLUS_008.75.
 inline constexpr uint32_t resetGraphVsyncReturn = 0x8008479Cu;
+inline constexpr uint32_t movieInitialVsyncReturn = 0x8002AC8Cu;
+inline constexpr uint32_t movieFrameVsyncReturn = 0x8002AE1Cu;
+inline constexpr uint32_t movieTeardownVsyncReturn = 0x8002AFECu;
+
+inline constexpr bool isMovieFieldReturn(uint32_t returnPc) {
+  return returnPc == movieInitialVsyncReturn || returnPc == movieFrameVsyncReturn ||
+         returnPc == movieTeardownVsyncReturn;
+}
 inline constexpr uint32_t cdInitAddress = 0x8008A16Cu;
 inline constexpr uint32_t cdCommandAddress = 0x8008CE8Cu;
 inline constexpr uint32_t cdLastPositionAddress = 0x800B3B2Cu;

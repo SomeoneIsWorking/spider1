@@ -105,15 +105,28 @@ headless, silent retail run after the binding stopped earlier, at the boot movie
 `VSync` frame-boundary PC `0x80084BE0` with return `0x8002AC8C`. It executed 347,812
 Lightrec blocks and 1,766,751 instructions with zero interpreter fallback, but did not reach
 `CD_cw`; it therefore cannot validate the live command behavior or the older `0x8008D050`
-wait. The movie's cooperative field continuation remains the immediate frontier.
+wait. The title now binds VSyncCallback before crt0 and resumes a typed movie field only at the
+three authenticated VSync(0) returns. A shipping-path synthetic Lightrec test jumps to the same
+VSync entry, crosses each field boundary, delivers the registered callback and one presentation
+fence, then executes the next guest instruction exactly once. An unrelated return PC is refused
+without changing PC, field count, or presentation fence. An authenticated, headless, silent retail
+run with this change then resumed STR field 1 at `0x8002AC8C` and presented its fence. It next
+registered the libstr interrupt element but made no further field progress before the host watchdog
+stopped it. The watchdog's Lightrec host-side backtrace does not identify the guest PC, so the
+immediate stall remains unclassified. This proves one retail field continuation, not a completed
+movie or frame loop.
 
 The previous static-product investigation measured why preserving CdLastPos matters: the guest read
 path seeds its expected sector from that record and rejected every sector when it stayed stale. The
-next discriminator is the cooperative field continuation, followed by an authenticated boot with
-command/return/callback counts and nonzero Lightrec execution. Establish which command and
-arguments reached `CD_cw`, whether its native
-completion crosses the old VSync exit, and whether the downstream guest expects a callback effect
-the synchronous owner has not delivered. Do not equate a crossed wait with completed STR or `dem1`.
+next discriminator is a bounded debugger observation after the first retail field: record the live
+guest PC, StGetNext entries and dry returns, ring producer/consumer indices and slot status, ready
+callback slot, and sector-pump count. The preserved `spiderman_install_cd_stream` has no live caller
+in the direct runtime, and that runtime declares no ready-callback slot for `Cd::pumpStream`;
+these are concrete ownership gaps but do not by themselves prove the next guest PC. The old pump's
+dry-poll field wait also requires a finite coroutine that direct boot does not have, so merely
+installing it would abort. Establish this boundary before deciding the complete direct-runtime
+stream continuation, then measure which command and arguments reach `CD_cw` and whether CD callback
+effects are missing. Do not equate a crossed wait with completed STR or `dem1`.
 
 The shipping fix is to execute the unchanged retail movie body through Lightrec and return a bounded
 executor exit at `0x8002AC8C`, `0x8002AE1C`, or `0x8002AFEC`. `Spider1FrameDriver` delivers the field,

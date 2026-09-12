@@ -119,7 +119,7 @@ The direct runtime now installs its measured SetGeomOffset, SetGeomScreen, CdRea
 CD_cw, and VSync entries through the framework's existing `PlatformHlePlan`; the two pad receive
 buffers use `GuestPadBufferLayout`. It also prepares the existing `Spider1FrameDriver` before authenticated
 crt0, serves the pre-main ResetGraph field at its measured VSync return, and binds the GPU DMA
-timeout arm, inner CdSync, and public CdInit success contract. A bounded real-disc Lightrec run
+timeout arm, inner CdSync, public CdInit success contract, and VSyncCallback registration. A bounded real-disc Lightrec run
 crossed those boundaries and next stopped at a separate stock libcd `VSync(-1)` from
 0x8008D050. The `spider1_runtime_services` test exercises the production native CdInit and GPU DMA
 timeout bindings with no `GameConfig`, plus projection setters, the protected VSync exit, and the
@@ -315,10 +315,18 @@ Missing capability: the authenticated Spider-Man image has not yet reached `dem1
 
 Implemented prerequisite: the build-derived movie-fiber source is gone and `Spider1MovieExecution`
 expresses unchanged-retail `FUN_8002AA0C` execution through the scoped-original runtime boundary.
+The direct-boot frame driver now services the three authenticated movie VSync(0) return PCs without
+unwinding the guest movie body. A synthetic shipping Lightrec call at each PC preserves CPU return
+state, delivers a registered field callback and exactly one presentation fence, and resumes the
+following guest instruction once; an unrelated return is refused without state advancement.
+An authenticated retail Lightrec run resumed the first STR field at `0x8002AC8C` and presented
+one fence, then stalled without another field. The guest PC at that stall has not been captured.
 
 Gap: run the authenticated Spider-Man image through Lightrec with nonzero translated blocks,
 preserve the title's native frame/service owners, complete both intro movies, and reach early `dem1`,
-including the authenticated `0x8002AC8C`, `0x8002AE1C`, and `0x8002AFEC` field exits.
+including the authenticated `0x8002AC8C`, `0x8002AE1C`, and `0x8002AFEC` field exits. The
+native StGetNext stream pump is not attached to direct boot; its lifecycle and sector delivery
+must be proved rather than inferred from the field test.
 
 ### S019 — Representative gameplay conformance
 
