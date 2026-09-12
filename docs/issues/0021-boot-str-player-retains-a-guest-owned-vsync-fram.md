@@ -6,7 +6,7 @@ symptom: fatal guest VSync at 0x80084BE0 from FUN_8002AA0C return 0x8002AC8C aft
 state_items: S002,S004,S013,S018
 tags: frame-loop,fmv,vsync,spiderman1,re-22,dynarec,lightrec
 created: 2026-08-27
-updated: 2026-09-04
+updated: 2026-09-12
 ---
 
 ## Root cause
@@ -81,6 +81,28 @@ typed exit is `VSync(-1)` at return `0x8008D050` inside a later stock libcd comm
 (`0x8008D048` calls `0x80084BE0`). That separate CD-controller boundary must be owned before
 the unchanged retail movie player can reach its field exits; the latest run did not reach STR
 or `dem1`.
+
+Authenticated executable disassembly identifies the containing routine as stock libcd `CD_cw` at
+`0x8008CE8C` (13 direct `jal` sites, including the `CdControl` wrappers at `0x80086CA8`,
+`0x80086DE4`, and `0x80086F18`). It copies Setloc's four bytes into `0x800B3B2C..2F` and Setmode's
+byte into `0x800B3B30`, then sends the command to the CD register path. Its first `VSync(-1)` at
+`0x8008D048` sets a deadline 960 fields ahead in `0x800C6394`; the next at `0x8008D0A0` checks that
+deadline while polling completion byte `0x800B3DF0`. The later path calls the libcd interrupt
+handler `0x8008C3E0` and registered CD callbacks. These `VSync(-1)` calls are timeout queries, not
+display-field/presentation requests. Advancing the frame counter or treating them as ordinary
+movie fields would hide the missing command completion.
+
+The direct-runtime `PlatformHlePlan` has no `cdCommandAddress` binding yet. The existing shared
+`cd_command_stock_sync` has the native command effects and low-level zero return, but records
+CdLastPos only through the retired `core.cfg->cdLastPosBuf` adapter; Spider's direct runtime has
+`core.cfg == nullptr`. Binding that handler alone would omit the authenticated position/mode stores.
+The previous static-product investigation measured exactly this omission: the guest read path seeds
+its expected sector from CdLastPos and rejected every sector when the record stayed stale. That
+investigation also called an ACK-only `CD_cw` replacement the wrong long-term answer, even though it
+advanced CdInit. No title override was added from this probe. The next implementation needs a
+complete direct-runtime command ownership contract, including Setloc/Setmode guest RAM,
+result/callback behavior, and a shipping-path synthetic discriminator that proves command completion
+without a guest VSync timeout before the unchanged STR player is resumed.
 
 The shipping fix is to execute the unchanged retail movie body through Lightrec and return a bounded
 executor exit at `0x8002AC8C`, `0x8002AE1C`, or `0x8002AFEC`. `Spider1FrameDriver` delivers the field,
