@@ -92,17 +92,28 @@ handler `0x8008C3E0` and registered CD callbacks. These `VSync(-1)` calls are ti
 display-field/presentation requests. Advancing the frame counter or treating them as ordinary
 movie fields would hide the missing command completion.
 
-The direct-runtime `PlatformHlePlan` has no `cdCommandAddress` binding yet. The existing shared
-`cd_command_stock_sync` has the native command effects and low-level zero return, but records
-CdLastPos only through the retired `core.cfg->cdLastPosBuf` adapter; Spider's direct runtime has
-`core.cfg == nullptr`. Binding that handler alone would omit the authenticated position/mode stores.
-The previous static-product investigation measured exactly this omission: the guest read path seeds
-its expected sector from CdLastPos and rejected every sector when the record stayed stale. That
-investigation also called an ACK-only `CD_cw` replacement the wrong long-term answer, even though it
-advanced CdInit. No title override was added from this probe. The next implementation needs a
-complete direct-runtime command ownership contract, including Setloc/Setmode guest RAM,
-result/callback behavior, and a shipping-path synthetic discriminator that proves command completion
-without a guest VSync timeout before the unchanged STR player is resumed.
+The shared direct-runtime `PlatformHlePlan::stockCdWorkArea` now lets the existing native command
+owner preserve the guest's measured CdLastPos and last-mode bytes without a title-specific command
+implementation. Spider declares `CD_cw` at `0x8008CE8C`, position `0x800B3B2C`, and mode
+`0x800B3B30`. The shipping `spider1_runtime_services` test dispatches Setloc and Setmode through
+that binding, verifies the four position bytes and one mode byte, and proves GetTN's result survives
+the separately bound inner CdSync. A direct runtime with no work-area declaration leaves those
+guest bytes unchanged. The test also instruments the installed callback addresses and observes zero
+invocations: the synchronous command owner retains callback pointers but does not yet assert
+equivalent CD IRQ/ready/sync callback delivery. These are synthetic results. An authenticated,
+headless, silent retail run after the binding stopped earlier, at the boot movie's
+`VSync` frame-boundary PC `0x80084BE0` with return `0x8002AC8C`. It executed 347,812
+Lightrec blocks and 1,766,751 instructions with zero interpreter fallback, but did not reach
+`CD_cw`; it therefore cannot validate the live command behavior or the older `0x8008D050`
+wait. The movie's cooperative field continuation remains the immediate frontier.
+
+The previous static-product investigation measured why preserving CdLastPos matters: the guest read
+path seeds its expected sector from that record and rejected every sector when it stayed stale. The
+next discriminator is the cooperative field continuation, followed by an authenticated boot with
+command/return/callback counts and nonzero Lightrec execution. Establish which command and
+arguments reached `CD_cw`, whether its native
+completion crosses the old VSync exit, and whether the downstream guest expects a callback effect
+the synchronous owner has not delivered. Do not equate a crossed wait with completed STR or `dem1`.
 
 The shipping fix is to execute the unchanged retail movie body through Lightrec and return a bounded
 executor exit at `0x8002AC8C`, `0x8002AE1C`, or `0x8002AFEC`. `Spider1FrameDriver` delivers the field,

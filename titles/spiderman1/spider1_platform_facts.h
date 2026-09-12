@@ -8,6 +8,9 @@ namespace spider::spider1 {
 // ResetGraph's pre-main VSync(0) return site, measured in SLUS_008.75.
 inline constexpr uint32_t resetGraphVsyncReturn = 0x8008479Cu;
 inline constexpr uint32_t cdInitAddress = 0x8008A16Cu;
+inline constexpr uint32_t cdCommandAddress = 0x8008CE8Cu;
+inline constexpr uint32_t cdLastPositionAddress = 0x800B3B2Cu;
+inline constexpr uint32_t cdLastModeAddress = 0x800B3B30u;
 inline constexpr uint32_t cdReadyCallbackSlot = 0x800B3B14u;
 inline constexpr uint32_t cdReadyCallback = 0x8008A238u;
 inline constexpr uint32_t cdSyncCallbackSlot = 0x800B3B18u;
@@ -23,6 +26,8 @@ inline constexpr PlatformHlePlan platformServices{
     .setGeomScreen = 0x8008BF14u,
     .cdReadAddress = 0x80089ECCu,
     .cdReadSyncAddress = 0x8008A068u,
+    .cdCommandAddress = cdCommandAddress,
+    .stockCdWorkArea = {cdLastPositionAddress, cdLastModeAddress},
     .vsyncAddress = 0x80084BE0u,
     .windowLo = {0x80083000u},
     .windowHi = {0x80096000u},

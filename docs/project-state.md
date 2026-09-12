@@ -115,16 +115,18 @@ The legacy `GameConfig`/`GameHooks` static-product adapters are removed; measure
 the title runtime or cohesive native owners. The finite movie/mode owners still need a cooperative
 Lightrec continuation, and FMV/audio synchronization remains incomplete under S013.
 
-The direct runtime now installs its measured SetGeomOffset, SetGeomScreen, CdRead, CdReadSync, and
-VSync entries through the framework's existing `PlatformHlePlan`; the two pad receive buffers use
-`GuestPadBufferLayout`. It also prepares the existing `Spider1FrameDriver` before authenticated
+The direct runtime now installs its measured SetGeomOffset, SetGeomScreen, CdRead, CdReadSync,
+CD_cw, and VSync entries through the framework's existing `PlatformHlePlan`; the two pad receive
+buffers use `GuestPadBufferLayout`. It also prepares the existing `Spider1FrameDriver` before authenticated
 crt0, serves the pre-main ResetGraph field at its measured VSync return, and binds the GPU DMA
 timeout arm, inner CdSync, and public CdInit success contract. A bounded real-disc Lightrec run
 crossed those boundaries and next stopped at a separate stock libcd `VSync(-1)` from
 0x8008D050. The `spider1_runtime_services` test exercises the production native CdInit and GPU DMA
 timeout bindings with no `GameConfig`, plus projection setters, the protected VSync exit, and the
-retail pad receive buffers. The earlier service-binding regression had zero translated guest
-instructions; the new real-disc boot provides the translated-execution evidence stated in S017.
+retail pad receive buffers. It also proves Setloc/Setmode guest work-area publication, GetTN result
+survival through inner CdSync, and no work-area write without a declaration. Callback equivalence
+and crossing the retail command wait remain unverified. The earlier service-binding regression had
+zero translated guest instructions; the new real-disc boot provides the translated-execution evidence stated in S017.
 Finite movie/mode attachment and authenticated gameplay remain unverified.
 
 ### S005 — Render seam and frame envelope
@@ -295,7 +297,11 @@ Authenticated Spider-Man boot now proves 79,976 translated blocks and 395,713 in
 zero interpreter fallback through pre-main ResetGraph field delivery, the GPU DMA timeout arm,
 inner CdSync, and public CdInit. The executor's bounded-turn continuation resumes the retail
 allocator's finite heap fill without a guest-code derivative. The next typed boundary is a stock
-libcd `VSync(-1)` at return PC `0x8008D050`; no host-loop or movie-fiber attachment is claimed.
+libcd `VSync(-1)` at return PC `0x8008D050` in an earlier run. The post-binding authenticated
+run stopped earlier at the boot movie's `VSync` frame boundary, PC `0x80084BE0`, return
+`0x8002AC8C`, after 347,812 translated blocks and 1,766,751 instructions with zero interpreter
+fallback. The measured CD_cw binding has synthetic coverage but no reached retail command;
+no host-loop or movie-fiber attachment is claimed.
 
 Gap: authenticated Spider-Man has not yet proved original-call title dispatch or address-reusing
 runtime-module invalidation. Authenticated Spider gameplay has not
