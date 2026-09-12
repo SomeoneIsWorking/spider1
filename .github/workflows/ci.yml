@@ -25,19 +25,6 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Check out the exact psxport revision
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: SomeoneIsWorking/psxport
-          ref: 9e104d9fe7d04043d98fe451732596d68e45022c
-          path: external/psxport
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Restore exact psxport dependencies
-        run: |
-          git -C external/psxport submodule update --init \
-            external/psycross vendor/beetle-psx vendor/lucent
-          git -C external/psxport/vendor/beetle-psx submodule update --init deps/libchdr
       - name: Check out the exact maintained Lightrec revision
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -79,6 +66,13 @@ jobs:
             libsdl3-dev libsdl3-image-dev libssl-dev libzstd-dev ninja-build pkg-config zlib1g-dev
       - name: Create the locked Python environment
         run: uv sync --frozen
+      - name: Clone psxport at the recorded pin
+        run: uv run --frozen python tools/psxport_sync.py --clone
+      - name: Restore exact psxport dependencies
+        run: |
+          git -C external/psxport submodule update --init \
+            external/psycross vendor/beetle-psx vendor/lucent
+          git -C external/psxport/vendor/beetle-psx submodule update --init deps/libchdr
       - name: Build the pinned GNU lightning dependency
         run: >-
           uv run --frozen python shared/lightning/tools/build_lightning.py

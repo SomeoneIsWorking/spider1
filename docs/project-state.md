@@ -198,7 +198,7 @@ Evidence: `tools/source_policy.py` rejects the retired path, identifiers, and ge
 ### S011 — Verification coverage
 
 Demonstrated subset: `tools/verify.py` delegates one exact-pinned configure, both-title product build,
-all 18 title CTests, and the self-tested repository/CMake/linked-product execution boundary inspection
+all 19 CTests, and the self-tested repository/CMake/linked-product execution boundary inspection
 to PSXPort's shared consumer verifier. The complete gate passed locally on 2026-09-08 with
 Clang/Ninja against PSXPort `a5a79652` and Lightrec `b1457137`; its unchanged build performed zero
 compilations. The asset-free Linux x86-64 workflow invokes the same entry point. Its earlier
@@ -211,10 +211,14 @@ Hosted [run 34222419138](https://github.com/SomeoneIsWorking/spider1/actions/run
 failed during compilation: the workflow omitted `CC`/`CXX`, so its fresh CMake tree selected GNU
 15.2, which rejected the REPL's implicit array-to-`std::span` conversion through a function pointer.
 The Linux job now selects Clang explicitly; PSXPort `9e104d9f` constructed that span explicitly and
-retained GCC compatibility. The 2026-09-12 local canonical verifier configured both products with
-Clang 22 against the recorded PSXPort `0b432b46`, passed all 18 CTests and the linked-product
-execution-boundary selftest/check. The corrected hosted result is pending; the earlier green run
-does not qualify this revision.
+retained GCC compatibility. Hosted
+[run 34688672212](https://github.com/SomeoneIsWorking/spider1/actions/runs/34688672212)
+then failed only the pin test: the workflow checked out hardcoded `9e104d9f` while the title
+recorded `0b432b46`. CI now clones through `tools/psxport_sync.py --clone` after locked Python
+setup, preserving its explicit submodule restore. The `ci_workflow` negative test rejects the old
+hardcoded checkout. The 2026-09-12 local canonical verifier configured both products with Clang 22
+against recorded PSXPort `86eea8cd`, passed all 19 CTests and the linked-product execution-boundary
+selftest/check. A hosted run of this correction remains pending.
 
 Gap: issue 0015 leaves the progressing live boot supervisor unable to terminate/reap every capped
 run. Issue 0009 records that fixed present indices are not content-stable, so visual comparisons need
@@ -278,7 +282,7 @@ current capability refusal is permanent.
 ### S017 — Runtime Lightrec execution
 
 Implemented subset: the product enters authenticated crt0 through psxport's per-`Core`
-`dispatchGuest` boundary. Spider pins PSXPort `0b432b4677a090882f589c27d893fdd38703c169`, which
+`dispatchGuest` boundary. Spider pins PSXPort `86eea8cdf52c0274e280fa59b924ba70cd57b782`, which
 requires maintained Lightrec runtime ABI `b1457137c31cedff5f440d59da29401d021ba2da`; the exact pair
 links into both title products. Image-aware native
 dispatch, scoped `callOriginal`, invalidation, typed exits, and translation/fallback counters are
