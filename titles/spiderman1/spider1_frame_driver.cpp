@@ -91,28 +91,56 @@ Spider1FrameDriver &Spider1FrameDriver::from(Core &core) {
   return *driver;
 }
 
+void Spider1FrameDriver::serviceBootstrapVsync(Core &core) {
+  // ResetGraph's early VSync(0) runs before the finite title main has installed its boot fiber.
+  // Deliver this field through the same clock, audio, callback, and return-value owners used by
+  // the movie player. Nothing was drawn yet, so the presentation fence is unpresented.
+  if (mainFrameInstalled_ || activeCoro_ || core.r[31] != spider1::resetGraphVsyncReturn ||
+      core.r[4] != 0) {
+    lucent::error("frame",
+                  "Spider-Man 1 refused pre-main VSync: main={} fiber={} ra=0x{:08X} a0=0x{:08X}",
+                  mainFrameInstalled_,
+                  static_cast<bool>(activeCoro_),
+                  core.r[31],
+                  core.r[4]);
+    std::abort();
+  }
+  const uint32_t returnValue =
+      (horizontalCounter(core) - core.mem_r32(kHorizontalCounterBaseline)) & 0xFFFFu;
+  deliverField(core);
+  completeMovieVsync(core, returnValue);
+  game_.presentation.commitUnpresented(&core);
+  core.pc = core.r[31];
+  lucent::info("frame", "Spider-Man 1 completed pre-main ResetGraph field at 0x{:08X}", core.pc);
+}
+
+void Spider1FrameDriver::installBootstrapOverrides() {
+  // The first post-ResetGraph hardware query is the stock GPU DMA timeout arm. Its VSync(-1)
+  // reads the title field count without waiting, so the complete native leaf below owns it.
+  installNativeOverride(
+      game_.core, kGpuDmaTimeoutStart, "Spider GPU DMA timeout", startGpuDmaTimeout);
+  installNativeOverride(game_.core, spider1::cdInitAddress, "Spider CdInit", initializeCd);
+  // The directly called stock CdSync body has VSync(-1) timeout polls, while the host CD command
+  // completes synchronously. The same complete/ready owner as the public wrapper serves it.
+  if (!game_.platform_hle.register_(kInnerCdSync, cd_sync_stock_sync)) {
+    lucent::error("cd", "Spider-Man 1 could not bind the measured inner CdSync service");
+    std::abort();
+  }
+}
+
 void Spider1FrameDriver::installOverrides() {
   // VSync itself is deliberately absent. The title's platform facts declare its address and
   // PlatformHle installs the framework's protected typed frame boundary. This driver owns the
   // recovered loop state and the two engine boundaries that would otherwise require a successful
   // VSync.
   game_.platform_hle.register_(kVsyncCallback, captureVsyncCallback);
-  // FUN_80086F18 calls stock libcd's inner CdSync body directly after the final STR field. Its
-  // observable success contract is the same complete/ready result as the public wrapper already
-  // owned by Cd::overridesInit; running the body would enter two VSync(-1) timeout polls even
-  // though every command in this product completes synchronously on the host.
-  game_.platform_hle.register_(kInnerCdSync, cd_sync_stock_sync);
+  // The inner CdSync body is already bound by the pre-main bootstrap phase.
   installNativeOverride(game_.core, kGuestFieldWait, "Spider field wait", waitGuestFields);
   installNativeOverride(game_.core, kPadService, "Spider pad service", serviceBootTail);
   installNativeOverride(game_.core, kMoviePlayer, "Spider movie player", playMovie);
   installNativeOverride(game_.core, kResetGraph, "Spider ResetGraph", resetGraphWithoutVsync);
-  installNativeOverride(
-      game_.core, kGpuDmaTimeoutStart, "Spider GPU DMA timeout", startGpuDmaTimeout);
-  if (!game_.core.cfg || !game_.core.cfg->cdInit) {
-    lucent::error("frame", "Spider-Man 1 has no measured public CdInit boundary");
-    std::abort();
-  }
-  installNativeOverride(game_.core, game_.core.cfg->cdInit, "Spider CdInit", initializeCd);
+  // The GPU DMA timeout arm is already installed by the pre-main bootstrap phase.
+  // The public CdInit body is already installed by the pre-main bootstrap phase.
   lucent::info(
       "frame",
       "Spider-Man 1 native frame ownership installed: VSync 0x{:08X} remains a frame boundary; "
@@ -124,7 +152,10 @@ void Spider1FrameDriver::initializeCd(Core *core) {
   // Exact public success contract of SLUS_008.75 CdInit: install its event callbacks and return
   // true. The host owns every CD operation synchronously, so starting the guest controller/IRQ
   // handshake would be both unobservable and a cadence violation (its timeout polls VSync(-1)).
-  core->game->cd.hleInit();
+  core->mem_w32(spider1::cdReadyCallbackSlot, spider1::cdReadyCallback);
+  core->mem_w32(spider1::cdSyncCallbackSlot, spider1::cdSyncCallback);
+  core->mem_w32(spider1::cdEventCallbackSlot, spider1::cdEventCallback);
+  core->mem_w32(spider1::cdEventUnusedSlot, 0);
   core->r[2] = 1;
 }
 

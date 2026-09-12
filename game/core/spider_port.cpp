@@ -75,13 +75,27 @@ int runPort(SpiderRuntime &runtime, int argc, char **argv) {
   game->gpu.gpu_native_init();
   game->pad.overridesInit();
   core->runtime->registerOverrides(*game);
+  runtime.prepareBootstrap(*game);
   const GuestProgramImage *program = runtime.guestProgramImage();
   if (!program || !program->crt0Entry) {
     lucent::error("executor", "{} has no authenticated runtime entry", runtime.serial());
     return 3;
   }
   GuestExecution execution(*core);
-  return reportExecutionResult(execution.enter(program->crt0Entry), runtime.serial()) ? 0 : 3;
+  auto result = execution.enter(program->crt0Entry);
+  for (;;) {
+    if (result.reason == psx::cpu::ExecutionExitReason::BudgetExhausted && result.cycles != 0) {
+      // The executor's turn limit bounds one call, not the guest program. Resume its saved PC;
+      // long finite work such as the retail allocator's heap fill crosses several turns.
+      result = execution.resumeAt(result.guestPc);
+      continue;
+    }
+    if (!runtime.resumeBootstrapBoundary(*core, result)) {
+      break;
+    }
+    result = execution.resumeAt(core->pc);
+  }
+  return reportExecutionResult(*core, result, runtime.serial()) ? 0 : 3;
 }
 
 } // namespace spider

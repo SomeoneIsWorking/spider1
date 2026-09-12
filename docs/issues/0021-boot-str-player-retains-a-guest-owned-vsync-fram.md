@@ -75,6 +75,13 @@ ownership line is correctly absent.
 
 ## Open native/Lightrec resolution
 
+The 2026-09-12 direct-runtime boot now delivers ResetGraph's pre-main field and crosses the
+measured GPU DMA timeout, inner CdSync, and public CdInit contracts through Lightrec. Its next
+typed exit is `VSync(-1)` at return `0x8008D050` inside a later stock libcd command wait
+(`0x8008D048` calls `0x80084BE0`). That separate CD-controller boundary must be owned before
+the unchanged retail movie player can reach its field exits; the latest run did not reach STR
+or `dem1`.
+
 The shipping fix is to execute the unchanged retail movie body through Lightrec and return a bounded
 executor exit at `0x8002AC8C`, `0x8002AE1C`, or `0x8002AFEC`. `Spider1FrameDriver` delivers the field,
 callback, audio, input, and presentation work, then resumes the same guest CPU state. No generator,

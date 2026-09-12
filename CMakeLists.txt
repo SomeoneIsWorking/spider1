@@ -47,6 +47,11 @@ set(SPIDER_COMMON_SOURCES
   game/core/spider_port.cpp
   game/core/spider_runtime.cpp)
 
+set(SPIDER1_FRAME_SOURCES
+  titles/spiderman1/spider1_movie_execution.cpp
+  titles/spiderman1/spider1_frame_driver.cpp
+  titles/spiderman1/spider1_mode_driver.cpp)
+
 function(spider_add_runtime_target TARGET TITLE PREFIX MAIN RUNTIME)
   spider_read_title(${TITLE} ${PREFIX})
   add_executable(${TARGET} ${SPIDER_COMMON_SOURCES} ${MAIN} ${RUNTIME})
@@ -67,7 +72,7 @@ foreach(SPIDER_TITLE IN LISTS SPIDER_TITLES)
     spider_add_runtime_target(
       spiderman_port spiderman1 SPIDER1
       game/core/main.cpp titles/spiderman1/spider1_runtime.cpp)
-    target_sources(spiderman_port PRIVATE titles/spiderman1/spider1_movie_execution.cpp)
+    target_sources(spiderman_port PRIVATE ${SPIDER1_FRAME_SOURCES})
   elseif(SPIDER_TITLE STREQUAL "spiderman2")
     spider_add_runtime_target(
       enter_electro_port spiderman2 SPIDER2
@@ -77,14 +82,11 @@ foreach(SPIDER_TITLE IN LISTS SPIDER_TITLES)
   endif()
 endforeach()
 
-# Keep the preserved Spider-Man native owners compile-checked while the break-first runtime brings
-# them back through image-aware dispatch one boundary at a time. They are intentionally not linked
-# into the player until Spider1Runtime owns their lifecycle and has runtime evidence for the route.
+# Keep the remaining render/stream owners compile-checked while the runtime attaches them through
+# measured title boundaries. The field owner now links into the product for pre-main VSync service.
 if(TARGET spiderman_port)
   add_library(spider1_native_owners_compile OBJECT
     game/core/cd_stream.cpp
-    titles/spiderman1/spider1_frame_driver.cpp
-    titles/spiderman1/spider1_mode_driver.cpp
     titles/spiderman1/spider1_widescreen.cpp)
   target_include_directories(spider1_native_owners_compile PRIVATE
     game/core
@@ -162,6 +164,7 @@ if(BUILD_TESTING)
     spider_add_runtime_target(
       spider1_runtime_services_test spiderman1 SPIDER1
       tests/spider1_runtime_services_test.cpp titles/spiderman1/spider1_runtime.cpp)
+    target_sources(spider1_runtime_services_test PRIVATE ${SPIDER1_FRAME_SOURCES})
     target_include_directories(spider1_runtime_services_test PRIVATE ${PSXPORT_DIR}/tests)
     add_test(NAME spider1_runtime_services COMMAND spider1_runtime_services_test)
     set_tests_properties(spider1_runtime_services PROPERTIES ENVIRONMENT

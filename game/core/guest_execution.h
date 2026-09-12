@@ -14,12 +14,15 @@ public:
   explicit GuestExecution(Core &core);
 
   psx::cpu::ExecutionResult enter(std::uint32_t address);
+  psx::cpu::ExecutionResult resumeAt(std::uint32_t address);
   psx::cpu::ExecutionResult callOriginal(std::uint32_t address);
 
 private:
   Core &core_;
 };
 
-bool reportExecutionResult(const psx::cpu::ExecutionResult &result, std::string_view owner);
+bool reportExecutionResult(const Core &core,
+                           const psx::cpu::ExecutionResult &result,
+                           std::string_view owner);
 
 } // namespace spider

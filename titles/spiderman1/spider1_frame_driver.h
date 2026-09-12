@@ -21,8 +21,11 @@ public:
   ~Spider1FrameDriver() override;
 
   void installOverrides();
+  void installBootstrapOverrides();
+  void serviceBootstrapVsync(Core &core);
   void runBootPrefix(Core &core);
   void stepFrame(Core &core, uint32_t frame) override;
+  static Spider1FrameDriver &from(Core &core);
 
 private:
   enum class ActivePhase { None, Boot, Mode };
@@ -41,7 +44,6 @@ private:
   void yieldActiveField(Core &core, uint32_t returnPc);
   void completeMovieVsync(Core &core, uint32_t returnValue);
 
-  static Spider1FrameDriver &from(Core &core);
   static void bootHostTurn(Core *core);
   static void captureVsyncCallback(Core *core);
   static void initializeCd(Core *core);

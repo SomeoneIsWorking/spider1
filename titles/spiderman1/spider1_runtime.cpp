@@ -1,5 +1,8 @@
 #include "spider1_runtime.h"
+#include "spider1_frame_driver.h"
 #include "spider1_platform_facts.h"
+
+#include "frame_loop_shell.h"
 
 #include "game.h"
 
@@ -31,10 +34,29 @@ void Spider1Runtime::destroyContext(void *) {}
 
 void Spider1Runtime::registerOverrides(Game &game) {
   game.platform_hle.initBuiltins();
+  Spider1FrameDriver::from(game.core).installBootstrapOverrides();
 }
 
 void Spider1Runtime::bootInit(Core &) {
   refuseUnported("native frame owner", "runtime Lightrec execution before native frame extraction");
+}
+
+std::unique_ptr<FrameDriver> Spider1Runtime::createFrameDriver(Game &game) {
+  return std::make_unique<Spider1FrameDriver>(game);
+}
+
+void Spider1Runtime::prepareBootstrap(Game &game) {
+  FrameLoopShell{}.prepareProduct(game);
+}
+
+bool Spider1Runtime::resumeBootstrapBoundary(Core &core, const psx::cpu::ExecutionResult &result) {
+  if (result.reason != psx::cpu::ExecutionExitReason::FrameBoundary ||
+      result.guestPc != spider1::platformServices.vsyncAddress ||
+      core.r[31] != spider1::resetGraphVsyncReturn) {
+    return false;
+  }
+  Spider1FrameDriver::from(core).serviceBootstrapVsync(core);
+  return true;
 }
 
 const GuestProgramImage *Spider1Runtime::guestProgramImage() const {

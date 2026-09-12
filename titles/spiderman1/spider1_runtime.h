@@ -14,6 +14,9 @@ public:
   void destroyContext(void *context) override;
   void registerOverrides(Game &game) override;
   void bootInit(Core &core) override;
+  std::unique_ptr<FrameDriver> createFrameDriver(Game &game) override;
+  void prepareBootstrap(Game &game) override;
+  bool resumeBootstrapBoundary(Core &core, const psx::cpu::ExecutionResult &result) override;
   const GuestProgramImage *guestProgramImage() const override;
   const PlatformHlePlan *platformHlePlan() const override;
   const GuestPadBufferLayout *guestPadBufferLayout() const override;

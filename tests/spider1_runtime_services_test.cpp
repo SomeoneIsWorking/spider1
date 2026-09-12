@@ -1,3 +1,4 @@
+#include "spider1_platform_facts.h"
 #include "spider1_runtime.h"
 
 #include "cd_control.h"
@@ -16,10 +17,16 @@ void test_measured_services_use_the_direct_runtime() {
   auto game = std::make_unique<Game>();
   Core &core = game->core;
   CHECK(core.cfg == nullptr);
+  const auto image = core.imageCatalog().activate(
+      "Spider-Man resident", runtime.guestProgramImage()->residentText, 1u);
   runtime.registerOverrides(*game);
+  CHECK(game->frameDriver != nullptr);
+  runtime.prepareBootstrap(*game);
   CHECK(game->platform_hle.hasNativeFrameLoopContract());
   CHECK(game->platform_hle.lookup(0x80089ECCu) == cd_read_stock_sync);
   CHECK(game->platform_hle.lookup(0x8008A068u) == cd_readsync_stock_sync);
+  CHECK(game->platform_hle.lookup(0x8008C944u) == cd_sync_stock_sync);
+  CHECK(core.nativeDispatcher().isInstalled({image, 0x8008A16Cu}));
   CHECK(game->platform_hle.lookup(0x8002C354u) == nullptr);
   CHECK(!game->platform_hle.register_(0x8002C354u, cd_read_stock_sync));
 
@@ -42,6 +49,31 @@ void test_measured_services_use_the_direct_runtime() {
       psx::cpu::dispatchGuest(core, 0x80084BE0u, psx::cpu::ExecutionBudget::fromCycles(100));
   CHECK(field.reason == psx::cpu::ExecutionExitReason::FrameBoundary);
   CHECK(!game->platform_hle.register_(0x80084BE0u, cd_read_stock_sync));
+
+  core.mem_w32(0x800B397Cu, 7u);
+  core.r[31] = 0x80010100u;
+  const auto dmaArm =
+      psx::cpu::dispatchGuest(core, 0x80083C60u, psx::cpu::ExecutionBudget::fromCycles(100));
+  CHECK(dmaArm.returned());
+  CHECK_EQ(core.r[2], 247u);
+  CHECK_EQ(core.mem_r32(0x800B0F64u), 247u);
+  CHECK_EQ(core.mem_r32(0x800B0F68u), 0u);
+  CHECK_EQ(core.mem_r32(0x800B397Cu), 7u);
+
+  core.mem_w32(spider::spider1::cdReadyCallbackSlot, 0u);
+  core.mem_w32(spider::spider1::cdSyncCallbackSlot, 0u);
+  core.mem_w32(spider::spider1::cdEventCallbackSlot, 0u);
+  core.mem_w32(spider::spider1::cdEventUnusedSlot, 0xffffffffu);
+  core.r[31] = 0x80010100u;
+  const auto cdInit = psx::cpu::dispatchGuest(
+      core, spider::spider1::cdInitAddress, psx::cpu::ExecutionBudget::fromCycles(100));
+  CHECK(cdInit.returned());
+  CHECK_EQ(core.r[2], 1u);
+  CHECK_EQ(core.mem_r32(spider::spider1::cdReadyCallbackSlot), spider::spider1::cdReadyCallback);
+  CHECK_EQ(core.mem_r32(spider::spider1::cdSyncCallbackSlot), spider::spider1::cdSyncCallback);
+  CHECK_EQ(core.mem_r32(spider::spider1::cdEventCallbackSlot), spider::spider1::cdEventCallback);
+  CHECK_EQ(core.mem_r32(spider::spider1::cdEventUnusedSlot), 0u);
+  CHECK(core.imageCatalog().deactivate(image));
 }
 
 void test_pad_service_writes_retail_receive_buffers_only() {

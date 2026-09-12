@@ -10,6 +10,12 @@ std::string_view SpiderRuntime::serial() const {
   return executableIdentity().serial;
 }
 
+void SpiderRuntime::prepareBootstrap(Game &) {}
+
+bool SpiderRuntime::resumeBootstrapBoundary(Core &, const psx::cpu::ExecutionResult &) {
+  return false;
+}
+
 [[noreturn]] void SpiderRuntime::refuseUnported(std::string_view boundary,
                                                 std::string_view frontier) const {
   lucent::error("boot",

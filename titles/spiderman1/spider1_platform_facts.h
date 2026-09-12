@@ -5,6 +5,17 @@
 
 namespace spider::spider1 {
 
+// ResetGraph's pre-main VSync(0) return site, measured in SLUS_008.75.
+inline constexpr uint32_t resetGraphVsyncReturn = 0x8008479Cu;
+inline constexpr uint32_t cdInitAddress = 0x8008A16Cu;
+inline constexpr uint32_t cdReadyCallbackSlot = 0x800B3B14u;
+inline constexpr uint32_t cdReadyCallback = 0x8008A238u;
+inline constexpr uint32_t cdSyncCallbackSlot = 0x800B3B18u;
+inline constexpr uint32_t cdSyncCallback = 0x8008A260u;
+inline constexpr uint32_t cdEventCallbackSlot = 0x800B1C7Cu;
+inline constexpr uint32_t cdEventCallback = 0x8008A288u;
+inline constexpr uint32_t cdEventUnusedSlot = 0x800B1C80u;
+
 // SLUS_008.75 library-entry evidence: RE-02/RE-03/RE-17 and the preserved measured
 // configuration in commit 8950617. These are title addresses, not lineage defaults.
 inline constexpr PlatformHlePlan platformServices{

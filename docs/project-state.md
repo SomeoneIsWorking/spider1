@@ -112,17 +112,20 @@ movies, completes the exact post-logo wait, reaches `dem1`, reconciles every cap
 0. The VSync trap remains installed, and the product made no guest VSync call.
 
 The legacy `GameConfig`/`GameHooks` static-product adapters are removed; measured facts now belong to
-the title runtime or cohesive native owners. Gap: those preserved owners still need image-aware
-registration and FMV/audio synchronization remains incomplete under S013.
+the title runtime or cohesive native owners. The finite movie/mode owners still need a cooperative
+Lightrec continuation, and FMV/audio synchronization remains incomplete under S013.
 
 The direct runtime now installs its measured SetGeomOffset, SetGeomScreen, CdRead, CdReadSync, and
 VSync entries through the framework's existing `PlatformHlePlan`; the two pad receive buffers use
-`GuestPadBufferLayout`. The `spider1_runtime_services` regression first failed on the absent VSync
-contract and unchanged pad buffer. With those facts restored, both cases pass all 20 checks against
-framework `a5a79652`: projection setters publish their arguments, VSync returns a protected typed
-frame boundary, game-address HLE registration is refused, and pad writes preserve the retail mirror.
-This is service-binding evidence with zero translated guest instructions; finite frame/movie
-attachment and authenticated gameplay remain unverified.
+`GuestPadBufferLayout`. It also prepares the existing `Spider1FrameDriver` before authenticated
+crt0, serves the pre-main ResetGraph field at its measured VSync return, and binds the GPU DMA
+timeout arm, inner CdSync, and public CdInit success contract. A bounded real-disc Lightrec run
+crossed those boundaries and next stopped at a separate stock libcd `VSync(-1)` from
+0x8008D050. The `spider1_runtime_services` test exercises the production native CdInit and GPU DMA
+timeout bindings with no `GameConfig`, plus projection setters, the protected VSync exit, and the
+retail pad receive buffers. The earlier service-binding regression had zero translated guest
+instructions; the new real-disc boot provides the translated-execution evidence stated in S017.
+Finite movie/mode attachment and authenticated gameplay remain unverified.
 
 ### S005 — Render seam and frame envelope
 
@@ -207,10 +210,11 @@ This is composition evidence only; the retired static-product gate is absent.
 Hosted [run 34222419138](https://github.com/SomeoneIsWorking/spider1/actions/runs/34222419138)
 failed during compilation: the workflow omitted `CC`/`CXX`, so its fresh CMake tree selected GNU
 15.2, which rejected the REPL's implicit array-to-`std::span` conversion through a function pointer.
-The Linux job now selects Clang explicitly; PSXPort `9e104d9f` constructs that span explicitly and
-retains GCC compatibility. Both product targets and the service test rebuilt locally with Clang,
-and the build provenance matches that pin. The corrected hosted result is pending; the earlier green
-run does not qualify this revision.
+The Linux job now selects Clang explicitly; PSXPort `9e104d9f` constructed that span explicitly and
+retained GCC compatibility. The 2026-09-12 local canonical verifier configured both products with
+Clang 22 against the recorded PSXPort `0b432b46`, passed all 18 CTests and the linked-product
+execution-boundary selftest/check. The corrected hosted result is pending; the earlier green run
+does not qualify this revision.
 
 Gap: issue 0015 leaves the progressing live boot supervisor unable to terminate/reap every capped
 run. Issue 0009 records that fixed present indices are not content-stable, so visual comparisons need
@@ -274,7 +278,7 @@ current capability refusal is permanent.
 ### S017 — Runtime Lightrec execution
 
 Implemented subset: the product enters authenticated crt0 through psxport's per-`Core`
-`dispatchGuest` boundary. Spider pins PSXPort `9e104d9fe7d04043d98fe451732596d68e45022c`, which
+`dispatchGuest` boundary. Spider pins PSXPort `0b432b4677a090882f589c27d893fdd38703c169`, which
 requires maintained Lightrec runtime ABI `b1457137c31cedff5f440d59da29401d021ba2da`; the exact pair
 links into both title products. Image-aware native
 dispatch, scoped `callOriginal`, invalidation, typed exits, and translation/fallback counters are
@@ -283,8 +287,14 @@ synthetic contract proves nonzero translated blocks, native/original dispatch, a
 retranslation without fallback. It separately admits one classified difficult block under the
 configured limit and refuses a zero-limit block before any interpreter instruction executes.
 
-Gap: no authenticated Spider-Man run has yet proved CPU/device synchronization, native/original title
-dispatch, or address-reusing runtime-module invalidation. Authenticated Spider gameplay has not
+Authenticated Spider-Man boot now proves 79,976 translated blocks and 395,713 instructions with
+zero interpreter fallback through pre-main ResetGraph field delivery, the GPU DMA timeout arm,
+inner CdSync, and public CdInit. The executor's bounded-turn continuation resumes the retail
+allocator's finite heap fill without a guest-code derivative. The next typed boundary is a stock
+libcd `VSync(-1)` at return PC `0x8008D050`; no host-loop or movie-fiber attachment is claimed.
+
+Gap: authenticated Spider-Man has not yet proved original-call title dispatch or address-reusing
+runtime-module invalidation. Authenticated Spider gameplay has not
 exercised the enforced per-execution limit or established an aggregate fallback-share release
 threshold. Multi-`Core` and host backends outside Linux x86-64 also remain absent; no interpreter
 gameplay selector may be added to cover those gaps.

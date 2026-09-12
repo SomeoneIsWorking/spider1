@@ -34,7 +34,7 @@ points compose peer owners; they do not absorb rendering, input, storage, or dia
 | Subsystem | Responsibility | Current / target location | Entry point | Deep doc |
 |---|---|---|---|---|
 | Launcher | Frozen Python environment, pre-discovery help, dependency refusal, framework pin/configure provenance, title selection, provisioning, build, launch | `run.sh`, `bootstrap.py`, `tools/run.py`, `tools/psxport_sync.py`, `tools/launcher_dependencies.py`, `tools/disc_path.py` | `tools/run.py::main` | `README.md` |
-| Product process CLI | Pre-identity help plus authenticated executable boot composition shared by both title products | `game/core/spider_port.*` | `spider::runPort` | `CLAUDE.md` |
+| Product process CLI | Pre-identity help, authenticated executable boot composition, and bounded typed-exit resumption shared by both title products | `game/core/spider_port.*`, `game/core/guest_execution.*` | `spider::runPort` | `CLAUDE.md` |
 | Title catalog | Serial-keyed labels, executable identity, and title target metadata | `titles/*/title.json`, `tools/title_catalog.py`, `cmake/title_manifest.cmake` | `tools/title_catalog.py::load_catalog` | `CLAUDE.md` |
 | Runtime image provisioning | Extract and authenticate the selected executable without emitting guest bodies | `tools/provision.py`; title manifests beneath `titles/` remain fact authority | `provision_executable` | `docs/migration.md` |
 | PSX guest executor | Per-`Core` Lightrec ownership, CPU/device synchronization, bounded exits, block cache, and invalidation | `external/psxport/runtime/cpu/`; no title-local executor | `psx::cpu::dispatchGuest` | `docs/migration.md` |
@@ -45,7 +45,7 @@ points compose peer owners; they do not absorb rendering, input, storage, or dia
 | Enter Electro runtime | Direct runtime, executable facts, capability refusal, and EE boot boundary | `titles/spiderman2/enter_electro_runtime.*` | `spider::EnterElectroRuntime` | `docs/migration.md` |
 | Enter Electro enhanced renderer | Title-derived render seam, native producer, wide projection, and temporal history | target beneath `titles/spiderman2/`, plus address-free lineage peers in `game/render/` | target Enter Electro render installer | `docs/re-frontier.md` |
 | Executable identity | Shipping serial, size, magic, and SHA-256 authentication | `game/core/executable_identity.*` | `verifyExecutableIdentity` | `CLAUDE.md` |
-| Frame cadence | Preserved finite Spider-Man 1 field/movie/mode owners awaiting attachment after executable JIT conformance | `titles/spiderman1/spider1_frame_driver.*`, `spider1_movie_execution.*`, `spider1_mode_driver.*` | typed guest-execution calls in those owners | `docs/migration.md` |
+| Frame cadence | Spider-Man 1 pre-main field delivery and preserved finite movie/mode owners awaiting full attachment after executable JIT conformance | `titles/spiderman1/spider1_frame_driver.*`, `spider1_movie_execution.*`, `spider1_mode_driver.*` | `Spider1FrameDriver::serviceBootstrapVsync` and typed guest-execution calls | `docs/migration.md` |
 | Platform/HLE bridge | Measured SCEI service entries and pad receive buffers; framework handlers and preserved Spider-Man CD-stream owner | `titles/spiderman1/spider1_platform_facts.h`; framework `PlatformHle`; `game/core/cd_stream.cpp` | `Spider1Runtime::platformHlePlan`, `guestPadBufferLayout`, `registerOverrides` | `docs/re-frontier.md` |
 | Runtime modules | Guest allocator placement, authenticated image activation, and cache invalidation | title loader observation plus `external/psxport/runtime/cpu/image_identity.*` and `invalidation.*` | image catalog activation | `docs/issues/0001-recomp-miss-0x800c6684-three-cd-wad-modules-live.md` |
 | Scene identity | Binary-derived level/sublevel identity for render policy | `game/render/scene_id.*` | `classifyScene` | `docs/re-frontier.md` |
@@ -71,14 +71,14 @@ points compose peer owners; they do not absorb rendering, input, storage, or dia
 ## Source tree
 
 ```text
-game/  —  3,160 lines, 35 files
-├─ core/  516 lines, 11 files
+game/  —  3,194 lines, 35 files
+├─ core/  550 lines, 11 files
 └─ render/  2,644 lines, 24 files
-titles/  —  2,078 lines, 16 files
-├─ spiderman1/  1,968 lines, 13 files
+titles/  —  2,147 lines, 16 files
+├─ spiderman1/  2,037 lines, 13 files
 └─ spiderman2/  110 lines, 3 files
 tools/  —  6,387 lines, 28 files
-tests/  —  483 lines, 13 files
+tests/  —  515 lines, 13 files
 ```
 
 Refresh with:
