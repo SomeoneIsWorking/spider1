@@ -14,6 +14,9 @@ jobs:
     runs-on: ubuntu-26.04
     timeout-minutes: 45
     env:
+      CC: clang
+      CXX: clang++
+      CMAKE_BUILD_PARALLEL_LEVEL: "2"
       PSXPORT_LIGHTREC_DIR: ${{ github.workspace }}/shared/lightrec
       PSXPORT_LIGHTNING_PREFIX: ${{ github.workspace }}/shared/lightning/build/install/linux-x86_64
     steps:
@@ -26,7 +29,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: SomeoneIsWorking/psxport
-          ref: a5a796521668cf078e150808cc1fc4616d1f31d6
+          ref: 9e104d9fe7d04043d98fe451732596d68e45022c
           path: external/psxport
           fetch-depth: 0
           persist-credentials: false

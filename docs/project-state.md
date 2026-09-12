@@ -204,6 +204,14 @@ product-composition result passed on main commit
 [run 33960072758](https://github.com/SomeoneIsWorking/spider1/actions/runs/33960072758).
 This is composition evidence only; the retired static-product gate is absent.
 
+Hosted [run 34222419138](https://github.com/SomeoneIsWorking/spider1/actions/runs/34222419138)
+failed during compilation: the workflow omitted `CC`/`CXX`, so its fresh CMake tree selected GNU
+15.2, which rejected the REPL's implicit array-to-`std::span` conversion through a function pointer.
+The Linux job now selects Clang explicitly; PSXPort `9e104d9f` constructs that span explicitly and
+retains GCC compatibility. Both product targets and the service test rebuilt locally with Clang,
+and the build provenance matches that pin. The corrected hosted result is pending; the earlier green
+run does not qualify this revision.
+
 Gap: issue 0015 leaves the progressing live boot supervisor unable to terminate/reap every capped
 run. Issue 0009 records that fixed present indices are not content-stable, so visual comparisons need
 content identity rather than an index alone.
@@ -266,7 +274,7 @@ current capability refusal is permanent.
 ### S017 — Runtime Lightrec execution
 
 Implemented subset: the product enters authenticated crt0 through psxport's per-`Core`
-`dispatchGuest` boundary. Spider pins PSXPort `a5a796521668cf078e150808cc1fc4616d1f31d6`, which
+`dispatchGuest` boundary. Spider pins PSXPort `9e104d9fe7d04043d98fe451732596d68e45022c`, which
 requires maintained Lightrec runtime ABI `b1457137c31cedff5f440d59da29401d021ba2da`; the exact pair
 links into both title products. Image-aware native
 dispatch, scoped `callOriginal`, invalidation, typed exits, and translation/fallback counters are
