@@ -8,7 +8,6 @@
 #include "guest_execution.h"
 #include "spider_runtime.h"
 
-#include <cstdio>
 #include <lucent/log.h>
 #include <memory>
 #include <string>
@@ -30,14 +29,14 @@ bool isHelpArgument(int argc, char **argv) {
 }
 
 void printUsage(const char *program, const SpiderRuntime &runtime) {
-  std::printf("Usage: %s [guest-executable]\n", program && *program ? program : "spiderman_port");
-  std::printf("Run the %.*s native port with an authenticated extracted PS-X executable.\n",
-              static_cast<int>(runtime.serial().size()),
-              runtime.serial().data());
-  std::printf("With no argument, the executable defaults to %.*s.\n",
-              static_cast<int>(runtime.defaultExecutable().size()),
-              runtime.defaultExecutable().data());
-  std::printf("Options:\n  -h, --help  Show this help and exit.\n");
+  lucent::info(
+      "boot", "Usage: {} [guest-executable]", program && *program ? program : "spiderman_port");
+  lucent::info("boot",
+               "Run the {} native port with an authenticated extracted PS-X executable.",
+               runtime.serial());
+  lucent::info(
+      "boot", "With no argument, the executable defaults to {}.", runtime.defaultExecutable());
+  lucent::info("boot", "Options: -h, --help  Show this help and exit.");
 }
 
 } // namespace

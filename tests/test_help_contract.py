@@ -28,10 +28,10 @@ def check_help(command: list[str], label: str) -> None:
         raise AssertionError(
             f"{label} --help exited {result.returncode}: {result.stderr.strip()}"
         )
-    if "Usage:" not in result.stdout or "--help" not in result.stdout:
+    combined = f"{result.stdout}\n{result.stderr}"
+    if "Usage:" not in combined or "--help" not in combined:
         raise AssertionError(f"{label} --help did not print its usage contract")
     forbidden = ("no disc image", "identity", "PSXPORT_ASSET_DIR", "could not resolve")
-    combined = f"{result.stdout}\n{result.stderr}"
     if any(marker in combined for marker in forbidden):
         raise AssertionError(f"{label} --help performed launch-time discovery: {combined}")
 
