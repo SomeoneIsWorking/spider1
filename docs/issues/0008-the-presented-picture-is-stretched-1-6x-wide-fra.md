@@ -127,7 +127,7 @@ have caught it, and none of them was wrong. The missing check was geometric, and
 instrument for shape at all.
 
 ### Note (2026-08-05)
-INSTRUMENT BUILT, 2026-08-05: tools/present_geometry.py — the missing SHAPE check.
+INSTRUMENT BUILT, 2026-08-05: present_geometry.py — the missing SHAPE check. It now lives at external/psxport/tools/port/present_geometry.py; this repo's copy was deleted 2026-09-19.
 
 The reason this bug survived a full session of numeric checking is that every instrument in the repo
 is INVARIANT UNDER IT. A uniform rescale changes no coverage percentage, no distinct-colour count,
@@ -135,7 +135,7 @@ no mean brightness, no per-tile richness. ppm_look.py reported "real frame, 62.0
 colours" on a frame stretched 1.6x, and every one of those numbers was correct. The gap was not a
 weak instrument — it was a MISSING DIMENSION.
 
-    python3 tools/present_geometry.py <present shot.ppm> [--expect 16:9] [--tol 0.02]
+    uv run --frozen python external/psxport/tools/port/present_geometry.py <present shot.ppm> [--expect 16:9] [--tol 0.02]
 
 It finds the content band inside the sink, reports its aspect against the expected one, names the
 stretch factor, and reports the bars explicitly (because "big black bars" is what this bug looks
@@ -196,7 +196,7 @@ The existing widescreen case is likewise untouched: a 320-native game widened to
 
 STILL TO DO when the tree frees: plumb native_w at the call site in gpu_vk.cpp's present_inputs()
 (the game's native width is gpu.s_disp_w, the same source wide_native_w already scales from), then
-re-run the real-data gate with tools/present_geometry.py as the acceptance check — a 512x240 frame
+re-run the real-data gate with external/psxport/tools/port/present_geometry.py as the acceptance check — a 512x240 frame
 must report OK / "bars none (fills the sink)" instead of STRETCHED 1.600x.
 
 ### Note (2026-08-06)
@@ -251,7 +251,7 @@ each, denominator asserted). That matters because Tomba2Engine is the consumer t
 
 WHY IT SURVIVED SO LONG, worth keeping: every other instrument here is INVARIANT under it. Coverage
 %, colour counts, brightness, tile richness — a uniform rescale changes none of them, and none of
-them was wrong. It took a human asking "are these stretched wide?". INST-25 (tools/present_geometry.py)
+them was wrong. It took a human asking "are these stretched wide?". INST-25 (external/psxport/tools/port/present_geometry.py)
 now exists so the shape question has an instrument at all.
 
 NOT VERIFIED: spyro. It is 512x240 and therefore was affected identically, but I did not run it —
@@ -264,4 +264,4 @@ CONFIRMED IN SPYRO'S OWN TREE, not inferred from this one: spyro's external/psxp
 
 ONE NEW PIECE OF EVIDENCE FOR THE "visibly changes shape at every FMV<->gameplay transition" prediction, found while mirroring: the SAME FILE already contains the correct form. gpu_vk_present_image() (the RGBA still-image path) uses `letterbox(4, 3, sw, sh)` at gpu_vk.cpp:1128, while show_composite() (the game picture) uses `letterbox(disp_w, 240, ...)` at :1047. The two present paths in one file disagree about what the display aspect is, which makes the shape change checkable from any two captures either side of such a transition rather than only from the display-mode log.
 
-CAVEAT ON THE SPYRO NUMBER, recorded here because this entry's evidence is what a reader will reuse: no spyro capture has been through a shape check, and THIS REPO'S copy of present_geometry.py reports spyro's stretch as 1.714x where the real present stretch is 1.600x — it measures the non-black CONTENT BBOX, not the display rect. The discrepancy is exact and names the cause: 1.714/1.600 == 240/224, and spyro's guest draws 224 of its 240 display lines, so the band measurement charges GUEST-DRAWN black to the letterbox. A REPAIRED copy already exists at spyro/tools/present_geometry.py (spyro instrument I042, --selftest 16/16): it REFUSES with rc=3 on that ambiguity and resolves the same frame to 1.600x when given --active 512x224 --display 512x240. spider1's copy is the stale one; remedy is `cp spyro/tools/present_geometry.py spider1/tools/`, not done here (docs-only step). Check which copy you have with `md5sum */tools/present_geometry.py` from ~/repo/psx before quoting any number. See INST-25's 2026-08-06 amendment and spyro I042.
+CAVEAT ON THE SPYRO NUMBER, recorded here because this entry's evidence is what a reader will reuse: no spyro capture has been through a shape check, and THIS REPO'S copy of present_geometry.py reports spyro's stretch as 1.714x where the real present stretch is 1.600x — it measures the non-black CONTENT BBOX, not the display rect. The discrepancy is exact and names the cause: 1.714/1.600 == 240/224, and spyro's guest draws 224 of its 240 display lines, so the band measurement charges GUEST-DRAWN black to the letterbox. That stale copy was deleted on 2026-09-19 along with spyro's and Tomba2Engine's, which by then held three different md5s. The one file is now external/psxport/tools/port/present_geometry.py (spyro instrument I042, --selftest 16/16): it REFUSES with rc=3 on that ambiguity and resolves the same frame to 1.600x when given --active 512x224 --display 512x240. There is no copy left to pick between. See INST-25's 2026-08-06 amendment and spyro I042.

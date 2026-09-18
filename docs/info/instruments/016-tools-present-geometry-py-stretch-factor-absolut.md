@@ -8,7 +8,7 @@ distrusted_on: 2026-08-06
 
 ## Instrument
 
-tools/present_geometry.py stretch factor / absolute aspect [POINTER ENTRY — canonical record is docs/info/instruments.md INST-25]
+external/psxport/tools/port/present_geometry.py stretch factor / absolute aspect [POINTER ENTRY — canonical record is docs/info/instruments.md INST-25]
 
 ## Validated by
 
@@ -24,19 +24,23 @@ See docs/info/instruments.md INST-25 for the full record. In short: it measures 
 
 > Every result this instrument produced is suspect until it is re-validated.
 
-## THE DISTRUST APPLIES TO **THIS REPO'S COPY** — a repaired copy already exists (same day)
+## THE DISTRUST APPLIED TO **THIS REPO'S COPY**, and that copy is gone (2026-09-19)
 
-`present_geometry.py` is DUPLICATED across the workspace and the copies have DIVERGED.
-`spyro/tools/present_geometry.py` (= `Tomba2Engine/tools/present_geometry.py`) is a REPAIRED version,
-registered as spyro **I042**: `--selftest` 16/16, mutation-tested, and it REFUSES with rc=3
-(AMBIGUOUS) on exactly the frame this copy answered `STRETCHED 1.714x` for. Given
-`--active 512x224 --display 512x240` it resolves that frame to `1.600x` (rc=1) and the fixed present
-to `OK` (rc=0) — validated in both directions.
+`present_geometry.py` was DUPLICATED across the workspace and the copies DIVERGED: measured
+2026-09-19, `spyro/tools/`, `Tomba2Engine/tools/` and this repo's copy held three different md5s of
+one game-agnostic PPM/PNG reader. All three are deleted. The one file is
+`psxport/tools/port/present_geometry.py`, reached here as `external/psxport/tools/port/present_geometry.py` at the revision `psxport.pin`
+records:
+
+    uv run --frozen python external/psxport/tools/port/present_geometry.py <shot.ppm> --selftest
+
+That file is the REPAIRED version registered as spyro **I042**: `--selftest` 16/16, mutation-tested,
+and it REFUSES with rc=3 (AMBIGUOUS) on exactly the frame the deleted copy answered
+`STRETCHED 1.714x` for. Given `--active 512x224 --display 512x240` it resolves that frame to
+`1.600x` (rc=1) and the fixed present to `OK` (rc=0) — validated in both directions.
 
 The 7% error is EXACT and that names the cause: `1.714 / 1.600 == 240 / 224`, and spyro's guest draws
-224 of its 240 display lines. The band-only measurement charges GUEST-DRAWN black to the letterbox.
+224 of its 240 display lines. The band-only measurement charged GUEST-DRAWN black to the letterbox.
 
-REMEDY: `cp spyro/tools/present_geometry.py spider1/tools/`. NOT done here — this step was docs-only.
-Until it is, this repo's copy stays distrusted for the magnitude. Before quoting a number from ANY
-copy, run `md5sum */tools/present_geometry.py` from `~/repo/psx`; measured 2026-08-06, spyro's copy
-and this one have different md5s. Full record: docs/info/instruments.md INST-25.
+There is no copy left to distrust and no `md5sum` to run before quoting a number. Full record:
+docs/info/instruments.md INST-25.

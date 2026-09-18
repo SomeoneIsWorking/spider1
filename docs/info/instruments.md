@@ -281,7 +281,7 @@ failure class issue 0005 turned out to be. Not built yet.
 
 ---
 
-## INST-25 — `tools/present_geometry.py` — **the SHAPE check, built because every other instrument here is blind to shape. TRUSTED for the DIRECTION (stretched vs fills-the-sink); its STRETCH MAGNITUDE is DISTRUSTED as of 2026-08-06 — it measures a CONTENT BBOX, not the display rect**
+## INST-25 — `external/psxport/tools/port/present_geometry.py` — **the SHAPE check, built because every other instrument here is blind to shape. TRUSTED for the DIRECTION (stretched vs fills-the-sink); its STRETCH MAGNITUDE was DISTRUSTED from 2026-08-06 because this repo held a stale copy that measured a CONTENT BBOX rather than the display rect — repaired 2026-09-19 by deleting the copies and running the framework's file**
 
 *Why it exists, and it is the most important sentence in this entry:* issue 0008 (the picture
 presented 1.6x too wide) survived a full session of numeric checking because **every instrument in
@@ -296,7 +296,7 @@ expected one, the stretch factor, and the bars — explicitly, because "big blac
 bug looks like to a human and bars read as deliberate letterboxing. That misreading is exactly how
 the defect was dismissed repeatedly in one day.
 
-    python3 tools/present_geometry.py <shot.ppm> [--expect 16:9] [--tol 0.02]
+    uv run --frozen python external/psxport/tools/port/present_geometry.py <shot.ppm> [--expect 16:9] [--tol 0.02]
 
 *Validated in FOUR directions, not one:*
 
@@ -362,33 +362,30 @@ unqualified `1.714x`.
   into an issue, a claim or a codemap row. Derive the expected stretch from the display mode
   (`disp_w : 240` vs 4:3), which is exact, and use this tool to confirm the direction.
 
-### THE FIX ALREADY EXISTS, IN A DIFFERENT COPY OF THE FILE — `spider1/tools/present_geometry.py` IS THE STALE ONE
+### THE STALE COPY IS GONE — this repo now runs the framework's one file
 
-Found while registering this, 2026-08-06, and it changes the remedy from "someone should write it"
-to "copy it": **`present_geometry.py` is DUPLICATED across the workspace and the copies have
-diverged.** `spyro/tools/present_geometry.py` and `Tomba2Engine/tools/present_geometry.py` carry a
-repaired version (registered as spyro **I042**, `--selftest` 16/16, mutation-tested against 3
-injected defects); **this repo's copy is the ORIGINAL and has not been updated.** The repaired version:
+Registered 2026-08-06 as "the fix exists in a different copy, `cp` it here"; that remedy was never
+run, and the copies went on diverging. Measured 2026-09-19: `spyro/tools/`, `Tomba2Engine/tools/`
+and `spider1/tools/` held THREE different md5s of one game-agnostic PPM/PNG reader. All three are
+deleted. The file lives at `psxport/tools/port/present_geometry.py`, and every port reaches it
+through its own `external/psxport` at the revision `psxport.pin` records:
+
+    uv run --frozen python external/psxport/tools/port/present_geometry.py <shot.ppm> --selftest
+
+So the DISTRUSTED magnitude above is repaired here by construction, not by a copy someone has to
+remember to make. The framework version:
 
 * **REFUSES with rc=3 (AMBIGUOUS)** when black margins make band-vs-picture undecidable, instead of
-  printing a confident band aspect. On a spyro-shaped frame the old copy printed `STRETCHED 1.714x`;
-  the new one refuses.
+  printing a confident band aspect. On a spyro-shaped frame this repo's old copy printed
+  `STRETCHED 1.714x`; this one refuses.
 * accepts `--active 512x224 --display 512x240` (or `--guest-frame <fb dump>`) so the caller supplies
   the guest's real drawn extent, and then resolves that same frame to `STRETCHED 1.600x`, rc=1.
 * was validated in BOTH directions on that frame: the FIXED present with the SAME flags gives
-  `OK`, rc=0.
+  `OK`, rc=0. Its `--selftest` is 16/16.
 
-**REMEDY:** `cp spyro/tools/present_geometry.py spider1/tools/` — not done here, because this step was
-docs-only and a tool copy is a change the operator should see as its own act. Until it is done, THIS
-REPO'S COPY REMAINS AS DISTRUSTED ABOVE. **Before quoting a number from ANY copy, run
-`md5sum */tools/present_geometry.py` from `~/repo/psx`** and check which one you have; no hash is
-recorded here on purpose, because a hand-copied hash rots at the next edit. Measured 2026-08-06:
-spyro's and this repo's copies have DIFFERENT md5s.
-
-Note what the repaired tool does NOT solve, per I042's own entry: `--active` assumes the present is a
-UNIFORM SCALE of the guest display rect, so a presenter that crops, pans, or scales the axes
-differently makes the correction silently wrong and undetectable. And the tool's proper home is
-`external/psxport/tools/`, which needs a coord claim; three diverging copies is the current state.
+What it still does NOT solve: `--active` assumes the present is a UNIFORM SCALE of the guest display
+rect, so a presenter that crops, pans, or scales the axes differently makes the correction silently
+wrong and undetectable.
 
 *See:* issue 0008 (this repo, RESOLVED), spyro issue 0047 (the same defect, still OPEN there, where
 the 1.714x reading was taken), spyro I042 (the repaired copy and its selftest).
