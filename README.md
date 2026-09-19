@@ -10,7 +10,7 @@ No disc image, executable, or game asset is included. Supply a legally obtained 
 
 | Title | Executable identity | Current evidence |
 | --- | --- | --- |
-| Spider-Man | `SLUS_008.75` | Historical evidence reached both intro movies and early `dem1`; finite native frame/service work is preserved but not attached to the product. The asset-free product now builds against Lightrec, but authenticated gameplay has not been run through it. |
+| Spider-Man | `SLUS_008.75` | The current Lightrec product has resumed and presented the first authenticated STR movie field. Both complete intro movies, `dem1`, and interactive gameplay remain unverified in this product; see the [current-state ledger](docs/project-state.md). |
 | Spider-Man 2: Enter Electro | `SLUS_013.78` | Identity, eight crt0 facts, and first game-owned call `0x80031F54` are measured. Gameplay and rendering are absent. |
 
 The serial, PS-X EXE header, size, and SHA-256 jointly select a title. Names are labels, never
@@ -39,18 +39,17 @@ A bounded representative interactive gameplay milestone must also prove:
 
 The removed pipeline cannot return as a compatibility mode while this work is incomplete.
 
-The consumer is pinned to PSXPort
-`9e104d9fe7d04043d98fe451732596d68e45022c`, whose runtime dependency requires maintained Lightrec
-`b1457137c31cedff5f440d59da29401d021ba2da`. Both revisions are immutable build inputs; CMake refuses
-a dirty or mismatched Lightrec checkout and the consumer pin test refuses a different PSXPort build.
+The exact verified PSXPort revision is recorded in [`psxport.pin`](psxport.pin), and PSXPort's
+dependency declaration pins Lightrec. CMake refuses a dirty or mismatched Lightrec checkout; the
+consumer pin test refuses a different PSXPort build.
 
 ## Intended player experience
 
 `./run.sh` enters the frozen `uv` environment, selects and authenticates the disc, provisions only
 the PS-X EXE, builds the native/Lightrec product without offline guest translation, and launches the
-selected title. The maintained Lightrec backend is linked; title gameplay remains unverified until a
-real authenticated run reaches the declared discriminator with measured translation and fallback
-counters.
+selected title. The maintained Lightrec backend is linked. A real authenticated run has presented
+the first movie field; complete movies, `dem1`, and gameplay remain unverified against the declared
+translation and fallback gates.
 
 Hosted CI is configured to build and test the real asset-free Linux x86-64 boundary; the new
 workflow has not run from this working tree yet. Windows, macOS, Apple Silicon, and Android jobs

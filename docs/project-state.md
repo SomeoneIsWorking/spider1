@@ -69,7 +69,7 @@ pad/input wait. `scratch/logs/spider1-postlogo-owned-live.log` completes both mo
 finite prefix, enters `dem1` at host frame 4941, reconciles 5,400/5,400 fences and exits 0 without a
 guest VSync call.
 
-Gap: none of this route has run through Lightrec. The inspected `dem1` captures render real
+Gap: the complete route has not run through Lightrec. The inspected `dem1` captures render real
 characters but retain a sparse black background, and
 the run did not yet reach `l1a1` or prove real selector transitions through every finite mode. Issue 0018 records an intermittent
 STR VLC overrun before `dem1`; issue 0015 prevents the boot supervisor from cleanly terminating every
@@ -96,8 +96,9 @@ Historical subset: `Spider1FrameDriver` owns display-field timing, VSync callbac
 per-field audio, per-frame pad service, and the single-fence invariant. `Spider1ModeDriver` owns the
 retail field waits and submit ordering across primary, transition, menu, alternate, countdown, and
 invalid-selector states. Repeated display fields pace the held image without rotating temporal
-logic history; true no-submit early exits use an unpresented fence. Libetc VSync `0x80084BE0` is an
-all-mode abort and cannot be replaced by a title handler. Native CD sector service, memory card
+logic history; true no-submit early exits use an unpresented fence. Libetc VSync `0x80084BE0`
+retains protected typed nonnegative field boundaries and cannot be replaced by a title handler;
+its authenticated negative query reads the declared guest field counter. Native CD sector service, memory card
 handling, base-relative runtime module routing, and the measured guest program image remain on
 cohesive game/framework seams.
 
@@ -124,8 +125,11 @@ crossed those boundaries and next stopped at a separate stock libcd `VSync(-1)` 
 0x8008D050. The `spider1_runtime_services` test exercises the production native CdInit and GPU DMA
 timeout bindings with no `GameConfig`, plus projection setters, the protected VSync exit, and the
 retail pad receive buffers. It also proves Setloc/Setmode guest work-area publication, GetTN result
-survival through inner CdSync, and no work-area write without a declaration. Callback equivalence
-and crossing the retail command wait remain unverified. The earlier service-binding regression had
+survival through inner CdSync, and no work-area write without a declaration. The direct runtime
+also binds the measured CD-ready callback slot and pumps the unchanged StGetNext body on a dry poll.
+A synthetic guest callback calling VSync(-1) returns the declared libetc field count, preserves the
+outer registers, and delivers no field; missing-counter and callback-exit controls refuse the
+wrong paths. Full callback equivalence and crossing the retail command wait remain unverified. The earlier service-binding regression had
 zero translated guest instructions; the new real-disc boot provides the translated-execution evidence stated in S017.
 Finite movie/mode attachment and authenticated gameplay remain unverified.
 
@@ -293,15 +297,16 @@ synthetic contract proves nonzero translated blocks, native/original dispatch, a
 retranslation without fallback. It separately admits one classified difficult block under the
 configured limit and refuses a zero-limit block before any interpreter instruction executes.
 
-Authenticated Spider-Man boot now proves 79,976 translated blocks and 395,713 instructions with
-zero interpreter fallback through pre-main ResetGraph field delivery, the GPU DMA timeout arm,
-inner CdSync, and public CdInit. The executor's bounded-turn continuation resumes the retail
-allocator's finite heap fill without a guest-code derivative. The next typed boundary is a stock
-libcd `VSync(-1)` at return PC `0x8008D050` in an earlier run. The post-binding authenticated
-run stopped earlier at the boot movie's `VSync` frame boundary, PC `0x80084BE0`, return
-`0x8002AC8C`, after 347,812 translated blocks and 1,766,751 instructions with zero interpreter
-fallback. The measured CD_cw binding has synthetic coverage but no reached retail command;
-no host-loop or movie-fiber attachment is claimed.
+Authenticated Spider-Man boot crossed pre-main ResetGraph field delivery, the GPU DMA timeout arm,
+inner CdSync, and public CdInit through translated code with zero interpreter fallback. The
+executor's bounded-turn continuation resumes the retail allocator's finite heap fill without a
+guest-code derivative. One earlier boundary was stock libcd `VSync(-1)` at return `0x8008D050`;
+the native CD_cw binding has synthetic coverage but no reached retail command. Subsequent runs
+resumed the first movie field, then found a dry StGetNext poll and a nested libcd `VSync(-1)` query
+inside its ready callback. The pre-query retail run executed 352,889 translated blocks and
+1,798,345 instructions with zero interpreter fallback and stopped at that nested query. The
+combined query path now crosses it in authenticated retail execution, but no later movie field
+has been reached.
 
 Gap: authenticated Spider-Man has not yet proved original-call title dispatch or address-reusing
 runtime-module invalidation. Authenticated Spider gameplay has not
@@ -320,13 +325,24 @@ unwinding the guest movie body. A synthetic shipping Lightrec call at each PC pr
 state, delivers a registered field callback and exactly one presentation fence, and resumes the
 following guest instruction once; an unrelated return is refused without state advancement.
 An authenticated retail Lightrec run resumed the first STR field at `0x8002AC8C` and presented
-one fence, then stalled without another field. The guest PC at that stall has not been captured.
+one fence, then stalled without another field. A bounded debugger probe captured the dry
+`StGetNext` (`0x80086B10`) poll with an empty 48-slot ring and zero sectors delivered. The direct
+runtime now attaches the guest-ready stream pump and typed dry-poll field. A subsequent retail run
+attempted one ready callback, then exposed a nested `VSync(-1)` counter query from stock CdReady:
+live RA `0x8008CC00`, `a0=-1`, and one INT1-ready callback attempted. The title declares the
+authenticated libetc counter, and the shared query contract passes a synthetic nested guest-callback
+test without advancing a field. A combined retail run crossed the query and kept presenting for
+90 seconds, but no second movie field appeared. A later snapshot found 1,026 INT1-ready callback
+attempts with ring write, frame-start, and consumer indices all zero. A bounded GDB control captured
+8/8 returned callbacks, 0/8 ring publications, producer reason 3, and an unread correctly headed
+CDC FIFO: the producer exits after `CdReady(1)` returns a result byte with bit `0x04` set, before
+DMA or STR-header validation.
 
 Gap: run the authenticated Spider-Man image through Lightrec with nonzero translated blocks,
 preserve the title's native frame/service owners, complete both intro movies, and reach early `dem1`,
 including the authenticated `0x8002AC8C`, `0x8002AE1C`, and `0x8002AFEC` field exits. The
-native StGetNext stream pump is not attached to direct boot; its lifecycle and sector delivery
-must be proved rather than inferred from the field test.
+the reached `CdReady` result-bit guard needs a source-grounded libcd/CDC IRQ handoff fix before
+libstr can publish a frame; later movie fields and progression remain unverified.
 
 ### S019 — Representative gameplay conformance
 

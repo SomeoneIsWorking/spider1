@@ -7,7 +7,7 @@ created: 2026-08-05
 
 ## Instrument
 
-PSXPORT_DEBUG=ring (game/core/cd_stream.cpp) — the libstr sector ring's state, now sized by the guest's own slot count
+PSXPORT_DEBUG=ring (titles/spiderman1/spider1_stream_driver.cpp) — the libstr sector ring's state, now sized by the guest's own slot count
 
 ## Validated by
 

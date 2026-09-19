@@ -19,6 +19,7 @@ public:
   bool resumeBootstrapBoundary(Core &core, const psx::cpu::ExecutionResult &result) override;
   const GuestProgramImage *guestProgramImage() const override;
   const PlatformHlePlan *platformHlePlan() const override;
+  const GuestCdStreamCallbackLayout *guestCdStreamCallbackLayout() const override;
   const GuestPadBufferLayout *guestPadBufferLayout() const override;
   RenderCapabilities renderCapabilities() const override;
   bool guestVramIsPicture(const Game &game) const override;

@@ -24,7 +24,7 @@ constexpr uint32_t kGuestFieldWait = 0x8005E748u;
 constexpr uint32_t kPadService = 0x8006B514u;
 constexpr uint32_t kInnerCdSync = 0x8008C944u;
 constexpr uint32_t kGpuDmaTimeoutStart = 0x80083C60u;
-constexpr uint32_t kLibetcVblankCount = 0x800B397Cu;
+constexpr uint32_t kLibetcVblankCount = spider1::libetcVblankCountAddress;
 constexpr uint32_t kGpuDmaTimeoutDeadline = 0x800B0F64u;
 constexpr uint32_t kGpuDmaTimeoutPollCount = 0x800B0F68u;
 constexpr uint32_t kGpuStatusPointer = 0x800B0FA0u;
@@ -150,6 +150,35 @@ void Spider1FrameDriver::serviceBootstrapMovieVsync(Core &core) {
       "str", "Spider-Man 1 resumed retail STR field {} at 0x{:08X}", movieFieldCount_, core.pc);
 }
 
+void Spider1FrameDriver::serviceBootstrapStreamWait(Core &core) {
+  // StGetNext has already executed its authentic body and returned "not ready". The host only
+  // supplies the display field that passes while the asynchronous drive catches up. Unlike VSync,
+  // this boundary does not update the VSync return value or its horizontal-counter baseline.
+  if (mainFrameInstalled_ || activeCoro_ || core.pc != spider1::stGetNextAddress ||
+      core.r[2] == 0) {
+    lucent::error("str",
+                  "Spider-Man 1 refused direct stream wait: main={} fiber={} pc=0x{:08X} v0={}",
+                  mainFrameInstalled_,
+                  static_cast<bool>(activeCoro_),
+                  core.pc,
+                  core.r[2]);
+    std::abort();
+  }
+  const uint32_t continuation = core.r[31];
+  fieldsSinceCommit_ = 0;
+  frameCommitted_ = false;
+  deliverField(core);
+  if (core.executionControl().pending()) {
+    lucent::error("str", "Spider-Man 1 field callback exited during direct stream wait");
+    std::abort();
+  }
+  commitMovieField(core);
+  ++game_.timing.logicFrame;
+  core.rsub.otAttr.beginLogicFrame(game_.timing.logicFrame);
+  game_.pad.serviceFrame();
+  core.pc = continuation;
+}
+
 void Spider1FrameDriver::installBootstrapOverrides() {
   // The first post-ResetGraph hardware query is the stock GPU DMA timeout arm. Its VSync(-1)
   // reads the title field count without waiting, so the complete native leaf below owns it.
@@ -192,8 +221,8 @@ void Spider1FrameDriver::initializeCd(Core *core) {
   // Exact public success contract of SLUS_008.75 CdInit: install its event callbacks and return
   // true. The host owns every CD operation synchronously, so starting the guest controller/IRQ
   // handshake would be both unobservable and a cadence violation (its timeout polls VSync(-1)).
-  core->mem_w32(spider1::cdReadyCallbackSlot, spider1::cdReadyCallback);
   core->mem_w32(spider1::cdSyncCallbackSlot, spider1::cdSyncCallback);
+  core->mem_w32(spider1::cdReadyCallbackSlot, spider1::cdReadyCallback);
   core->mem_w32(spider1::cdEventCallbackSlot, spider1::cdEventCallback);
   core->mem_w32(spider1::cdEventUnusedSlot, 0);
   core->r[2] = 1;
@@ -323,7 +352,19 @@ void spider1_stream_wait_field(Core *core) {
     std::abort();
   }
   Spider1FrameDriver &driver = Spider1FrameDriver::from(*core);
-  driver.yieldActiveField(*core, 0x80086B10u);
+  if (driver.activeCoro_) {
+    driver.yieldActiveField(*core, spider1::stGetNextAddress);
+    return;
+  }
+  if (driver.mainFrameInstalled_ || core->pc != spider1::stGetNextAddress) {
+    lucent::error("str", "Spider-Man 1 direct stream wait has no boot owner");
+    std::abort();
+  }
+  psx::cpu::requestExecutionExit(*core,
+                                 {psx::cpu::ExecutionExitReason::CooperativeYield,
+                                  spider1::stGetNextAddress,
+                                  0,
+                                  "Spider-Man 1 StGetNext waited through one display field"});
 }
 
 void Spider1FrameDriver::completeMovieVsync(Core &core, uint32_t returnValue) {

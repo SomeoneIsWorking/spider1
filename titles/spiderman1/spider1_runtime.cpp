@@ -1,6 +1,7 @@
 #include "spider1_runtime.h"
 #include "spider1_frame_driver.h"
 #include "spider1_platform_facts.h"
+#include "spider1_stream_driver.h"
 
 #include "frame_loop_shell.h"
 
@@ -26,15 +27,18 @@ const ExecutableIdentity &Spider1Runtime::executableIdentity() const {
   return identity_;
 }
 
-void *Spider1Runtime::createContext(Core &) {
-  return nullptr;
+void *Spider1Runtime::createContext(Core &core) {
+  return new spider1::Spider1StreamDriver(core);
 }
 
-void Spider1Runtime::destroyContext(void *) {}
+void Spider1Runtime::destroyContext(void *context) {
+  delete static_cast<spider1::Spider1StreamDriver *>(context);
+}
 
 void Spider1Runtime::registerOverrides(Game &game) {
   game.platform_hle.initBuiltins();
   Spider1FrameDriver::from(game.core).installBootstrapOverrides();
+  spider1::Spider1StreamDriver::from(game.core).install();
 }
 
 void Spider1Runtime::bootInit(Core &) {
@@ -50,6 +54,11 @@ void Spider1Runtime::prepareBootstrap(Game &game) {
 }
 
 bool Spider1Runtime::resumeBootstrapBoundary(Core &core, const psx::cpu::ExecutionResult &result) {
+  if (result.reason == psx::cpu::ExecutionExitReason::CooperativeYield &&
+      result.guestPc == spider1::stGetNextAddress && core.pc == result.guestPc) {
+    Spider1FrameDriver::from(core).serviceBootstrapStreamWait(core);
+    return true;
+  }
   if (result.reason != psx::cpu::ExecutionExitReason::FrameBoundary ||
       result.guestPc != spider1::platformServices.vsyncAddress || core.pc != result.guestPc ||
       core.r[4] != 0) {
@@ -72,6 +81,10 @@ const GuestProgramImage *Spider1Runtime::guestProgramImage() const {
 
 const PlatformHlePlan *Spider1Runtime::platformHlePlan() const {
   return &spider1::platformServices;
+}
+
+const GuestCdStreamCallbackLayout *Spider1Runtime::guestCdStreamCallbackLayout() const {
+  return &spider1::cdStreamCallbacks;
 }
 
 const GuestPadBufferLayout *Spider1Runtime::guestPadBufferLayout() const {

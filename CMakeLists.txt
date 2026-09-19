@@ -48,6 +48,7 @@ set(SPIDER_COMMON_SOURCES
   game/core/spider_runtime.cpp)
 
 set(SPIDER1_FRAME_SOURCES
+  titles/spiderman1/spider1_stream_driver.cpp
   titles/spiderman1/spider1_movie_execution.cpp
   titles/spiderman1/spider1_frame_driver.cpp
   titles/spiderman1/spider1_mode_driver.cpp)
@@ -86,7 +87,6 @@ endforeach()
 # measured title boundaries. The field owner now links into the product for pre-main VSync service.
 if(TARGET spiderman_port)
   add_library(spider1_native_owners_compile OBJECT
-    game/core/cd_stream.cpp
     titles/spiderman1/spider1_widescreen.cpp)
   target_include_directories(spider1_native_owners_compile PRIVATE
     game/core

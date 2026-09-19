@@ -7,7 +7,7 @@ created: 2026-08-04
 
 ## Instrument
 
-PSXPORT_DEBUG=ring (game/core/cd_stream.cpp) — STR sector-ring state at StGetNext
+PSXPORT_DEBUG=ring (titles/spiderman1/spider1_stream_driver.cpp) — STR sector-ring state at StGetNext
 
 ## Validated by
 

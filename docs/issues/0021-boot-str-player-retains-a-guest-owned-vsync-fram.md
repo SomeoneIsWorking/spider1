@@ -75,12 +75,11 @@ ownership line is correctly absent.
 
 ## Open native/Lightrec resolution
 
-The 2026-09-12 direct-runtime boot now delivers ResetGraph's pre-main field and crosses the
-measured GPU DMA timeout, inner CdSync, and public CdInit contracts through Lightrec. Its next
-typed exit is `VSync(-1)` at return `0x8008D050` inside a later stock libcd command wait
-(`0x8008D048` calls `0x80084BE0`). That separate CD-controller boundary must be owned before
-the unchanged retail movie player can reach its field exits; the latest run did not reach STR
-or `dem1`.
+An earlier 2026-09-12 direct-runtime boot delivered ResetGraph's pre-main field and crossed the
+measured GPU DMA timeout, inner CdSync, and public CdInit contracts through Lightrec. It then
+stopped at `VSync(-1)` return `0x8008D050` inside a stock libcd command wait (`0x8008D048`
+calls `0x80084BE0`). The later native CD command binding crossed this earlier boundary; that
+run did not yet reach STR or `dem1`.
 
 Authenticated executable disassembly identifies the containing routine as stock libcd `CD_cw` at
 `0x8008CE8C` (13 direct `jal` sites, including the `CdControl` wrappers at `0x80086CA8`,
@@ -116,22 +115,63 @@ stopped it. The watchdog's Lightrec host-side backtrace does not identify the gu
 immediate stall remains unclassified. This proves one retail field continuation, not a completed
 movie or frame loop.
 
-The previous static-product investigation measured why preserving CdLastPos matters: the guest read
-path seeds its expected sector from that record and rejected every sector when it stayed stale. The
-next discriminator is a bounded debugger observation after the first retail field: record the live
-guest PC, StGetNext entries and dry returns, ring producer/consumer indices and slot status, ready
-callback slot, and sector-pump count. The preserved `spiderman_install_cd_stream` has no live caller
-in the direct runtime, and that runtime declares no ready-callback slot for `Cd::pumpStream`;
-these are concrete ownership gaps but do not by themselves prove the next guest PC. The old pump's
-dry-poll field wait also requires a finite coroutine that direct boot does not have, so merely
-installing it would abort. Establish this boundary before deciding the complete direct-runtime
-stream continuation, then measure which command and arguments reach `CD_cw` and whether CD callback
-effects are missing. Do not equate a crossed wait with completed STR or `dem1`.
+The bounded authenticated post-field GDB probe reached one qualifying `BudgetExhausted` exit after
+one completed movie field: `guestPc=Core::pc=0x80086B10` at `StGetNext`, return address
+`0x8002B3E0`, and 564,488 guest cycles. The 48-slot guest ring was empty at consumer/write index
+zero, the ready callback slot `0x800B3B18` held `0x800860B4`, and the host stream was active with
+zero sectors delivered. This located the dry poll. The title now installs the StGetNext override
+in direct boot, binds the measured ready-callback slot, pumps through the guest's libstr producer,
+and yields one typed host field only after the unchanged StGetNext body still reports dry. Focused
+Lightrec tests cover dry, ready, and interrupted-callback cases; they do not establish a retail
+movie advance.
 
-The shipping fix is to execute the unchanged retail movie body through Lightrec and return a bounded
-executor exit at `0x8002AC8C`, `0x8002AE1C`, or `0x8002AFEC`. `Spider1FrameDriver` delivers the field,
-callback, audio, input, and presentation work, then resumes the same guest CPU state. No generator,
-body derivative, interpreter fallback, or conditional successful VSync HLE is permitted.
+The next authenticated headless/silent run resumed movie field 1 at `0x8002AC8C`, then stopped at
+`VSync` PC `0x80084BE0` with reported RA `0x8002B3E0`, `a0=0x807FFEF0`, 352,889 translated
+blocks, 1,798,345 instructions, and zero fallback. Those registers are the *outer* StGetNext
+context: shared `Cd::pumpStream` restores its saved R3000 register file before propagating a guest
+callback's typed exit. A bounded read-only GDB probe stopped earlier, at the first post-field
+`PlatformHle` VSync boundary before that restoration. With one field entered/completed and one
+post-field VSync boundary observed, the live values were RA `0x8008CC00`, `a0=-1`, `v0=0`, ready
+callback `0x800860B4`, `stream_active=1`, and `stream_delivered=1`. Authenticated code confirms the
+chain: the ready callback calls producer `0x80085000`, which calls `0x80086C60` and stock
+`CdReady(1, result)` `0x8008CBC4`; its `0x8008CBF8` call is `VSync(-1)` with return `0x8008CC00`.
+The libetc body loads the field count at `0x800B397C` for negative arguments and returns without
+waiting. This is a counter query inside sector delivery, not another movie field.
+
+The shared `PlatformHlePlan` query contract and Spider's measured counter declaration now return
+that guest word for negative VSync arguments, while nonnegative calls retain their protected typed
+frame boundary. A missing counter declaration aborts explicitly. A shipping-path synthetic
+Lightrec test runs a guest ready callback that calls `VSync(-1)`, observes the returned count,
+preserves the interrupted StGetNext registers, retries its original body, and advances only the
+later dry-poll host field. The shared missing-counter negative test also passes. The earlier
+read-only VSync output remains gitignored at `scratch/logs/spider1-nested-vsync-gdb.log`.
+
+The combined psxport `51df140f`/Spider Clang product crossed that nested query, but a 90-second
+headless/silent, normally paced retail run returned movie field 1 only. At a separate 20-second
+snapshot, the presenter had 1,029 fences and libetc had 2,056 VBlanks; `Core::pc=0x80086B10`,
+`stream_active=1`, `stream_delivered=1,026`, and the 48-slot ring's write, frame-start, and consumer
+indices were all zero. `stream_delivered` increments *before* guest callback dispatch, so it counts
+INT1-ready attempts, not sectors accepted into libstr. A bounded GDB discriminator stopped at the
+first eight **returned** callbacks: 8/8 left producer reason `0x800B1000=3`, all ring indices and
+slot 0 status zero, and the CDC FIFO unread (`data_n=2340`, `data_rd=0`, `bfrd=0`). Its first-sector
+header was the correct `28 32 54 02` at LBA 128304; the controller's INT1 stayed queued
+(`q_head=0`, `q_tail=1`). The 0/8 ring-publication negative is therefore reached and discriminating.
+Raw output is gitignored at `scratch/logs/spider1-ring-first-transition.log`.
+
+Authenticated instructions show the first missing transition: producer `0x80085084` calls
+`CdReady(1, sp+0x30)`, then `0x800850B0` tests bit `0x04` of the returned result byte. If set,
+`0x800850BC` writes reason 3 and returns before any DMA or STR-header check. The direct runtime
+does not install the legacy native CdGetSector override; this is the guest's stock CdReady and
+controller path. The pending INT1 plus direct host invocation of the ready callback suggests a
+shared libcd/CDC IRQ ordering gap. The next focused discriminator must compare the byte copied by
+CdReady with the current CDC status and libcd response work area, then prove an INT1 transition
+through the guest ISR before invoking the callback. Do not write a title-local ring state or status
+value to bypass this guard.
+
+The unchanged retail movie body remains under Lightrec. `Spider1FrameDriver` delivers fields,
+callbacks, audio, input, and presentation at the three authenticated VSync(0) return PCs, then
+resumes the same guest CPU state. No generated body, interpreter fallback, or title-specific
+successful VSync(0) HLE is permitted.
 
 Acceptance requires both movies and the post-logo wait to complete and early `dem1` to run with
 nonzero Lightrec blocks. That closes the first discriminator only. This issue cannot authorize
