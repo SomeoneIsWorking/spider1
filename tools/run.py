@@ -199,7 +199,7 @@ def launch_environment(
     if not framework.is_absolute():
         framework = ROOT / framework
     policy = runpy.run_path(str(framework / "tools/port/launch_environment.py"))
-    result = policy["player_environment"](environ)
+    result = policy["player_environment"](environ, product=title.id)
     if not result.get("PSXPORT_ASSET_DIR"):
         result["PSXPORT_ASSET_DIR"] = framework_text
     result[title.disc_env] = disc
