@@ -6,7 +6,7 @@ symptom: fatal guest VSync at 0x80084BE0 from FUN_8002AA0C return 0x8002AC8C aft
 state_items: S002,S004,S013,S018
 tags: frame-loop,fmv,vsync,spiderman1,re-22,dynarec,lightrec
 created: 2026-08-27
-updated: 2026-09-12
+updated: 2026-09-27
 ---
 
 ## Root cause
@@ -20,8 +20,8 @@ finite native outer/mode driver can be reached.
 
 This is not the expected missing `/CINEMAS/TTSLOGO.STR;1`: the authenticated game pre-scans all 24
 movie entries and deliberately records zero for absent files. It is also not the earlier CdInit
-timeout: the public `0x8008A16C` boundary now completes through the synchronous host CD owner and
-the launch advances beyond it.
+timeout: the public `0x8008A16C` boundary now completes through the synchronous host CD owner
+and the launch advances beyond it.
 
 ## What was tried / dead ends
 
@@ -29,6 +29,95 @@ Do not make `VSync` succeed conditionally for these three return addresses. That
 guest-owned loop behind a title exception while leaving cadence ownership in retail code. Do not
 skip the intro movies merely to reach the menu; issue 0004 has prior real-disc evidence that both
 shipped logos decode and display when their service dependencies are correct.
+
+## The SLUS_008.75 libetc VSync contract, recovered from the image (2026-09-27)
+
+Whole-image Ghidra reference census of `0x80084BE0`: **32 call references, 0 non-call**, so every
+caller in the image is one of the 32 sites below and none is reached through a register or a table.
+Recovered from `0x80084BE0..0x80084DEC` by disassembly, not inferred from X4's shape.
+
+### The measured state words
+
+| word | read by | written by | what it is |
+|---|---|---|---|
+| `0x800B0FA0` | `0x80084BE0`, `0x80084C9C`, `0x80084CD0` | — (a cell) | holds `0x1F801810` (GPUSTAT) |
+| `0x800B0FA4` | `0x80084BE8`, `0x80084C14`, `0x80084D10` | — (a cell) | holds `0x1F801810`-class counter 1 / HBlank clock |
+| `0x800B0FA8` | `0x80084C2C` | `0x80084D24` | VSync's own previous counter sample |
+| `0x800B0FAC` | `0x80084C68`, `0x80084C80` | `0x80084D18` | the field counter at the last completed sync |
+| `0x800B397C` | `0x80084C44`, `0x80084CAC`, `0x80084D08`, and the wait helper `0x80084D68`/`0x80084DCC` | the title's field owner | the VBlank field counter the whole contract is expressed in |
+
+**The two entry spins, read from the image.** `0x80084C04..0x80084C20` spins until the HBlank-clocked
+counter cell's contents CHANGE (`bne v1,v0` against a saved sample) — a horizontal wait, not a
+field. `0x80084D1C..0x80084D38` is the same spin after the bookkeeping. Neither costs a display
+field, and neither is a `FrameBoundary`.
+
+### The arms, and the per-mode field count
+
+```
+0x80084BE0  entry
+0x80084C04  spin: HBlank counter changed            (not a field)
+0x80084C38  bgez a0 -> 0x80084C50                   ; a0 >= 0
+0x80084C40    a0 < 0: v0 = [0x800B397C]; j 0x80084D44     RETURN the VBlank count, no wait, no store
+0x80084C50  li v0,1 ; beq a0,v0 -> 0x80084D40      ; a0 == 1
+0x80084D40    v0 = s1 (the entry sample); jr ra     RETURN, skipping BOTH waits AND the two stores
+0x80084C5C  blez a0 -> 0x80084C7C                  ; a0 <= 0
+0x80084C64    a0 > 0: v0 = [0x800B0FAC] - 1 + a0   ; target = lastSync + a0 - 1
+0x80084C7C  a0 <= 0: v0 = [0x800B0FAC]             ; target = lastSync
+0x80084C84  blez a0 -> 0x80084C90 / a1 = a0 - 1     ; the helper's SPIN BUDGET
+0x80084C90  jal 0x80084D58                          ; WAIT 1: target field count, budget
+0x80084C98  v0 = [0x800B0FA0]; s0 = *v0             ; re-sample GPUSTAT
+0x80084CA8  a0 = [0x800B397C] + 1 ; a1 = 1
+0x80084CB4  jal 0x80084D58                          ; WAIT 2: one field past the counter
+0x80084CBC  and v0,s0,0x40 ; beq -> 0x80084D04      ; GPUSTAT retrace gate
+0x80084D04  [0x800B0FAC] = [0x800B397C]             ; store 1: lastSync
+0x80084D1C  [0x800B0FA8] = *counter ; spin changed  ; store 2: previous sample
+0x80084D40  v0 = s1                                 ; the return value for a0 != 1
+0x80084D44  epilogue
+0x80084D58  the wait helper: a1 <<= 15 (SPIN BUDGET), spin [0x800B397C] < a0, on exhaustion
+            print "VSync: timeout\n" (0x80096020) and exit(3)
+```
+
+`a1` is the helper's spin budget, never a second field count: `0x80084D5C sll a1,a1,0xf` and
+`0x80084D98 bne v0,v1` against -1. So the field count of a positive mode is entirely in `a0`.
+
+- **`a0 < 0`** — a QUERY. Returns `[0x800B397C]`, waits for nothing, changes nothing. This is the arm
+  `0x8008CBF8` and `0x8008CC44` (stock `CdReady`) and `0x8008D048`/`0x8008D0A0` (stock `CD_cw`) use, and
+  the arm the title's `startGpuDmaTimeout` replaces at `0x80083C68`.
+- **`a0 == 1`** — returns the entry sample immediately, skipping BOTH waits AND both stores.
+- **`a0 == 0`** — WAIT 1 targets `lastSync`, which the counter has already passed, so it costs
+  nothing; WAIT 2 targets `counter + 1` and costs **ONE field**.
+- **`a0 >= 2`** — WAIT 1 targets `lastSync + a0 - 1`, costing `a0 - 1` fields; WAIT 2 costs one more.
+  **`a0` fields in total.**
+
+So `fields(a0) = 0` for `a0 < 0`, `0` for `a0 == 1`, `1` for `a0 == 0`, and `a0` for `a0 >= 2` —
+which is X4's `fieldsForMode` re-derived from this image rather than copied from it. The two images
+agree on the rule and differ on the words, which is the point of recovering it here.
+
+### What each of the 32 call sites passes
+
+Ghidra's reference model gives the site; the `$a0` producer at each is read from the disassembly.
+
+| caller | return PC | `$a0` | meaning |
+|---|---|---|---|
+| `FUN_80065708` | `0x8006593C` | 0 | allocator-failure report |
+| `FUN_80089ECC` | `0x80089F08`, `0x80089F20`, `0x8008A010` | -1 | stock libcd sync/ready waits |
+| `FUN_80089CE4` | `0x80089D40`, `0x80089D6C`, `0x80089EA4` | -1 | stock libcd |
+| `FUN_8008A068` | `0x8008A098`, `0x8008A0C8` | -1 | `CdReadSync` |
+| `FUN_8008C944` | `0x8008C978`, `0x8008C9C4` | -1 | inner `CdSync` |
+| `FUN_8008CBC4` | `0x8008CBF8`, `0x8008CC44` | -1 | `CdReady` |
+| `FUN_8008CE8C` | `0x8008D048`, `0x8008D0A0` | -1 | `CD_cw` command wait |
+| `FUN_80014F00` | `0x80014F4C` | — | game field wait |
+| `FUN_80084778` | `0x80084794` | 0 | `ResetGraph` pre-main field |
+| `FUN_8002AA0C` | `0x8002AC8C`, `0x8002AE1C`, `0x8002AFEC` | 0 | the three retail STR fields |
+| `FUN_800649E4` | `0x80064A14`, `0x80064A6C`, `0x80064A44`, `0x80064ACC`, `0x80064AF0` | — | game's own field waits |
+| `FUN_80083C60` | `0x80083C68` | -1 | GPU DMA timeout arm (already owned) |
+| `FUN_80083C94` | `0x80083C9C` | — | GPU DMA timeout poll |
+| `FUN_8008D6C4` | `0x8008D6E4`, `0x8008D72C` | -1 | stock libcd |
+| `FUN_800899A0` | `0x80089B08`, `0x80089B34`, `0x80089B68` | -1 | stock libcd |
+
+**17 of the 32 sites pass a negative mode**, i.e. they are counter queries, not field requests. That
+is the measured census, and it is why "a `VSync(0)` trap" was the wrong shape to begin with: the
+protected entry aborts on the *positive* arm while most of the image's traffic is the negative one.
 
 ## Prior generated-path discriminator
 
@@ -99,8 +188,7 @@ that binding, verifies the four position bytes and one mode byte, and proves Get
 the separately bound inner CdSync. A direct runtime with no work-area declaration leaves those
 guest bytes unchanged. The test also instruments the installed callback addresses and observes zero
 invocations: the synchronous command owner retains callback pointers but does not yet assert
-equivalent CD IRQ/ready/sync callback delivery. These are synthetic results. An authenticated,
-headless, silent retail run after the binding stopped earlier, at the boot movie's
+equivalent CD IRQ/ready/sync callback delivery. These are synthetic results. An authenticated, headless, silent retail run after the binding stopped earlier, at the boot movie's
 `VSync` frame-boundary PC `0x80084BE0` with return `0x8002AC8C`. It executed 347,812
 Lightrec blocks and 1,766,751 instructions with zero interpreter fallback, but did not reach
 `CD_cw`; it therefore cannot validate the live command behavior or the older `0x8008D050`
@@ -142,8 +230,8 @@ The shared `PlatformHlePlan` query contract and Spider's measured counter declar
 that guest word for negative VSync arguments, while nonnegative calls retain their protected typed
 frame boundary. A missing counter declaration aborts explicitly. A shipping-path synthetic
 Lightrec test runs a guest ready callback that calls `VSync(-1)`, observes the returned count,
-preserves the interrupted StGetNext registers, retries its original body, and advances only the
-later dry-poll host field. The shared missing-counter negative test also passes. The earlier
+preserves the outer registers, retries its original body, and advances only the later dry-poll host
+field. The shared missing-counter negative test also passes. The earlier
 read-only VSync output remains gitignored at `scratch/logs/spider1-nested-vsync-gdb.log`.
 
 The combined psxport `51df140f`/Spider Clang product crossed that nested query, but a 90-second
@@ -158,20 +246,98 @@ header was the correct `28 32 54 02` at LBA 128304; the controller's INT1 stayed
 (`q_head=0`, `q_tail=1`). The 0/8 ring-publication negative is therefore reached and discriminating.
 Raw output is gitignored at `scratch/logs/spider1-ring-first-transition.log`.
 
-Authenticated instructions show the first missing transition: producer `0x80085084` calls
-`CdReady(1, sp+0x30)`, then `0x800850B0` tests bit `0x04` of the returned result byte. If set,
-`0x800850BC` writes reason 3 and returns before any DMA or STR-header check. The direct runtime
-does not install the legacy native CdGetSector override; this is the guest's stock CdReady and
-controller path. The pending INT1 plus direct host invocation of the ready callback suggests a
-shared libcd/CDC IRQ ordering gap. The next focused discriminator must compare the byte copied by
-CdReady with the current CDC status and libcd response work area, then prove an INT1 transition
-through the guest ISR before invoking the callback. Do not write a title-local ring state or status
-value to bypass this guard.
+## 2026-09-27: which blocker this actually is — the CdReady result-bit guard, not the VSync abort
 
-The unchanged retail movie body remains under Lightrec. `Spider1FrameDriver` delivers fields,
-callbacks, audio, input, and presentation at the three authenticated VSync(0) return PCs, then
-resumes the same guest CPU state. No generated body, interpreter fallback, or title-specific
-successful VSync(0) HLE is permitted.
+**Measurement that decided it.** A fresh authenticated Clang run of the CURRENT tree,
+`scratch/dem1/probe_boot.log`, against psxport `e0485d33` with `PSXPORT_NATIVE_FRAMES=3000`:
+
+```
+[frame] Spider-Man 1 completed pre-main ResetGraph field at 0x8008479C
+[cd] CdRead 1 sector(s) x 2048 bytes from LBA 128303 -> 0x800C0CE0 (mode 0x80)
+[str] Spider-Man 1 resumed retail STR field 1 at 0x8002AC8C
+[ring] base=0x80148AD4 slots=48 frameStart=0 cons=0 writeIdx=0 cdIrqSeq=1 cdIrqType=1 cdDataRead=0
+[present_shot] wrote present_1100.png (960x720) non-black 0/691200 (0.00%)
+[present_shot] wrote present_2200.png (960x720) non-black 0/691200 (0.00%)
+[present_shot] wrote present_2900.png (960x720) non-black 0/691200 (0.00%)
+```
+
+`VSync` is **not** the wall any more. Field 1 at `0x8002AC8C` is crossed and presented, the
+`LBA 128303` stream start is read, an INT1 is queued (`cdIrqSeq=1 cdIrqType=1`), and every one of
+the three captures is 0.00% non-black. The run is not aborting at `0x80084BE0`; it is making no
+further field progress while the guest's own libstr producer refuses every sector. That is the
+CdReady result-bit guard, and it is a **different bug** from a boot abort.
+
+### The guard, read out of the image
+
+Producer `0x80085084` calls `0x80086C60`, whose whole body is a tail to stock `CdReady` `0x8008CBC4`.
+That returns the guest's own queue-discipline byte, which the producer then tests at `0x800850B0`:
+
+```
+80085084  jal 0x80086C60          ; a0 = 1, a1 = sp+0x30 (the result buffer)
+8008508c  li v1, 0x5
+80085090  beq v0, v1, 0x8008590c  ; CdReady returned 5 -> give up
+80085098  lbu v0, 0x30(sp)        ; the response byte
+800850a8  lhu v0, 0x22(sp)
+800850b0  andi v0, v0, 0x4        ; THE GUARD
+800850b4  beq v0, zero, 0x800850c8
+800850bc    [0x800B1000] = 3      ; reason 3, and return before any DMA or STR-header check
+```
+
+**What that byte is.** `CdReady(1, buf)` fills `buf` from the 8-byte response the guest's own libcd
+ISR staged. The staging is at `FUN_8008C3E0`, and every write of the three status bytes is a
+literal, read from `0x8008C730..0x8008C888`:
+
+- `0x8008C750` writes `[0x800B3DF0] = 2` (or 5 at `0x8008C74C` when `s1 != 0`), then copies the
+  response into `0x800C637C`.
+- `0x8008C7B8` writes `[0x800B3DF1] = 1` (or 5 at `0x8008C7AC`), then copies into `0x800C6384`.
+- `0x8008C824` writes `[0x800B3DF2] = 4` and mirrors it into `[0x800B3DF1]`, then copies into
+  `0x800C638C`.
+- `0x8008C8A4` writes `[0x800B3DF1] = 5` and mirrors it into `[0x800B3DF0]`, then copies into
+  `0x800C6384`.
+- `0x8008D3AC..0x8008D3B8` (the sync path) clears `[0x800B3DF2]` and mirrors it into `[0x800B3DF1]`.
+
+**So the byte the producer tests is a QUEUE-DISCIPLINE COUNTER, not a status flag.** It is the
+*depth of the one-deep response queue* the libcd ISR maintains, and it counts down as the consumer
+drains it. `0x04` on that byte does not mean "the drive is not ready"; it is a queue the guest has
+backed up. A host that raises that byte is claiming the guest's response queue is four deep, and
+the producer's refusal is then correct behavior.
+
+**First: the guard was the wrong target, and the measurement says so.** `cdready` on the current
+tree reports producer reason `0x800B1000 = 0` and a CLEAR `0x04` across 200,000 polls in 183 seconds.
+The 8/8 reason-3 result was real when it was taken, against an older framework revision; it is not
+what this tree does now. Nothing further should be built on the guard hypothesis.
+
+**Second, and this one is real and title-owned: the CD interrupt was never armed.** See
+`Spider1FrameDriver::armCdInterrupt` in `titles/spiderman1/spider1_frame_driver.cpp`. The retail
+`CdInit` body reaches the B-vector interrupt-enable thunk `0x8008B86C` with `a0 = 2`
+(`0x8008A17C` -> `0x8008A1FC` -> `0x8008D4E4` -> `0x8008D54C`); the title's override replaced that
+body and dropped the arm, so `Hle::irqPoll` computed `i_stat & i_mask = 0x004 & 0x009 = 0` and the
+guest's own registered CD element `0x800C1528` (handler `0x80087660`) never ran. Fixed, and measured:
+`iMask 0x009 -> 0x00D`, IRQ2 delivered, the guest leaves the `StGetNext` spin.
+
+**Third, still open — the sector handoff.** After the arm, the controller still holds `dataAvail=2340`
+with `dataRead=0`, the guest's staged response is `0x00`, and the ring indices stay zero while the
+guest sits in a further CD wait at `0x8008DCC8(0x190)`. The next discriminator must read what the
+guest's libcd ISR `FUN_8008C3E0` saw when it staged its 8-byte response: it reads those bytes from
+the cell `0x800B3DDC` (naming `0x1F801801`) at `0x8008C45C..0x8008C498`, but only after testing bit
+`0x20` of the cell `0x800B3DD8` (naming `0x1F801810`) at `0x8008C470`. **That gate is suspicious and
+unresolved:** `runtime/psx/mem.cpp` answers a guest read of `0x1F801810` with `gpu_read_word()` under
+a comment calling it GPUREAD, and answers `0x1F801814` with a GPUSTAT-shaped `0x1C000000 | toggle`
+that cannot set bit `0x20` at all. On PSX hardware `0x1F801810` is GPUSTAT and `0x1F801814` is
+GPUREAD. If that mapping is inverted framework-wide, every guest that gates work on a GPUSTAT bit —
+this STR reader included — reads the wrong register, and the fix belongs in the framework, not here.
+This session did not confirm it and deliberately did not change it.
+
+**Fourth, framework-owned and reported, not worked around.** `Cd::pumpStream` dispatches the guest's
+ready callback from a host steady-clock budget (`runtime/psx/cd.h`: `stream_t0_ns` /
+`stream_delivered`, `CD_STREAM_MAX_BURST`), while `cdc_drive_service` (`runtime/psx/cdc_native.cpp`)
+makes the controller's INT1 sector-ready event due on the emulated CPU clock. Two independent delivery
+owners for one sector. Related: `GuestCdStreamCallbackLayout::DeliveryOwner::GuestInterrupt` promises
+that the controller raises INT1 and the guest libcd ISR consumes it, but nothing in the framework arms
+the guest's CD interrupt mask — a title that replaces `CdInit`, as this one does, has to supply that
+arm itself or the promise is silently unkept. Issue 0018's "callback clock versus sector-ready clock"
+section already names the composition test and says the `Cd` clock and `rec_dispatch` calls are not
+yet injectable.
 
 Acceptance requires both movies and the post-logo wait to complete and early `dem1` to run with
 nonzero Lightrec blocks. That closes the first discriminator only. This issue cannot authorize

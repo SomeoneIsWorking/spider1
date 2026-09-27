@@ -72,6 +72,74 @@ std::optional<Spider1StreamDriver::RingObservation> Spider1StreamDriver::sampleR
   return std::nullopt;
 }
 
+Spider1StreamDriver::ProducerObservation Spider1StreamDriver::observeProducer() const {
+  ProducerObservation observation;
+  observation.reason = core_.mem_r32(cdStreamProducerReason);
+  observation.queueByte0 = core_.mem_r8(cdResponseQueueByte0);
+  observation.queueByte1 = core_.mem_r8(cdResponseQueueByte1);
+  observation.queueByte2 = core_.mem_r8(cdResponseQueueByte2);
+  observation.stagedFirst = core_.mem_r8(cdStagedResponse);
+  observation.stagedAltFirst = core_.mem_r8(cdStagedResponseAlt);
+  observation.cdcIrqSequence = static_cast<uint32_t>(core_.game->cdc.irq_sequence);
+  observation.cdcIrqType = cdc_current_irq_type(&core_.game->cdc);
+  observation.cdcIrqEdge = core_.game->cdc.irq_edge;
+  observation.cdcDataRead = core_.game->cdc.data_rd;
+  observation.cdcDataAvailable = core_.game->cdc.data_n;
+  observation.cdcMode = core_.game->cdc.mode;
+  observation.iStat = core_.game->hle.i_stat;
+  observation.iMask = core_.game->hle.i_mask;
+  observation.irqChainLength = static_cast<uint32_t>(core_.game->hle.irq_n);
+  observation.irqHandler =
+      core_.game->hle.irq_n > 0 ? core_.mem_r32(core_.game->hle.irq_elem[0] + 4) : 0u;
+  observation.pendingWork = core_.pending_work;
+  return observation;
+}
+
+void Spider1StreamDriver::reportProducerIfChanged() {
+  const ProducerObservation current = observeProducer();
+  ++producerSamples_;
+  ++producerReasons_[current.reason];
+  if (lastProducer_ && *lastProducer_ == current) {
+    return;
+  }
+  lastProducer_ = current;
+  lucent::Line line;
+  line.add("reason={} (0x{:08X} seen {} of {} sample(s)) queue=[{},{},{}] staged0=0x{:02X} "
+           "stagedAlt0=0x{:02X} cdcIrqSeq={} cdcIrqType={} irqEdge={} dataRead={} dataAvail={} "
+           "mode=0x{:02X}",
+           current.reason,
+           current.reason,
+           producerReasonCount(current.reason),
+           producerSamples_,
+           current.queueByte0,
+           current.queueByte1,
+           current.queueByte2,
+           current.stagedFirst,
+           current.stagedAltFirst,
+           current.cdcIrqSequence,
+           current.cdcIrqType,
+           current.cdcIrqEdge,
+           current.cdcDataRead,
+           current.cdcDataAvailable,
+           current.cdcMode);
+  // The guard's own predicate, evaluated on the bytes the guest staged, so the line says which arm
+  // the producer took rather than leaving the reader to re-derive it.
+  line.add(" | guard 0x04 on staged0 = {}",
+           (current.stagedFirst & 0x04u) != 0 ? "SET -> reason 3, sector refused"
+                                              : "clear -> producer continues");
+  // The delivery gate, with its own verdict: IRQ2 is bit 2 of I_STAT and the guest's chain element
+  // is the one libstr registered, so a queued controller INT1 with I_STAT clear is a controller
+  // event the guest has never been told about.
+  line.add(" | iStat=0x{:03X} iMask=0x{:03X} IRQ2 {} chain={} handler=0x{:08X} pendingWork={}",
+           current.iStat,
+           current.iMask,
+           (current.iStat & 0x4u) ? "LATCHED" : "CLEAR",
+           current.irqChainLength,
+           current.irqHandler,
+           current.pendingWork);
+  line.flush_debug("cdready");
+}
+
 void Spider1StreamDriver::stGetNext(Core *core) {
   from(*core).poll(*core);
 }
@@ -127,6 +195,7 @@ void Spider1StreamDriver::poll(Core &core) {
     }
   }
   ring.flush_debug("ring");
+  reportProducerIfChanged();
 }
 
 } // namespace spider::spider1

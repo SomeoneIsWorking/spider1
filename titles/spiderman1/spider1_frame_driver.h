@@ -49,6 +49,9 @@ private:
   static void bootHostTurn(Core *core);
   static void captureVsyncCallback(Core *core);
   static void initializeCd(Core *core);
+  // The CD-interrupt arm the retail `CdInit` body performs and this title's replacement of it
+  // therefore owes. See the definition for the measured delivery-gate arithmetic.
+  static void armCdInterrupt(Core &core);
   static void serviceBootTail(Core *core);
   static void waitGuestFields(Core *core);
   static void playMovie(Core *core);

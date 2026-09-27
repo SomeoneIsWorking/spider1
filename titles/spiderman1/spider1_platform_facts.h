@@ -21,6 +21,23 @@ inline constexpr uint32_t cdInitAddress = 0x8008A16Cu;
 inline constexpr uint32_t cdCommandAddress = 0x8008CE8Cu;
 inline constexpr uint32_t cdLastPositionAddress = 0x800B3B2Cu;
 inline constexpr uint32_t cdLastModeAddress = 0x800B3B30u;
+
+// The PSX interrupt mask, and the bit that means CD-ROM. Both are framework device facts, not
+// title ones — `IRQ_BIT_CD` in external/psxport/runtime/psx/irq_edge.h and `kIrqMask` in
+// runtime/psx/io_peripherals.cpp — and they are named here so the arm below is the device's
+// contract rather than a literal this title invented.
+//
+// WHY THE TITLE OWNS IT. The retail `CdInit` 0x8008A16C installs its four callback slots (which
+// `Spider1FrameDriver::initializeCd` reproduces exactly) and ALSO reaches the BIOS interrupt
+// control: 0x8008A17C calls 0x8008A1FC, which calls 0x8008D4E4, whose 0x8008D54C is
+// `jal 0x8008B86C` with `a0 = 2` in its delay slot. 0x8008B86C is the B-vector thunk at
+// `([0x800B390C] + 8)`, and on a PSX B-vector entry 2 is the interrupt-enable call, so the retail
+// body arms IRQ2. This title REPLACES that body rather than executing it (the body waits on
+// `IntrWait(0)` at 0x8008D53C, and the title's field owner never latches I_STAT bit 0, so
+// super-calling it would hang). Replacing a leaf means owing its observable effects, and this is
+// the one the title's own STR stream depends on — see issue 0021.
+inline constexpr uint32_t interruptMaskRegister = 0x1F801074u;
+inline constexpr uint32_t interruptMaskCdBit = 0x4u;
 // The authenticated get/set bodies establish slot ownership: CdSyncCallback at 0x80086C80
 // replaces 0x800B3B14, and CdReadyCallback at 0x80086C94 replaces 0x800B3B18. CdInit's initial
 // function at the latter is replaced by libstr's 0x800860B4 during an STR stream.

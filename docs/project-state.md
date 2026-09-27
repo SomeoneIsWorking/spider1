@@ -13,7 +13,9 @@ exists or conforms.
 
 ## Current focus
 
-S017 — per-Core Lightrec execution with no selectable interpreter gameplay mode and bounded fallback.
+S018 — the second movie field. The CD interrupt delivery gate is fixed and the guest advances past it;
+the next boundary is the sector handoff at `0x8008DCC8(0x190)` and the sector still is not accepted
+into the libstr ring.
 
 ## Capability inventory
 
@@ -184,6 +186,25 @@ legs for genuinely expanded
 world content with no stretch, missing edge geometry, or HUD displacement. Enter Electro remains
 separate under S016.
 
+**2026-09-27: the picture pair exists as a REFUSAL, which is the correct answer.** Both legs were
+shot on the current tree, each in its own process because `PSXPORT_PRESENT_SINK` is process-wide, at
+4:3 `960x720` and 16:9 `1284x720`, and `psxport/tools/port/widescreen_pair.py` returned:
+
+```
+  predicted offset for a pure widening : +162
+  left  margin 162px wide  :   0.0% non-black, 1 colours, 161/161 repeated columns   <- NOT SCENE
+  right margin 162px wide  :   0.0% non-black, 1 colours, 161/161 repeated columns   <- NOT SCENE
+REFUSED: ... NOTHING WAS COMPARED at the joins.
+```
+
+Both legs measured `non-black 0/691200 (0.00%)` and `0/924480 (0.00%)`, so the margins are empty
+canvas, not scene content, and the tool is right to refuse. **The margin measurement therefore says
+nothing yet about the 39 cull sites or the OFX widening** — it has still never seen a game scene. The
+widening itself is live and correct where it can be observed: the 16:9 leg published the guest draw
+clip `512x240 -> 684x684` and reached `native picture: aspect=1 native_width=320 render_width=428`,
+but no frame was ever displayed. Re-shooting until the tool passes is the wrong move; the answer only
+becomes a measurement once the product reaches `dem1`.
+
 ### S009 — True interpolated 60fps
 
 Missing capability: Spider-Man has no complete native producer whose previous/current authored
@@ -338,11 +359,44 @@ attempts with ring write, frame-start, and consumer indices all zero. A bounded 
 CDC FIFO: the producer exits after `CdReady(1)` returns a result byte with bit `0x04` set, before
 DMA or STR-header validation.
 
-Gap: run the authenticated Spider-Man image through Lightrec with nonzero translated blocks,
-preserve the title's native frame/service owners, complete both intro movies, and reach early `dem1`,
-including the authenticated `0x8002AC8C`, `0x8002AE1C`, and `0x8002AFEC` field exits. The
-the reached `CdReady` result-bit guard needs a source-grounded libcd/CDC IRQ handoff fix before
-libstr can publish a frame; later movie fields and progression remain unverified.
+**2026-09-27 re-measurement overturned two of those conclusions and replaced them.** The current tree
+against psxport `e0485d33` reaches retail STR field 1 at `0x8002AC8C` and presents it every run, so
+the **boot VSync abort is no longer the wall** — that boundary is crossed. And the CdReady
+result-bit guard **does not fire**: the title's new `cdready` diagnostic reports producer reason
+`0x800B1000 = 0` and a CLEAR `0x04` on the staged response on every one of 200,000 polls in a
+183-second run. The guard branch at `0x800850B0` is real and the byte it reads is the guest's own
+libcd response-queue discipline, staged by the guest ISR `FUN_8008C3E0` and never by the host, so it
+is not where a host could have gone wrong.
+
+What the same measurement did find is the CD **interrupt delivery gate**, and it is arithmetic
+rather than a guess. `scratch/dem1/probe_gate.log`:
+
+```
+[irq] registered interrupt element 0x800C1528 prio=2 (chain now 1)
+[irq] CD raised IRQ2 -> I_STAT=0x005 (mask=0x009, masked off by the guest)
+[cdready] ... cdcIrqType=1 dataRead=0 dataAvail=2340 ... iStat=0x004 iMask=0x009 IRQ2 LATCHED
+           chain=1 handler=0x80087660 pendingWork=0
+```
+
+`Hle::irqPoll` delivers `i_stat & i_mask`, and `0x004 & 0x009 == 0`, so the gate is cleared and the
+guest's own registered CD element never runs while the controller holds 2340 unread sector bytes.
+
+**Fixed this session, cause and not symptom:** `Spider1FrameDriver::initializeCd` replaces the retail
+`CdInit` body `0x8008A16C`, whose observable effects include reaching the B-vector interrupt-enable
+thunk `0x8008B86C` with `a0 = 2` (`0x8008A17C` -> `0x8008A1FC` -> `0x8008D4E4` -> `0x8008D54C`).
+That is what arms IRQ2. The replacement installed the four callback slots faithfully and dropped the
+arm, so replacing the leaf silently lost one of its observable effects. `armCdInterrupt` restores it
+through the device register `0x1F801074`, OR-ing bit 2 into the mask the guest already holds rather
+than writing a literal. Measured effect: `iMask 0x009 -> 0x00D`, `pendingWork` goes `0 -> 1`, IRQ2 is
+delivered (`i_stat` returns to `0x000`), and the guest advances out of the `StGetNext` spin into a
+further authenticated CD wait at `0x8008DCC8(0x190)`, with per-run poll count rising from 2 to 17+.
+
+Gap: still no second movie field and no `dem1`. The sector is still not accepted (`dataRead=0`,
+`dataAvail=2340`, staged response `0x00`, ring indices all zero) and the next boundary is that
+further CD wait. Reaching `dem1` requires completing both intro movies, including the authenticated
+`0x8002AC8C`, `0x8002AE1C`, and `0x8002AFEC` field exits. This issue cannot authorize deleting the
+old pipeline until S019's representative-gameplay, invalidation, original-call, independent-oracle,
+host-performance, and no-interpreter gates pass.
 
 ### S019 — Representative gameplay conformance
 

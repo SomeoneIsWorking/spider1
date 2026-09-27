@@ -220,13 +220,58 @@ void Spider1FrameDriver::installOverrides() {
 
 void Spider1FrameDriver::initializeCd(Core *core) {
   // Exact public success contract of SLUS_008.75 CdInit: install its event callbacks and return
-  // true. The host owns every CD operation synchronously, so starting the guest controller/IRQ
-  // handshake would be both unobservable and a cadence violation (its timeout polls VSync(-1)).
+  // true. The host owns every CD operation synchronously, so starting the guest controller reset
+  // handshake would be both unobservable and a cadence violation (its IntrWait polls I_STAT bit 0).
   core->mem_w32(spider1::cdSyncCallbackSlot, spider1::cdSyncCallback);
   core->mem_w32(spider1::cdReadyCallbackSlot, spider1::cdReadyCallback);
   core->mem_w32(spider1::cdEventCallbackSlot, spider1::cdEventCallback);
   core->mem_w32(spider1::cdEventUnusedSlot, 0);
   core->r[2] = 1;
+  armCdInterrupt(*core);
+}
+
+// The one observable effect of the retail CdInit body this title does not execute.
+//
+// MEASURED 2026-09-27, `scratch/dem1/probe_gate.log`: the controller queued a sector and latched
+// IRQ2, and the guest's registered CD interrupt element was never invoked. The delivery gate shows
+// exactly why, and it is arithmetic rather than a guess:
+//     [irq] registered interrupt element 0x800C1528 prio=2 (chain now 1)
+//     [irq] CD raised IRQ2 -> I_STAT=0x005 (mask=0x009, masked off by the guest)
+//     [cdready] ... cdcIrqType=1 dataRead=0 dataAvail=2340 ... iStat=0x004 iMask=0x009 IRQ2 LATCHED
+//                chain=1 handler=0x80087660 pendingWork=0
+// `Hle::irqPoll` delivers `i_stat & i_mask`, and 0x004 & 0x009 is 0, so the gate is cleared at
+// io_peripherals.cpp:169-172 and the element never runs. The guest then spins in its own
+// `StGetNext` — measured 200,000 polls in one run, reason byte 0 throughout, ring indices all zero
+// — while the controller holds 2340 unread sector bytes behind an INT1 nobody is ever told about.
+//
+// The guest's retail CdInit is what masks that bit in: 0x8008A17C -> 0x8008A1FC -> 0x8008D4E4,
+// whose 0x8008D54C calls the B-vector interrupt-enable thunk 0x8008B86C with a0 = 2. This override
+// replaces that body, so the arm belongs here — and it is the guest's own registered element
+// (0x800C1528, handler 0x80087660) that needs it, so nothing here is a title-owned substitute for
+// guest code: it re-enables delivery to code the guest itself registered.
+//
+// The write goes through the device (0x1F801074), not to the host's mask field, so the framework
+// owns the value and re-arms its own delivery gate. The CURRENT mask is read back from the same
+// device and OR-ed, because the guest owns the rest of it: a title that wrote a literal here would
+// clear whatever VBlank/DMA enables the guest had already asked for.
+void Spider1FrameDriver::armCdInterrupt(Core &core) {
+  const uint32_t before = core.mem_r32(spider1::interruptMaskRegister);
+  const uint32_t after = before | spider1::interruptMaskCdBit;
+  if (after == before) {
+    lucent::info("cd",
+                 "Spider-Man 1 CdInit found the CD interrupt already armed in I_MASK 0x{:03X}",
+                 before);
+    return;
+  }
+  core.mem_w32(spider1::interruptMaskRegister, after);
+  lucent::info(
+      "cd",
+      "Spider-Man 1 CdInit armed the CD interrupt: I_MASK 0x{:03X} -> 0x{:03X}. The retail "
+      "0x8008D54C reach of the B-vector enable thunk (a0=2) is the effect this override "
+      "replaces, and without it Hle::irqPoll computes i_stat & i_mask = 0, so the "
+      "guest's own registered CD element never runs",
+      before,
+      after);
 }
 
 void Spider1FrameDriver::serviceBootTail(Core *core) {
