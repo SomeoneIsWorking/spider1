@@ -183,6 +183,14 @@ if(BUILD_TESTING)
   # the reason the line above states.
   add_test(NAME spider1_global_bounds_selftest
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/probe_global_bounds.py --selftest)
+  # The 4:3-vs-16:9 receipt logic. The selftest half is a ctest test because it needs no disc, no GPU
+  # and no product; the pair itself is a maintainer run (it needs both a provisioned image and the
+  # machine's single product slot). The negative case is the point of it: the same code that reads
+  # `render_width=428 > native_width=320` as widened reads a 4:3 log as NOT widened, and a log with
+  # no `[wide]` line refuses instead of answering. See docs/issues/0025.
+  add_test(NAME spider1_widescreen_pair_selftest
+    COMMAND ${Python3_EXECUTABLE} -B
+            ${CMAKE_SOURCE_DIR}/tools/probe_spider1_widescreen_pair.py --selftest)
   if(TARGET spiderman_port)
     spider_add_runtime_target(
       spider1_runtime_services_test spiderman1 SPIDER1
