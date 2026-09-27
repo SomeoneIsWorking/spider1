@@ -1,49 +1,41 @@
 #!/usr/bin/env python3
-"""psxport_sync.py — resolve `external/psxport`, and keep the recorded pin honest.
+"""psxport_sync.py — THE CANONICAL COPY. Do not edit this in a port; edit it here.
 
-WHY THIS REPLACED THE SUBMODULE (2026-08-16). The framework used to be a git submodule. Two incidents
-in one day came directly from that mechanism:
+WHY A CANONICAL SOURCE EXISTS
+-----------------------------
+Every port ships its own copy of this file, because a port must build from a bare clone of ITSELF and
+cannot depend on the workspace. That is deliberate and correct. The cost is that the copies drift, and
+the drift was not hypothetical:
 
-  * The tree was BUILT against psxport 25dd7826 while RECORDING a1c53d7c, so a bare clone did not
-    compile — the game's hook table named a field the pinned framework did not have. Nothing noticed,
-    because a submodule working tree and its recorded gitlink drift silently.
-  * "Fixing" that drift by syncing to the recorded pin is what pulled a broken beetle GTE commit into
-    the working build, which had already broken PSXPORT_ORACLE=1 in every 3D scene for two days. That
-    commit had been made on a DETACHED HEAD inside the submodule — which is the default state of a
-    submodule checkout, and is how it was never reviewed.
+  - MEASURED 2026-09-27: the ten copies had TEN DISTINCT HASHES and 298–322 lines each.
+  - The staleness guard was MISSING FROM SEVEN OF THE TEN, and where it was missing the check answered
+    `check OK` on input a guarded copy refused. Same input, opposite answers, and the wrong one is a pass.
+  - Only ONE of the ten had a `--build` flag, so the live pin check that actually calls this function
+    could not be registered in the other nine.
+  - Only ONE had the `do_bump` fix, so the other nine could still record a framework commit the tree was
+    never built against — which is the original incident this whole mechanism exists to prevent.
 
-Also, `git submodule update --recursive` simply FAILS on this tree: beetle-psx has a URL-less nested
-gitlink (`deps/lightning/gnulib`) that git itself cannot resolve.
+The obligation to keep the copies in step was real, and the check for that obligation was ITSELF
+duplicated, which is why the guard could go missing from seven of them unnoticed. This file plus
+`tools/check_port_pin_tools.py` is that check, made mechanical: it compares every port's copy against
+this one and fails on drift, and `--install` makes the copies identical again.
 
-WHAT REPLACED IT. `external/psxport` is no longer tracked. It is either
+The check is a registered gate, not a habit. See `tools/check_port_pin_tools.py --selftest`.
 
-  * a SYMLINK to the workspace's shared framework clone (the local default — every port then runs off
-    one writable checkout, so an edit is live everywhere immediately), or
-  * a real CLONE checked out at the pin (fresh machine, CI, or anyone cloning this repo alone).
-
-The PATH does not change, so all 151 files that reference `external/psxport/...` keep working, and
-`PSXPORT_DIR` still defaults to it.
-
-WHAT THE PIN IS FOR. `psxport.pin` records the framework commit this game was built and verified
-against. Ports are deliberately NOT all on framework HEAD — measured 2026-08-16, six ports spanned 55
-commits of framework history — because with one maintainer, pins are what let one port be worked on
-daily while the others sit untouched. Dropping them would have broken all six the moment that beetle
-GTE commit landed. The pin is provenance and the fresh-clone fallback; it is not what you build against
-day to day.
-
-Exit codes: 0 ok · 1 the check failed (drift, or a pin a fresh clone could not use) · 2 refused,
-because the tool could not assert anything.
+`REPO` is derived from this file's own location, so the text runs unchanged from any port's `tools/`.
+The canonical copy in psxport is never executed as a port tool; it is only compared and copied.
 """
+
 import argparse
 import os
 import re
-import shutil
 import subprocess
 import sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LINK = os.path.join(REPO, "external", "psxport")
 PIN = os.path.join(REPO, "psxport.pin")
+CANONICAL_VERIFY_BUILD = os.path.join(REPO, "build", "ci")
 DEFAULT_URL = "https://github.com/SomeoneIsWorking/psxport.git"
 
 # Where a shared clone lives, in preference order. $PSX wins so a differently-laid-out workspace works.
@@ -57,9 +49,7 @@ def shared_candidates():
 
 
 def git(args, cwd, check=False):
-    p = subprocess.run(
-        ["git"] + args, cwd=cwd, capture_output=True, text=True, check=False
-    )
+    p = subprocess.run(["git"] + args, cwd=cwd, capture_output=True, text=True)
     if check and p.returncode != 0:
         raise RuntimeError(f"git {' '.join(args)} failed in {cwd}: {p.stderr.strip()}")
     return p.stdout.strip(), p.returncode
@@ -74,18 +64,17 @@ def read_pin():
     if not os.path.isfile(PIN):
         return None, None
     url, commit = DEFAULT_URL, None
-    with open(PIN, encoding="utf-8") as pin_file:
-        for line in pin_file:
-            line = line.split("#", 1)[0].strip()
-            if not line:
-                continue
-            m = re.match(r"(\w+)\s*=\s*(\S+)", line)
-            if not m:
-                continue
-            if m.group(1) == "url":
-                url = m.group(2)
-            elif m.group(1) == "commit":
-                commit = m.group(2)
+    for line in open(PIN):
+        line = line.split("#", 1)[0].strip()
+        if not line:
+            continue
+        m = re.match(r"(\w+)\s*=\s*(\S+)", line)
+        if not m:
+            continue
+        if m.group(1) == "url":
+            url = m.group(2)
+        elif m.group(1) == "commit":
+            commit = m.group(2)
     return url, commit
 
 
@@ -132,7 +121,7 @@ def report(args):
     print(f"[psxport] framework HEAD   : {sha or '(none)'}"
           + ("  +dirty" if sha and dirty(target) else ""))
     print(f"[psxport] recorded pin     : {pin or '(no psxport.pin)'}")
-    built = read_resolved(args.resolved)
+    built = read_resolved(args.build)
     if built:
         print(f"[psxport] last build used  : {built[1]}  (from {built[0]})")
     if sha and pin:
@@ -142,35 +131,40 @@ def report(args):
             ahead, _ = git(["rev-list", "--count", f"{pin}..{sha}"], target)
             print(f"[psxport] DRIFT — the checkout is {ahead or '?'} commit(s) off the recorded pin. "
                   f"That is normal WHILE doing framework work; record it before you land game code "
-                  f"that needs it:  uv run --frozen python tools/psxport_sync.py --bump")
+                  f"that needs it:  python3 tools/psxport_sync.py --bump")
     return 0
 
 
-def read_resolved(path):
-    """(dir, sha) the last cmake configure resolved, or None. Written by CMakeLists."""
-    if not os.path.isfile(path):
+def read_resolved(build):
+    """(dir, sha) the selected CMake configure resolved, or None. Written by CMakeLists."""
+    receipt = os.path.join(build, "psxport_resolved.txt")
+    if not os.path.isfile(receipt):
         return None
     d = s = None
-    with open(path, encoding="utf-8") as resolved_file:
-        for line in resolved_file:
-            k, _, v = line.partition("=")
-            if k.strip() == "dir":
-                d = v.strip()
-            elif k.strip() == "commit":
-                s = v.strip()
+    # Closed explicitly. A bare `for line in open(...)` leaves the handle to the garbage collector,
+    # which is invisible in normal use but shows up as a ResourceWarning the moment a test reads
+    # real receipts repeatedly — the selftest does, and it found this.
+    with open(receipt, encoding="utf-8") as handle:
+        lines = handle.readlines()
+    for line in lines:
+        k, _, v = line.partition("=")
+        if k.strip() == "dir":
+            d = v.strip()
+        elif k.strip() == "commit":
+            s = v.strip()
     return (d, s) if s else None
 
 
 def do_link(args):
     for cand in shared_candidates():
         if is_psxport_checkout(cand):
-            kind, _ = describe_link()
+            kind, target = describe_link()
             if kind == "clone" and not args.force:
-                print("[psxport] REFUSED: external/psxport is a real clone. Replacing it would discard "
-                      "anything unpushed in it. Inspect it, then re-run with --force.")
+                print(f"[psxport] REFUSED: external/psxport is a real clone. Replacing it would discard "
+                      f"anything unpushed in it. Inspect it, then re-run with --force.")
                 return 2
             if kind in ("clone", "plain-dir"):
-                shutil.rmtree(LINK)
+                subprocess.run(["rm", "-rf", LINK], check=True)
             elif kind == "symlink":
                 os.unlink(LINK)
             os.makedirs(os.path.dirname(LINK), exist_ok=True)
@@ -226,50 +220,83 @@ def do_auto(args):
 
 
 def do_bump(args):
-    _, target = describe_link()
-    sha = head_of(target)
-    if not sha:
-        print("[psxport] REFUSED: external/psxport has no resolvable HEAD — nothing to record.")
+    """Record the framework commit THIS BUILD resolved -- not the framework's current HEAD.
+
+    WHY THIS IS NOT `head_of(target)`. It used to be. Recording HEAD means the pin names whatever the
+    framework is at when you run the bump, which is unrelated to what this tree was compiled and tested
+    against, and it makes the documented order `reconfigure -> build -> test -> --bump` a convention that
+    nothing enforces: `--bump` alone, with no build at all, would record a commit this tree has never
+    seen. That is not hypothetical. This repo shipped built against psxport `25dd7826` while recording
+    `a1c53d7c`, so a bare clone named a framework whose `GameHooks` lacked a field the game used, and
+    nothing noticed because a submodule working tree and its recorded gitlink drift silently. The pin
+    existed to make that failure loud, and the bump was the one step that could re-create it.
+
+    So a bump reads the same receipt, applies the same staleness guard, and selects the same build as
+    `--check`, which makes the two agree by construction rather than by two people remembering an order.
+    """
+    kind, target = describe_link()
+    built = read_resolved(args.build)
+    if not built:
+        print(f"[psxport] REFUSED: no usable psxport_resolved.txt in {args.build}; nothing was configured "
+              f"there, so there is nothing to record. Reconfigure and build FIRST, then bump -- a pin "
+              f"records a verification, and no build is no verification.")
         return 2
-    if dirty(target):
-        print("[psxport] REFUSED: the framework checkout is DIRTY. Recording a pin now would name a "
-              "commit that does not describe what you built. Commit the framework first.")
+    bdir, bsha = built
+    # The build must have resolved the tree this repo LINKS, or the receipt describes a framework this
+    # port is not actually consuming.
+    if kind in ("symlink", "clone") and os.path.realpath(bdir) != os.path.realpath(target):
+        print(f"[psxport] REFUSED: {args.build} was configured against {bdir}, but external/psxport "
+              f"points at {target}. Bumping would record a framework this port does not consume.")
+        return 1
+    # The same guard --check applies: a receipt that is already stale is not a verification.
+    current = head_of(bdir)
+    if current != bsha or dirty(bdir):
+        print(f"[psxport] REFUSED: {args.build}'s receipt is stale -- framework {bdir} is dirty or "
+              f"changed since configure (configured {bsha}, current {current}). Reconfigure, rebuild "
+              f"and retest, then bump.")
         return 1
     url, old = read_pin()
-    remote_has, rc = git(["branch", "-r", "--contains", sha], target)
+    remote_has, rc = git(["branch", "-r", "--contains", bsha], bdir)
     if rc != 0 or not remote_has.strip():
-        print(f"[psxport] REFUSED: {sha[:8]} is not on any remote branch. Recording it would leave a "
-              f"pin that a fresh clone cannot fetch — which is exactly how this repo shipped a tree "
+        print(f"[psxport] REFUSED: {bsha[:8]} is not on any remote branch. Recording it would leave a "
+              f"pin that a fresh clone cannot fetch -- which is exactly how this repo shipped a tree "
               f"that did not build standalone. Push the framework first.")
         return 1
-    write_pin(url or DEFAULT_URL, sha)
-    print(f"[psxport] pin {(old or '(none)')[:8]} -> {sha[:8]}")
+    write_pin(url or DEFAULT_URL, bsha)
+    print(f"[psxport] pin {(old or '(none)')[:8]} -> {bsha[:8]}")
+    print(f"[psxport]   recorded from {args.build}'s receipt -- the commit that build resolved -- not "
+          f"from the framework's current HEAD.")
     return 0
 
 
 def do_check(args):
     """The precommit check: what you BUILT against must be what this repo RECORDS."""
+    return check_build_pin(args.build)
+
+
+def check_build_pin(build):
+    """Refuse unless this exact CMake build's framework receipt matches the recorded pin."""
     _, pin = read_pin()
     if not pin:
         print("[psxport] REFUSED: no psxport.pin — this check asserted NOTHING.")
         return 2
-    built = read_resolved(args.resolved)
+    built = read_resolved(build)
     if not built:
-        print(f"[psxport] check: no {args.resolved} — this tree has not been configured, so "
-              f"there is nothing to compare the pin against. REFUSING rather than passing on no {pin[:8]}) — a check with no evidence is not a passing check.")
+        print(f"[psxport] REFUSED: no usable psxport_resolved.txt in {build}; "
+              f"nothing can be compared with pin {pin[:8]}.")
         return 2
     bdir, bsha = built
     # THE STALENESS GUARD, and it is the whole point of this check. `bsha` is what CMake recorded at
     # CONFIGURE time, so a plain `cmake --build` never refreshes it. Without comparing it against the
-    # framework's CURRENT head, a tree that has been rebuilt against newer framework code still reports
-    # the OLD commit, matches its pin, and passes -- so a fresh clone would build a different framework
-    # than the one just tested, which is the exact failure the pin exists to prevent.
+    # framework's CURRENT head, a tree rebuilt against newer framework code still reports the OLD commit,
+    # matches its pin, and passes -- so a fresh clone would build a different framework than the one just
+    # tested, which is the single failure the pin exists to prevent.
     #
-    # MEASURED 2026-09-27: this guard is present in 2 of the 10 copies of this file and absent from the
-    # other 8, and the difference is observable. With `psxport_resolved.txt` naming a repo's own recorded
-    # pin while the shared framework sits eight commits later, `crash` refuses --
+    # MEASURED 2026-09-27: this guard is present in 3 of the 10 copies of this file and was absent from the
+    # other 7, and the difference is observable. With `psxport_resolved.txt` naming a repo's own recorded
+    # pin while the shared framework sits eight commits later, a guarded copy refuses --
     #   "check FAILED -- framework .../psxport is dirty or changed since configure (configured 436c3762,
-    #    current ba48b103)" -- and `crashbash` on the same input answers "check OK -- built against
+    #    current ba48b103)" -- and an unguarded one on the same input answers "check OK -- built against
     # e0485d33, which is the recorded pin." Same input, opposite answers, and the wrong one is a pass.
     current = head_of(bdir)
     if current != bsha or dirty(bdir):
@@ -278,13 +305,14 @@ def do_check(args):
               f"tree's pin, or bump the pin to what you actually built and tested.")
         return 1
     if bsha == pin:
-        print(f"[psxport] check OK — built against {bsha[:8]}, which is the recorded pin.")
+        print(f"[psxport] check OK — {build} was built against {bsha[:8]}, which is the recorded pin.")
         return 0
     print(f"[psxport] check FAILED — you built against {bsha[:8]} (from {bdir}) but this repo records "
           f"{pin[:8]}.")
-    print("[psxport]   A fresh clone would build a DIFFERENT framework than you just tested. That is "
-          "how this tree once recorded a pin whose GameHooks lacked a field the game used.")
-    print("[psxport]   Fix:  uv run --frozen python tools/psxport_sync.py --bump")
+    print(f"[psxport]   A fresh clone would build a DIFFERENT framework than you just tested. That is "
+          f"how this tree once recorded a pin whose GameHooks lacked a field the game used.")
+    print("[psxport]   Fix: reconfigure and verify this build against the recorded pin, "
+          "or bump the pin only after verifying a different published framework commit.")
     return 1
 
 
@@ -297,19 +325,10 @@ def main():
     g.add_argument("--auto", action="store_true", help="link if a shared clone exists, else clone (run.sh)")
     g.add_argument("--bump", action="store_true", help="record the framework you are building against")
     g.add_argument("--check", action="store_true", help="fail if the built framework is not the pin")
-    ap.add_argument(
-        "--build-dir",
-        default="build",
-        help="configured build directory whose psxport provenance --check/report reads (default: build)",
-    )
     ap.add_argument("--force", action="store_true", help="allow --link to replace a real clone")
+    ap.add_argument("--build", default=CANONICAL_VERIFY_BUILD,
+                    help="CMake build directory whose framework receipt to inspect (default: build/ci)")
     args = ap.parse_args()
-    build_dir = (
-        args.build_dir
-        if os.path.isabs(args.build_dir)
-        else os.path.join(REPO, args.build_dir)
-    )
-    args.resolved = os.path.join(os.path.abspath(build_dir), "psxport_resolved.txt")
     if args.link:  return do_link(args)
     if args.clone: return do_clone(args)
     if args.auto:  return do_auto(args)
