@@ -53,6 +53,10 @@ set(SPIDER1_FRAME_SOURCES
   titles/spiderman1/spider1_frame_driver.cpp
   titles/spiderman1/spider1_mode_driver.cpp)
 
+# The guest-widescreen owner links into the product: the title runtime returns its policy and
+# registers its two measured publication overrides, so a picture depends on it.
+set(SPIDER1_WIDESCREEN_SOURCES titles/spiderman1/spider1_widescreen.cpp)
+
 function(spider_add_runtime_target TARGET TITLE PREFIX MAIN RUNTIME)
   spider_read_title(${TITLE} ${PREFIX})
   add_executable(${TARGET} ${SPIDER_COMMON_SOURCES} ${MAIN} ${RUNTIME})
@@ -73,7 +77,7 @@ foreach(SPIDER_TITLE IN LISTS SPIDER_TITLES)
     spider_add_runtime_target(
       spiderman_port spiderman1 SPIDER1
       game/core/main.cpp titles/spiderman1/spider1_runtime.cpp)
-    target_sources(spiderman_port PRIVATE ${SPIDER1_FRAME_SOURCES})
+    target_sources(spiderman_port PRIVATE ${SPIDER1_FRAME_SOURCES} ${SPIDER1_WIDESCREEN_SOURCES})
   elseif(SPIDER_TITLE STREQUAL "spiderman2")
     spider_add_runtime_target(
       enter_electro_port spiderman2 SPIDER2
@@ -83,21 +87,20 @@ foreach(SPIDER_TITLE IN LISTS SPIDER_TITLES)
   endif()
 endforeach()
 
-# Keep the remaining render/stream owners compile-checked while the runtime attaches them through
-# measured title boundaries. The field owner now links into the product for pre-main VSync service.
-if(TARGET spiderman_port)
-  add_library(spider1_native_owners_compile OBJECT
-    titles/spiderman1/spider1_widescreen.cpp)
-  target_include_directories(spider1_native_owners_compile PRIVATE
-    game/core
-    game/render
-    titles/spiderman1)
-  target_link_libraries(spider1_native_owners_compile PRIVATE psxport)
-endif()
+# Keep the remaining render owners compile-checked while the runtime attaches them through measured
+# title boundaries.
 
 include(CTest)
 if(BUILD_TESTING)
   find_package(Python3 REQUIRED COMPONENTS Interpreter)
+
+  add_executable(spider1_widescreen_test
+    tests/spider1_widescreen_test.cpp
+    titles/spiderman1/spider1_widescreen.cpp)
+  target_include_directories(spider1_widescreen_test PRIVATE
+    game/core titles/spiderman1 ${PSXPORT_DIR}/tests)
+  target_link_libraries(spider1_widescreen_test PRIVATE psxport)
+  add_test(NAME spider1_widescreen COMMAND spider1_widescreen_test)
 
   add_executable(face_builder_census_test
     tests/face_builder_census_test.cpp
@@ -162,11 +165,20 @@ if(BUILD_TESTING)
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/source_policy.py)
   add_test(NAME source_policy_selftest
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/source_policy.py --selftest)
+  # The cull census classifies instruction words, and its classifier's correctness IS the coverage
+  # claim the widescreen owner cites in its header ("all 17 classified functions take their bound
+  # from the record"). An ungated classifier rots silently: this decoder got the GTE encoding wrong
+  # three separate ways while it was being written — `rtps` (funct 0x16) matched nothing, the
+  # `rt` bits 10..6 matched nothing, and `& 0xFFF` yielded a plausible 38 that skipped every CR with
+  # bit 0 set — and the self-test caught all three. So the self-test is the gate, not a nicety.
+  add_test(NAME spider1_cull_census_selftest
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/probe_cull_census.py --self-test)
   if(TARGET spiderman_port)
     spider_add_runtime_target(
       spider1_runtime_services_test spiderman1 SPIDER1
       tests/spider1_runtime_services_test.cpp titles/spiderman1/spider1_runtime.cpp)
-    target_sources(spider1_runtime_services_test PRIVATE ${SPIDER1_FRAME_SOURCES})
+    target_sources(spider1_runtime_services_test PRIVATE
+      ${SPIDER1_FRAME_SOURCES} ${SPIDER1_WIDESCREEN_SOURCES})
     target_include_directories(spider1_runtime_services_test PRIVATE ${PSXPORT_DIR}/tests)
     add_test(NAME spider1_runtime_services COMMAND spider1_runtime_services_test)
     set_tests_properties(spider1_runtime_services PROPERTIES ENVIRONMENT

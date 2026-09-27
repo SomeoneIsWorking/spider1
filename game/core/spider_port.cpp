@@ -6,6 +6,7 @@
 #include "executable_identity.h"
 #include "game.h"
 #include "guest_execution.h"
+#include "render_mode.h"
 #include "spider_runtime.h"
 
 #include <lucent/log.h>
@@ -75,6 +76,18 @@ int runPort(SpiderRuntime &runtime, int argc, char **argv) {
   game->gpu.gpu_native_init();
   game->pad.overridesInit();
   core->runtime->registerOverrides(*game);
+  // Install the render path this title's declared capabilities name, BEFORE the shell prepares the
+  // product. MEASURED 2026-09-27: without this line the Core keeps `RenderMode`'s default
+  // `RenderPath::Native`, and the run's own announce line said so —
+  //   [wide] native picture: aspect=1 wide_engine=1 native_width=512 render_width=684
+  // `wide_engine=1` means `enhancementsAllowed()` was true, i.e. the Core was on the NATIVE path,
+  // so the guest widescreen contract was inactive in BOTH directions: `guestWidescreenAllowed()`
+  // was false, the latch ignored the requested aspect and the title's own projection, and the 684
+  // came from the host PC widescreen engine rather than from anything this executable does. A Gte
+  // title that never installs its declared path is a title whose widescreen claim is about a path
+  // it is not running. The other three widescreen-only products all call this in their own boot for
+  // the same reason (tekken3/game/core/tekken3_port.cpp:61, titles/tomba1/game/app/main.cpp:85).
+  render_path_install(core);
   runtime.prepareBootstrap(*game);
   const GuestProgramImage *program = runtime.guestProgramImage();
   if (!program || !program->crt0Entry) {

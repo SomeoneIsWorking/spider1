@@ -1,5 +1,7 @@
 #pragma once
 
+#include "gpu_vk.h"
+#include "spider1_widescreen.h"
 #include "spider_runtime.h"
 
 namespace spider {
@@ -18,6 +20,7 @@ public:
   void prepareBootstrap(Game &game) override;
   bool resumeBootstrapBoundary(Core &core, const psx::cpu::ExecutionResult &result) override;
   const GuestProgramImage *guestProgramImage() const override;
+  const GuestWidescreenProjection *guestWidescreenProjection() const override;
   const PlatformHlePlan *platformHlePlan() const override;
   const GuestCdStreamCallbackLayout *guestCdStreamCallbackLayout() const override;
   const GuestPadBufferLayout *guestPadBufferLayout() const override;
@@ -26,6 +29,10 @@ public:
 
 private:
   static const ExecutableIdentity identity_;
+  // Process-lifetime, and honestly so: it answers the player's aspect selection and it holds the
+  // shared plan latch. Everything that changes per frame lives in the framework's own per-Game
+  // latch and in the guest record, which is where the guest's own projection state already was.
+  mutable Spider1Widescreen widescreen_{gpu_vk_latch_guest_projection};
   const GuestProgramImage image_ = {
       .bss = {0x800B5994u, 0x800C65D4u},
       .stackTopWordAddress = 0x800B3E70u,

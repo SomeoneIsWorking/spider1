@@ -10,6 +10,7 @@
 #include "spider1_field_schedule.h"
 #include "spider1_platform_facts.h"
 #include "spider1_stream_driver.h"
+#include "spider1_widescreen.h"
 
 #include <cstdlib>
 #include <lucent/log.h>
@@ -594,6 +595,12 @@ void Spider1FrameDriver::stepFrame(Core &core, uint32_t frame) {
   game_.timing.logicFrame = frame;
   core.rsub.otAttr.beginLogicFrame(frame);
   game_.pad.serviceFrame();
+  // Once per host frame, before any guest work and before this step's presentation fence: the title
+  // owns the only publication of its own projection, and the framework's plan is frame-stable by
+  // design, so the host canvas has to be re-latched for the aspect the player actually selected and
+  // the display extent the guest has actually reached. It re-enters no guest code; see
+  // `Spider1Widescreen::synchronizePresentation`.
+  Spider1Widescreen::from(core).synchronizePresentation(core);
   fieldsSinceCommit_ = 0;
   frameCommitted_ = false;
   bool deliveredField = false;

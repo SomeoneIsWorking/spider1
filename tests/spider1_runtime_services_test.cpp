@@ -306,7 +306,14 @@ void test_retail_movie_field_exit_resumes_at_each_authenticated_return() {
     auto exit =
         psx::cpu::dispatchGuestUntilExit(core, callPc, psx::cpu::ExecutionBudget::fromCycles(100));
     CHECK_EQ(exit.reason, psx::cpu::ExecutionExitReason::FrameBoundary);
-    CHECK_EQ(exit.guestPc, spider::spider1::platformServices.vsyncAddress);
+    // The address the guest continues at, which is where its own `jal` at `callPc` left `r[31]` —
+    // NOT the VSync leaf's entry. `exit.guestPc` used to be expected to BE the VSync address, and
+    // that expectation pinned a framework bug: a `jal`ed leaf's entry is never a valid resume
+    // point, because resuming there re-enters the leaf and requests the same boundary again
+    // forever. The three checks below already wanted `returnPc`, so the runtime was independently
+    // computing the right answer and discarding the result's; now the two agree and either can be
+    // used.
+    CHECK_EQ(exit.guestPc, returnPc);
     CHECK_EQ(core.r[31], returnPc);
     CHECK_EQ(core.r[16], index);
     CHECK(runtime.resumeBootstrapBoundary(core, exit));
