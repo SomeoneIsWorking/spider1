@@ -173,6 +173,16 @@ if(BUILD_TESTING)
   # bit 0 set — and the self-test caught all three. So the self-test is the gate, not a nicety.
   add_test(NAME spider1_cull_census_selftest
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/probe_cull_census.py --self-test)
+  # The main-RAM-global bound census, for the same reason and with the same class of failure in
+  # mind. `probe_cull_census.py` counts references to the viewport-record cell and, in its own
+  # closing line, reports 372 `addiu`/`ori` sites loading a 4:3-derived literal while saying it
+  # cannot decide whether any of them bounds a projected coordinate. That silence is exactly what
+  # Crash 1 read as "widening cannot clip new geometry", and it was wrong: the bound there was a
+  # main-RAM GLOBAL (1 writer, 20 readers) that no literal scan can see, used as the GTE NEAR
+  # PLANE. So the question has its own instrument, and the instrument's classifier is gated for
+  # the reason the line above states.
+  add_test(NAME spider1_global_bounds_selftest
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/probe_global_bounds.py --selftest)
   if(TARGET spiderman_port)
     spider_add_runtime_target(
       spider1_runtime_services_test spiderman1 SPIDER1

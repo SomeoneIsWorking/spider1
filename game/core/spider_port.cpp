@@ -1,6 +1,9 @@
 #include "spider_port.h"
+#include "cfg.h"
+#include "dbg_server.h"
 #include "hw_bind.h"
 #include "psx_exe_image.h"
+#include "store_observe.h"
 
 #include "core.h"
 #include "executable_identity.h"
@@ -95,18 +98,58 @@ int runPort(SpiderRuntime &runtime, int argc, char **argv) {
     return 3;
   }
   GuestExecution execution(*core);
+
+  // The live debug endpoint (PSXPORT_DEBUG_SERVER) is a framework service whose LIFETIME belongs to
+  // the boot spine that owns the frame loop, and this title owns its own: `runPort` drives
+  // `resumeBootstrapBoundary` itself and never enters native_boot's loop, so the endpoint was never
+  // attached and the knob did nothing.
+  //
+  // MEASURED 2026-09-27, one bounded run with the knob set: the product booted, crossed the
+  // pre-main ResetGraph field, armed the CD interrupt and reached retail STR field 1, then produced
+  // no `dbgsrv` line at all and bound no port, so every one of 46 client attempts over 90 s was
+  // `Connection refused`. That is the whole cost of the gap: `guest` — the one command that reports
+  // translated blocks, executed instructions, cache hits/misses, invalidations and the fallback
+  // counters BY REASON — is unreachable, so the frontier had to be read out of an I_STAT transcript
+  // instead (1.2 GB for one 4-minute run, scratch/dem1/probe_fix1.log).
+  //
+  // `attach` is the framework's one answer to both questions this spine has: start the endpoint,
+  // and say what frame cap to run under, because a client-driven run must not be capped (the cap
+  // exists to bound an unattended smoke run) while 0 means "run until told to stop". With the knob
+  // unset `attach` returns the requested cap unchanged and starts nothing, so a player's run is the
+  // same loop it was. `honourPause` before each turn and `service` after it are the framework's
+  // own; a title that reimplements either is the second copy the factoring exists to prevent.
+  const int frameCap = game->dbg_server.attach(core, cfg_int("PSXPORT_NATIVE_FRAMES", 0));
+  // PSXPORT_STORE_OBSERVE is the same class of opt-in diagnostic on the same title-owned spine, and
+  // for the same reason it was never armed here: the arming line lives in native_boot_run, which
+  // this spine does not enter.
+  store_observe_attach(*core);
+  lucent::info("boot",
+               "Spider-Man 1 boot spine owns its frame loop: live endpoint {} (frame cap {})",
+               frameCap > 0 ? std::to_string(frameCap) : "uncapped",
+               frameCap);
+
   auto result = execution.enter(program->crt0Entry);
+  int completedTurns = 0;
   for (;;) {
+    game->dbg_server.honourPause(core);
+    if (frameCap > 0 && completedTurns >= frameCap) {
+      lucent::info(
+          "boot", "Spider-Man 1 reached the requested frame cap of {} host turn(s)", frameCap);
+      break;
+    }
     if (result.reason == psx::cpu::ExecutionExitReason::BudgetExhausted && result.cycles != 0) {
       // The executor's turn limit bounds one call, not the guest program. Resume its saved PC;
       // long finite work such as the retail allocator's heap fill crosses several turns.
       result = execution.resumeAt(result.guestPc);
+      game->dbg_server.service(core);
       continue;
     }
     if (!runtime.resumeBootstrapBoundary(*core, result)) {
       break;
     }
+    ++completedTurns;
     result = execution.resumeAt(core->pc);
+    game->dbg_server.service(core);
   }
   return reportExecutionResult(*core, result, runtime.serial()) ? 0 : 3;
 }
