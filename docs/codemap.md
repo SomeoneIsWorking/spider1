@@ -45,11 +45,14 @@ points compose peer owners; they do not absorb rendering, input, storage, or dia
 | Enter Electro runtime | Direct runtime, executable facts, capability refusal, and EE boot boundary | `titles/spiderman2/enter_electro_runtime.*` | `spider::EnterElectroRuntime` | `docs/migration.md` |
 | Enter Electro enhanced renderer | Title-derived render seam, native producer, wide projection, and temporal history | target beneath `titles/spiderman2/`, plus address-free lineage peers in `game/render/` | target Enter Electro render installer | `docs/re-frontier.md` |
 | Executable identity | Shipping serial, size, magic, and SHA-256 authentication | `game/core/executable_identity.*` | `verifyExecutableIdentity` | `CLAUDE.md` |
-| Frame cadence | Spider-Man 1 pre-main and exact retail-movie VSync field continuations, plus preserved finite movie/mode owners awaiting full attachment after executable JIT conformance | `titles/spiderman1/spider1_frame_driver.*`, `spider1_movie_execution.*`, `spider1_mode_driver.*` | `Spider1FrameDriver::serviceBootstrapVsync`, `serviceBootstrapMovieVsync`, and typed guest-execution calls | `docs/migration.md` |
+| Frame cadence | Spider-Man 1 pre-main and exact retail-movie VSync field continuations, the display field clock `VSync(0)` is defined in terms of, and the finite host-stepped fiber the boot prefix and the mode steps run on | `titles/spiderman1/spider1_frame_driver.*`, `spider1_field_clock.*`, `spider1_host_stepped_fiber.*`, `spider1_movie_execution.*` | `Spider1FrameDriver::serviceBootstrapVsync`, `serviceBootstrapMovieVsync`, `Spider1FieldClock::vsyncReturnValue`, `Spider1HostSteppedFiber` | `docs/issues/0029` |
+| Guest field facts | Every named SLUS_008.75 guest field, mode id, table offset, service entry, and threshold the title's drivers touch, declared ONCE at the name — including the ones whose role is genuinely unknown, named `kUnattributed…` so the open question is visible instead of hidden | `titles/spiderman1/spider1_guest_layout.h`; the measured platform and CD facts stay in `spider1_platform_facts.h` | `spider1::padRead`, `spider1::asyncModeState`, `spider1::kUnattributedWord4F38` | `docs/issues/0028` |
+| Retail mode state machine | Spider-Man 1's outer selector, its primary mode, its 3D transition, and its level route, with one named method per route arm rather than one long switch | `titles/spiderman1/spider1_mode_driver.*` | `spider1OuterRoute`, `Spider1ModeDriver::dispatchPrimaryExit` | `docs/issues/0029` |
+| Retail mode functions | The mode functions the state machine COMPOSES rather than absorbs: the title menu, the alternate mode, the invalid-selector input wait, the 3D wipe, and the display-field boundary the three modes share | `titles/spiderman1/spider1_menu_mode.*`, `spider1_alternate_mode.*`, `spider1_invalid_selector_input.*`, `spider1_transition_wipe.*`, `spider1_mode_frame_boundary.*`, `spider1_mode_host.h`, `spider1_mode_decisions.h`, `spider1_guest_call.h`, `spider1_guest_stack_frame.h` | `Spider1MenuMode`, `Spider1AlternateMode`, `Spider1InvalidSelectorInput`, `Spider1TransitionWipe` | `docs/issues/0029` |
 | Platform/HLE bridge | Measured SCEI service entries and pad receive buffers; framework handlers and Spider-Man's per-Core StGetNext stream and ring-diagnostic owner | `titles/spiderman1/spider1_platform_facts.h`, `spider1_stream_driver.*`; framework `PlatformHle` | `Spider1Runtime::platformHlePlan`, `guestPadBufferLayout`, `guestCdStreamCallbackLayout`, `createContext`, `registerOverrides` | `docs/re-frontier.md` |
 | Runtime modules | Guest allocator placement, authenticated image activation, and cache invalidation | title loader observation plus `external/psxport/runtime/cpu/image_identity.*` and `invalidation.*` | image catalog activation | `docs/issues/0001-recomp-miss-0x800c6684-three-cd-wad-modules-live.md` |
 | Scene identity | Binary-derived level/sublevel identity for render policy | `game/render/scene_id.*` | `classifyScene` | `docs/re-frontier.md` |
-| Frame fence | Target mapping from finite retail mode steps onto submitted, repeated-field, or unpresented framework boundaries | preserved `titles/spiderman1/spider1_frame_driver.*`, `spider1_mode_driver.*` | attach only after JIT conformance | `docs/issues/0017-spider-man-aborts-after-entering-dem1-because-ca.md` |
+| Frame fence | Target mapping from finite retail mode steps onto submitted, repeated-field, or unpresented framework boundaries | preserved `titles/spiderman1/spider1_frame_driver.*`, `spider1_mode_driver.*`; the pure decisions stay in `spider1_field_schedule.h` and `spider1_mode_decisions.h`, and the frame driver's four presentation commits share one `claimFrameFence` check | attach only after JIT conformance | `docs/issues/0017-spider-man-aborts-after-entering-dem1-because-ca.md` |
 | Frame envelope | Native DRAWENV/DISPENV and background-clear production | `game/render/frame_envelope.*`, `game/render/gpu_env.*` | `FrameEnvelope::submit` | `docs/issues/0013-a-native-producer-whose-only-scene-is-the-boot-i.md` |
 | Asset ownership | Retained texture/CLUT bytes and upload lifetime | `game/render/asset_upload_ledger.*`, `game/render/mesh_asset_cook.*` | `AssetUploadLedger`, `cookMeshAsset` | `docs/issues/0016-first-dem1-mesh-has-no-renderer-time-raw-texture.md` |
 | Mesh source format | Retail header, face stream, and caller-family contracts | `game/render/mesh_face_format.*`, `game/render/face_builder_census.*` | `deriveMeshLayout`, `FaceBuilderCensus::record` | `docs/re-frontier.md` |
@@ -73,14 +76,15 @@ points compose peer owners; they do not absorb rendering, input, storage, or dia
 ## Source tree
 
 ```text
-game/  —  3,082 lines, 34 files
-├─ core/  438 lines, 10 files
+game/  —  3,138 lines, 34 files
+├─ core/  494 lines, 10 files
 └─ render/  2,644 lines, 24 files
-titles/  —  2,462 lines, 17 files
-├─ spiderman1/  2,352 lines, 14 files
-└─ spiderman2/  110 lines, 3 files
-tools/  —  6,387 lines, 28 files
-tests/  —  1,178 lines, 14 files
+titles/  —  5,413 lines, 41 files
+├─ spiderman1/  5,303 lines, 38 files
+│  ├─ tools/  393 lines, 1 file
+├─ spiderman2/  110 lines, 3 files
+tools/  —  8,912 lines, 35 files
+tests/  —  3,040 lines, 19 files
 ```
 
 Refresh with:
@@ -92,6 +96,13 @@ uv run --frozen python ../../shared/re-harness/tools/codemap.py tree game titles
 ## Where does X go?
 
 - A title serial, executable hash, or target label → `titles/<title>/title.json`.
+- A guest address, table offset, mode id, or threshold the title's drivers read → the ONE owner,
+  `titles/<title>/spider1_guest_layout.h`, declared at a name. If the role is not known, the name says
+  so (`kUnattributed…`); do not invent a confident name for a word nobody has read out of the image.
+- A rule a mode DECIDES by (a comparison, a threshold, a which-of-two answer) → a `constexpr` function
+  in the mode's own decision header, so its whole input space is testable without a `Core`.
+- A retail mode function with its own object lifetime → its own owner under `titles/<title>/`, and the
+  state machine COMPOSES it. A mode driver that grows a mode's state inline is the smell.
 - A title-specific guest address, image identity, or override → `titles/<title>/`, never
   `SpiderRuntime`.
 - PSX instruction semantics, cache ownership, bounded exits, or executable-memory invalidation →

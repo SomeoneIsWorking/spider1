@@ -51,7 +51,20 @@ set(SPIDER1_FRAME_SOURCES
   titles/spiderman1/spider1_stream_driver.cpp
   titles/spiderman1/spider1_movie_execution.cpp
   titles/spiderman1/spider1_frame_driver.cpp
-  titles/spiderman1/spider1_mode_driver.cpp)
+  # The outer selector and the primary mode, plus the retail mode functions the mode driver composes
+  # rather than absorbs: the title menu, the alternate mode, the invalid-selector input wait, the
+  # display-field boundary all three modes share, the 3D transition's own arithmetic, the display
+  # field clock VSync(0) is defined in terms of, ResetGraph's GPU half, and the CdInit body.
+  titles/spiderman1/spider1_cd_initialization.cpp
+  titles/spiderman1/spider1_field_clock.cpp
+  titles/spiderman1/spider1_gpu_reset.cpp
+  titles/spiderman1/spider1_host_stepped_fiber.cpp
+  titles/spiderman1/spider1_mode_driver.cpp
+  titles/spiderman1/spider1_alternate_mode.cpp
+  titles/spiderman1/spider1_invalid_selector_input.cpp
+  titles/spiderman1/spider1_menu_mode.cpp
+  titles/spiderman1/spider1_mode_frame_boundary.cpp
+  titles/spiderman1/spider1_transition_wipe.cpp)
 
 # The guest-widescreen owner links into the product: the title runtime returns its policy and
 # registers its two measured publication overrides, so a picture depends on it.
@@ -148,6 +161,35 @@ if(BUILD_TESTING)
   target_include_directories(spider1_field_schedule_test PRIVATE titles/spiderman1)
   add_test(NAME spider1_field_schedule COMMAND spider1_field_schedule_test)
 
+  # The mode drivers' DECISIONS, with no Core at all. Every rule they were extracted around is a
+  # constexpr function of what the mode observed, so its whole input space is enumerable here — which
+  # is what makes these the tests that can catch a readability refactor changing a rule rather than
+  # renaming it. Each rule is pinned from both sides, so a rule that always answered one way fails.
+  # The wipe is linked because its per-pixel darkening is a rule, and the test exercises the SHIPPING
+  # function rather than a second copy of the arithmetic beside it.
+  add_executable(spider1_mode_rules_test
+    tests/spider1_mode_rules_test.cpp titles/spiderman1/spider1_transition_wipe.cpp)
+  target_include_directories(spider1_mode_rules_test PRIVATE titles/spiderman1 ${PSXPORT_DIR}/tests)
+  target_link_libraries(spider1_mode_rules_test PRIVATE psxport)
+  add_test(NAME spider1_mode_rules COMMAND spider1_mode_rules_test)
+
+  # The guest-boundary owners, driven against a real Core with native-override probes standing in for
+  # the retail guest bodies. The probes record the call ORDER as well as the count, so a reordering
+  # fails here even when the game would still run, and every probe reports whether it was entered at
+  # an address it was installed for.
+  add_executable(spider1_guest_boundary_owners_test
+    tests/spider1_guest_boundary_owners_test.cpp
+    titles/spiderman1/spider1_cd_initialization.cpp
+    titles/spiderman1/spider1_field_clock.cpp
+    titles/spiderman1/spider1_gpu_reset.cpp
+    titles/spiderman1/spider1_host_stepped_fiber.cpp
+    titles/spiderman1/spider1_invalid_selector_input.cpp
+    titles/spiderman1/spider1_mode_frame_boundary.cpp)
+  target_include_directories(spider1_guest_boundary_owners_test
+    PRIVATE game/core titles/spiderman1 ${PSXPORT_DIR}/tests)
+  target_link_libraries(spider1_guest_boundary_owners_test PRIVATE psxport)
+  add_test(NAME spider1_guest_boundary_owners COMMAND spider1_guest_boundary_owners_test)
+
   add_executable(executable_identity_test
     tests/executable_identity_test.cpp game/core/executable_identity.cpp)
   target_include_directories(executable_identity_test PRIVATE game/core)
@@ -235,7 +277,15 @@ if(BUILD_TESTING)
             --check --build ${CMAKE_BINARY_DIR})
   add_test(NAME cpp_policy
     COMMAND ${Python3_EXECUTABLE} ${PSXPORT_DIR}/tools/check_cpp_style.py
-            --root ${CMAKE_SOURCE_DIR} --compile-commands ${CMAKE_BINARY_DIR})
+            --root ${CMAKE_SOURCE_DIR} --compile-commands ${CMAKE_BINARY_DIR}
+            # Shrink-only caps, ratcheted to the exact size each guest driver reached when its retail
+            # mode functions, its field clock, and its host-stepped fiber were extracted into their own
+            # owners (2026-09-28). Neither was capped before: both sat under the 1,200-line default, so
+            # there was no legacy list to come off. A cap here is a TIGHTENING, never a raise — the
+            # gate fails a file that shrank while keeping its cap, so each of these has to be lowered
+            # again in the same change that makes the file smaller.
+            --cap titles/spiderman1/spider1_frame_driver.cpp=573
+            --cap titles/spiderman1/spider1_mode_driver.cpp=559)
 endif()
 
 # THE LIVE PIN CHECK. Not a selftest: this runs the real function against this repository's real
