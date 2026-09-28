@@ -191,6 +191,31 @@ if(BUILD_TESTING)
   add_test(NAME spider1_widescreen_pair_selftest
     COMMAND ${Python3_EXECUTABLE} -B
             ${CMAKE_SOURCE_DIR}/tools/probe_spider1_widescreen_pair.py --selftest)
+  # The BIOS-call census, read from the image's own stub bytes rather than from a table somebody
+  # remembered. It is the instrument that answers "which BIOS service is this title missing", which
+  # is a hard stop: `dispatchGuestHostService` returns a Fault with reason `unimplemented BIOS
+  # service`. Its selftest pins the trap this census fell into once — a `jr` recognised by testing
+  # bits 4..0, which are the funct field's own low bits, so 100% of real stubs were rejected and the
+  # census reported ZERO BIOS calls, the answer that reads as "this title makes none". See
+  # docs/issues/0026.
+  add_test(NAME spider1_bios_stub_census_selftest
+    COMMAND ${Python3_EXECUTABLE} -B
+            ${CMAKE_SOURCE_DIR}/tools/probe_bios_stub_census.py --selftest)
+  # The bounded headless run's decoders: the I_STAT bit names, the CD status bit names, the
+  # control-surface data-line parser, and the refusal an empty sample set must produce. Those are the
+  # pieces that turn a register read into a sentence, and a wrong bit table is a confidently wrong
+  # sentence. The run itself needs a disc and the machine's single product slot, so it is a
+  # maintainer command, not a ctest case.
+  add_test(NAME spider1_headless_run_selftest
+    COMMAND ${Python3_EXECUTABLE} -B
+            ${CMAKE_SOURCE_DIR}/tools/probe_spider1_headless_run.py --selftest)
+  # The CD-ROM interrupt's ownership contract, from the guest's bytes. It carries a BASELINE
+  # assertion that is EXPECTED TO FAIL once the issue-0026 framework change lands, and inverting it is
+  # then the regression test for that fix. It is here so the evidence outlasts the session, and so
+  # the finding cannot be re-derived a fourth time from a log line. See docs/issues/0026.
+  add_executable(cd_irq2_delivery_test tests/cd_irq2_delivery_test.cpp)
+  target_link_libraries(cd_irq2_delivery_test PRIVATE psxport)
+  add_test(NAME cd_irq2_delivery COMMAND cd_irq2_delivery_test)
   if(TARGET spiderman_port)
     spider_add_runtime_target(
       spider1_runtime_services_test spiderman1 SPIDER1
