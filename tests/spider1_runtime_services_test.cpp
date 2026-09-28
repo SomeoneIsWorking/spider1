@@ -671,6 +671,104 @@ void test_measured_services_use_the_direct_runtime() {
   CHECK(core.imageCatalog().deactivate(image));
 }
 
+// Stage one controller response exactly as the framework's own producer does, with an explicit
+// length, so the service's eight-byte drain is exercised against a real `CdcIrqEnt` rather than
+// against a mock.
+void publishResponse(Game &game, uint8_t type, uint8_t first, int len) {
+  game.cdc.q_head = 0;
+  game.cdc.q_tail = 1;
+  game.cdc.resp_rd = 0;
+  game.cdc.q[0].type = type;
+  game.cdc.q[0].len = len;
+  for (int i = 0; i < 16; ++i) {
+    game.cdc.q[0].resp[i] = static_cast<uint8_t>(0xA0u + i);
+  }
+  game.cdc.q[0].resp[0] = first;
+}
+
+void test_recovered_cd_service_owns_the_polled_guest_routine() {
+  namespace cds = spider::spider1::cdstream;
+  spider::Spider1Runtime runtime;
+  psxport_install_game(runtime);
+  auto game = std::make_unique<Game>();
+  Core &core = game->core;
+  auto image = core.imageCatalog().activate(
+      "Spider-Man resident", runtime.guestProgramImage()->residentText, 1u);
+  runtime.registerOverrides(*game);
+  spider::spider1::CdStreamService &service = runtime.cdStream();
+
+  // The override is image-aware and lands on the one recovered body, not on a bare address.
+  CHECK(core.nativeDispatcher().isInstalled({image, cds::kServiceBody}));
+
+  // The recovered pure rules, with their negatives. A rule that only ever sees the retail input
+  // cannot distinguish itself from a constant.
+  CHECK_EQ(service.typeIsDispatchable(0u), 0u);
+  CHECK_EQ(service.typeIsDispatchable(1u), 1u);
+  CHECK_EQ(service.typeIsDispatchable(5u), 1u);
+  CHECK_EQ(service.typeIsDispatchable(6u), 0u);
+  CHECK_EQ(service.resultHasDataReady(cds::kResultDataReady), 1u);
+  CHECK_EQ(service.resultHasDataReady(cds::kResultCommandAcknowledge), 0u);
+  CHECK_EQ(service.resultHasCommandAcknowledge(cds::kResultDataReady), 0u);
+  CHECK_EQ(service.resultHasSectorBufferReady(1u), 1u);
+  CHECK_EQ(service.carry(0xFFu), 0x1Du);
+  CHECK_EQ(service.carry(0x02u), 0u);
+  CHECK_EQ(service.armForResponseType(1u), cds::kArmDataReady);
+  CHECK_EQ(service.armForResponseType(5u), cds::kArmError);
+  CHECK_EQ(service.armForResponseType(0u), cds::kUndispatchedType);
+
+  // THE LOAD-BEARING NEGATIVE. The gate word is 0 in the image and the census in
+  // tools/re_cd_stream.py finds no setter, so the owner must leave it alone. A service that wrote
+  // it would fabricate guest state the retail executable never has AND would enable the three poll
+  // loops that are retail-dead code behind it.
+  CHECK_EQ(service.gateObserved(core), 0u);
+  CHECK_EQ(core.mem_r8(cds::kServiceGateAddress), 0u);
+
+  // Response type 1 (data ready) through the production service: the mask is bit 2, the status
+  // triplet's byte 0 is cleared, byte 1 is set, and the eight drained bytes land at 0x800C6384.
+  publishResponse(*game, 1u, 0x00u, 8);
+  const uint32_t dataReady = service.service(core);
+  CHECK_EQ(dataReady, cds::kResultDataReady);
+  CHECK_EQ(core.mem_r8(cds::kStatusTripletAddress + 0), 0u);
+  CHECK_EQ(core.mem_r8(cds::kStatusTripletAddress + 1), 1u);
+  for (uint32_t i = 0; i < cds::kResponseBytes; ++i) {
+    // Byte 0 is the one the fixture set explicitly, because it is the byte the service carries into
+    // the five arms; bytes 1..7 are the untouched ramp.
+    CHECK_EQ(core.mem_r8(cds::kReadyResponseBuffer + i), i == 0 ? 0x00u : 0xA0u + i);
+  }
+
+  // Response type 5 (error) returns 6, which is 4 | 2: the guest's own poll loops therefore read it
+  // as BOTH data ready and command acknowledge, and the recovered owner preserves that exactly.
+  publishResponse(*game, 5u, 0x00u, 8);
+  const uint32_t error = service.service(core);
+  CHECK_EQ(error, cds::kResultDataReady | cds::kResultCommandAcknowledge);
+  CHECK_EQ(service.resultHasDataReady(error), 1u);
+  CHECK_EQ(service.resultHasCommandAcknowledge(error), 1u);
+  CHECK_EQ(core.mem_r8(cds::kStatusTripletAddress + 0), 5u);
+  CHECK_EQ(core.mem_r8(cds::kStatusTripletAddress + 1), 5u);
+
+  // An empty controller queue is response type 0, which the guest returns 0 for. A service that
+  // invented a mask here would make the guest's own poll loop spin on nothing.
+  game->cdc.q_tail = game->cdc.q_head;
+  game->cdc.resp_rd = 0;
+  CHECK_EQ(service.service(core), 0u);
+
+  // The service ran through the NATIVE OVERRIDE, not only as a direct call: the guest's `jal` lands
+  // on the override and the recovered mask comes back in `v0`, which is the ABI the four poll loops
+  // read.
+  publishResponse(*game, 2u, 0x00u, 8);
+  core.r[2] = 0xDEADBEEFu;
+  CHECK(psx::cpu::dispatchGuest(core, cds::kServiceBody, psx::cpu::ExecutionBudget::fromCycles(200))
+            .returned());
+  CHECK_EQ(core.r[2], cds::kResultCommandAcknowledge);
+  CHECK_EQ(core.mem_r8(cds::kStatusTripletAddress + 0), 2u);
+
+  // The gate is still untouched after every one of those services.
+  CHECK_EQ(core.mem_r8(cds::kServiceGateAddress), 0u);
+  CHECK_EQ(core.mem_r8(cds::kServiceGateAddress + 1), 0u);
+
+  CHECK(core.imageCatalog().deactivate(image));
+}
+
 void test_pad_service_writes_retail_receive_buffers_only() {
   spider::Spider1Runtime runtime;
   psxport_install_game(runtime);
@@ -703,6 +801,7 @@ int main() {
   RUN(stock_cd_command_preserves_measured_guest_state_and_pending_result);
   RUN(stock_cd_command_without_measured_work_area_does_not_write_guest_state);
   RUN(measured_services_use_the_direct_runtime);
+  RUN(recovered_cd_service_owns_the_polled_guest_routine);
   RUN(pad_service_writes_retail_receive_buffers_only);
   return pt_summary();
 }

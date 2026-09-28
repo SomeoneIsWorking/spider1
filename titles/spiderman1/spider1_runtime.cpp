@@ -7,6 +7,9 @@
 
 #include "game.h"
 
+#include <cstdlib>
+#include <lucent/log.h>
+
 namespace spider {
 
 const ExecutableIdentity Spider1Runtime::identity_{
@@ -27,11 +30,30 @@ const ExecutableIdentity &Spider1Runtime::executableIdentity() const {
   return identity_;
 }
 
+// The owner lookup a native override has to make. `NativeFunction` is a bare `void (*)(Core *)`, so
+// a per-title owner reached from inside an override can only be found through the Core -- and the
+// Core's route back to the title is `runtime`, which is the framework's base. The downcast is
+// checked and refuses loudly: reaching another title's owner would silently install Spider-Man's
+// CD service into a foreign Core.
+Spider1Runtime &Spider1Runtime::from(Core &core) {
+  auto *self = dynamic_cast<Spider1Runtime *>(core.runtime);
+  if (self == nullptr) {
+    lucent::error("cd", "Spider-Man 1 CD service has no matching title runtime");
+    std::abort();
+  }
+  return *self;
+}
+
 void *Spider1Runtime::createContext(Core &core) {
   return new spider1::Spider1StreamDriver(core);
 }
 
 void Spider1Runtime::destroyContext(void *context) {
+  // The recovered CD service's counts are reported HERE, at the end of the run, and not from any
+  // per-frame path -- because its denominator is the whole run. "0 responses by type" beside "0
+  // calls" is the case this exists to make visible: it is a service that never ran, which reads
+  // exactly like a healthy service with nothing to do.
+  cdStream_.report();
   delete static_cast<spider1::Spider1StreamDriver *>(context);
 }
 
@@ -39,6 +61,7 @@ void Spider1Runtime::registerOverrides(Game &game) {
   game.platform_hle.initBuiltins();
   Spider1FrameDriver::from(game.core).installBootstrapOverrides();
   spider1::Spider1StreamDriver::from(game.core).install();
+  cdStream_.install(game.core);
   installSpider1Widescreen(game.core);
 }
 

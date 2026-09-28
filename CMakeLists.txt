@@ -56,6 +56,11 @@ set(SPIDER1_FRAME_SOURCES
   # display-field boundary all three modes share, the 3D transition's own arithmetic, the display
   # field clock VSync(0) is defined in terms of, ResetGraph's GPU half, and the CdInit body.
   titles/spiderman1/spider1_cd_initialization.cpp
+  # The polled CD-ROM service 0x8008C3E0, recovered from the image: register reads, bounded
+  # response drain, the five-arm dispatch and the status triplet. See spider1_cd_stream.h for the
+  # byte evidence and for the correction to the "gate word" explanation this file's first draft
+  # gave.
+  titles/spiderman1/spider1_cd_stream.cpp
   titles/spiderman1/spider1_field_clock.cpp
   titles/spiderman1/spider1_gpu_reset.cpp
   titles/spiderman1/spider1_host_stepped_fiber.cpp
@@ -258,6 +263,19 @@ if(BUILD_TESTING)
     COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_SOURCE_DIR}/tools/re_cadence.py --selftest)
   add_test(NAME spider1_cadence
     COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_SOURCE_DIR}/tools/re_cadence.py)
+  # The polled CD-ROM service 0x8008C3E0's recovery, and the gate census that decides what may be
+  # done about the word 0x800B2886. Registered because the constants in
+  # titles/spiderman1/spider1_cd_stream.h are only as good as this scan: the tool asserts every one
+  # of them against the authenticated image, and its selftest mutates the dispatch table, the gate
+  # halfword, the SETTER census, the set of gate-reader call sites, a call site and a result bit, so
+  # "there is no setter" is falsifiable rather than an absence of a scan. Its positive control --
+  # the unmutated image firing no assertion -- is what makes the seven red cases meaningful. Both
+  # halves need the provisioned image, which hosted CI does not have, so both REFUSE (exit 2)
+  # instead of reporting a recovery.
+  add_test(NAME spider1_cd_stream_selftest
+    COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_SOURCE_DIR}/tools/re_cd_stream.py --selftest)
+  add_test(NAME spider1_cd_stream
+    COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_SOURCE_DIR}/tools/re_cd_stream.py)
   # The bounded headless run's decoders: the I_STAT bit names, the CD status bit names, the
   # control-surface data-line parser, and the refusal an empty sample set must produce. Those are the
   # pieces that turn a register read into a sentence, and a wrong bit table is a confidently wrong
