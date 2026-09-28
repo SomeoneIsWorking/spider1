@@ -207,12 +207,27 @@ becomes a measurement once the product reaches `dem1`.
 
 ### S009 — True interpolated 60fps
 
-Missing capability: Spider-Man has no complete native producer whose previous/current authored
-state can be sampled for extra presentation frames. Its runtime therefore exposes neither native
-rendering nor temporal interpolation; guest-frame output is mechanically non-interpolated.
+**This item's SCOPE IS UNDECIDED, and the reason is now measured rather than assumed.**
+`docs/issues/0030` establishes from the image that Spider-Man 1 does not pace through VSync at
+all: it waits through its own `FUN_8005E748(n)` on the field counter `[gp+0x0C74]`, and one of
+the frame body's two wait sites sits **inside a back-edge loop whose trip count a `DrawSync(1)`
+GPU fence decides at run time**. The per-frame field count is therefore **not a compile-time
+constant**, so the rate is neither confirmed 30 fps nor confirmed 60 fps. Instrument:
+`tools/re_cadence.py`, CTest `spider1_cadence{,_selftest}`, 7/7, with a discriminator proving the
+same tool reports a definite rate when the loop is removed.
+
+**So this item may not be closed as out-of-scope, and may not be started as in-scope, until the
+live measurement in `docs/issues/0030` is taken.** That measurement is a headless run reporting
+game-frames-per-second *and* the per-frame advance of `[gp+0x0C74]` together; the image is
+provisioned, so it is not blocked.
+
+Missing capability, unchanged: Spider-Man has no complete native producer whose previous/current
+authored state can be sampled for extra presentation frames. Its runtime therefore exposes neither
+native rendering nor temporal interpolation; guest-frame output is mechanically
+non-interpolated.
 
 Required owner: target `game/render/mesh_pose_history.*` plus native producer integration after S006
-and live validation of S007.
+and live validation of S007 — and, before either, the cadence measurement above.
 
 ### S010 — No whole-frame compatibility fallback
 

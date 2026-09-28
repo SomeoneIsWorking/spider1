@@ -243,6 +243,21 @@ if(BUILD_TESTING)
   add_test(NAME spider1_bios_stub_census_selftest
     COMMAND ${Python3_EXECUTABLE} -B
             ${CMAKE_SOURCE_DIR}/tools/probe_bios_stub_census.py --selftest)
+  # Spider-Man 1's per-frame field count, which decides whether an interpolated 60 fps path is IN
+  # scope for this title. The ANSWER is deliberately "not established": the frame body waits
+  # through its own FUN_8005E748 rather than VSync, and one of its two wait sites sits inside a
+  # back-edge loop whose trip count a DrawSync(1) GPU fence decides at run time, so the per-frame
+  # field count is not a compile-time constant. The instrument is registered precisely because
+  # that is the answer: a cadence tool that must print a number will print a wrong one, and this
+  # title is the case the workspace nearly ruled out of scope on a docstring. Its selftest
+  # carries a DISCRIMINATOR -- the same tool on the same bytes with the loop removed MUST report
+  # a definite rate -- so the refusal cannot be confused with a broken counter. Both halves read
+  # the provisioned image, which hosted CI does not have, so both exit 2 with a REFUSAL rather
+  # than reporting a rate.
+  add_test(NAME spider1_cadence_selftest
+    COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_SOURCE_DIR}/tools/re_cadence.py --selftest)
+  add_test(NAME spider1_cadence
+    COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_SOURCE_DIR}/tools/re_cadence.py)
   # The bounded headless run's decoders: the I_STAT bit names, the CD status bit names, the
   # control-surface data-line parser, and the refusal an empty sample set must produce. Those are the
   # pieces that turn a register read into a sentence, and a wrong bit table is a confidently wrong
