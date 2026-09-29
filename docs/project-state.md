@@ -207,19 +207,39 @@ becomes a measurement once the product reaches `dem1`.
 
 ### S009 — True interpolated 60fps
 
-**This item's SCOPE IS UNDECIDED, and the reason is now measured rather than assumed.**
-`docs/issues/0030` establishes from the image that Spider-Man 1 does not pace through VSync at
-all: it waits through its own `FUN_8005E748(n)` on the field counter `[gp+0x0C74]`, and one of
-the frame body's two wait sites sits **inside a back-edge loop whose trip count a `DrawSync(1)`
-GPU fence decides at run time**. The per-frame field count is therefore **not a compile-time
-constant**, so the rate is neither confirmed 30 fps nor confirmed 60 fps. Instrument:
-`tools/re_cadence.py`, CTest `spider1_cadence{,_selftest}`, 7/7, with a discriminator proving the
-same tool reports a definite rate when the loop is removed.
+**This item's SCOPE IS UNDECIDED, and the reason is now measured rather than assumed — and the
+measurement is DONE.** `docs/issues/0031` took the live two-number run `docs/issues/0030` named,
+with an instrument registered in the gate (`tools/probe_spider1_cadence.py`, `--selftest` 22/22,
+CTest `spider1_cadence_measure_{selftest,census}`).
 
-**So this item may not be closed as out-of-scope, and may not be started as in-scope, until the
-live measurement in `docs/issues/0030` is taken.** That measurement is a headless run reporting
-game-frames-per-second *and* the per-frame advance of `[gp+0x0C74]` together; the image is
-provisioned, so it is not blocked.
+What it measured, from one paced run: **59.71 presents/second and exactly 1.0000 display fields
+per presented frame** (133/133, and 19/19 in a second run), `interp=0` throughout. The counter's
+address is recovered from the crt0's own bytes — the PS-X EXE header's `gp` is 0 for this image, so
+`[gp+0x0C74] = 0x800B5468` comes from `lui $gp,0x800B ; addiu $gp,$gp,0x47F4` at 0x80087418/1C —
+and it has exactly one `+1` writer at `0x8005E53C` over 186,880 text words.
+
+**And that number is THIS PORT'S cadence, not retail's, and the reason is measured.** `0x8005E748`
+(the guest's field wait) and `0x8002C354` (the outer selector) are native overrides in this port,
+and `0x8002C174` — the guest's own frame loop, whose second wait site is the `DrawSync(1)`
+back-edge loop that made the per-frame field count a non-constant — is referenced nowhere in the
+title tree and never runs. The host supplies `quota=1` to the framework's frame pacer, 57 of 57
+consecutive paced lines from the product's own `pacer` channel. So the guest's cadence is not
+observable on a build where the guest's cadence has been replaced.
+
+**Consequence, stated so nobody re-derives it: this item may not be closed as out-of-scope and may
+not be started as in-scope.** The rate is not "probably 30 fps because every other measured title
+here is"; it is unmeasured, for a named reason. `docs/issues/0031` §7 names the two changes that
+would make it answerable — `0x8002C174` executing as translated guest code, and `0x8005E748` served
+as a poll on the guest's counter rather than a host field injection — and both are blocked on the
+black-picture frontier, not on instruments.
+
+Two measurement traps this item paid for, both recorded because both produced a confident wrong
+number: a store sweep that omitted `sw` (0x2B) reported **zero writers** on a counter with one, and
+the first run of the instrument was **unpaced at 1,204 presents/second** because
+`agent_environment` sets `PSXPORT_NOPACE=1` for every agent run — at which point dividing by the
+59.94 Hz field rate printed "58.68 game frames/second", within 2% of the right answer, for a program
+no player runs. The verdict now refuses an unpaced run by name, and the selftest pins the refusal on
+that measured figure.
 
 Missing capability, unchanged: Spider-Man has no complete native producer whose previous/current
 authored state can be sampled for extra presentation frames. Its runtime therefore exposes neither
@@ -227,7 +247,7 @@ native rendering nor temporal interpolation; guest-frame output is mechanically
 non-interpolated.
 
 Required owner: target `game/render/mesh_pose_history.*` plus native producer integration after S006
-and live validation of S007 — and, before either, the cadence measurement above.
+and live validation of S007 — and, before either, the cadence change named in `docs/issues/0031` §7.
 
 ### S010 — No whole-frame compatibility fallback
 

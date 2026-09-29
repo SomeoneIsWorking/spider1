@@ -263,6 +263,28 @@ if(BUILD_TESTING)
     COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_SOURCE_DIR}/tools/re_cadence.py --selftest)
   add_test(NAME spider1_cadence
     COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_SOURCE_DIR}/tools/re_cadence.py)
+  # The LIVE half of the cadence question: docs/issues/0030 is NOT ESTABLISHED because frames/second
+  # alone cannot separate 30 from 60 without the field rate, and the field-counter delta alone says
+  # nothing about how many frames the CPU retires between waits. This tool takes BOTH from one
+  # bounded run, and before it measures anything it re-derives the counter's ADDRESS from the
+  # crt0's own bytes and censuses its writers over all 186,880 text words, REFUSING unless there is
+  # exactly one and it is `+1` -- because "one writer, +1" is what makes the delta a field count.
+  #
+  # Its selftest is the OTHER ANSWER: 1 field/frame must read 59.94 fps and 2 must read 29.97, and
+  # the two must not collapse, because that pair is the entire reason two numbers are needed. It
+  # also pins the store-opcode set by shape, since the first sweep of this tool omitted `sw` (0x2B)
+  # and reported ZERO writers on a counter with a known one.
+  #
+  # The run needs the provisioned image, a disc and the machine's single product slot, so it is a
+  # maintainer command, NOT a ctest case; only the selftest is registered. Both need the
+  # provisioned image, which hosted CI does not have, so the selftest REFUSES (exit 2) there rather
+  # than passing on nothing.
+  add_test(NAME spider1_cadence_measure_selftest
+    COMMAND ${Python3_EXECUTABLE} -B
+            ${CMAKE_SOURCE_DIR}/tools/probe_spider1_cadence.py --selftest)
+  add_test(NAME spider1_cadence_measure_census
+    COMMAND ${Python3_EXECUTABLE} -B
+            ${CMAKE_SOURCE_DIR}/tools/probe_spider1_cadence.py --census-only)
   # The polled CD-ROM service 0x8008C3E0's recovery, and the gate census that decides what may be
   # done about the word 0x800B2886. Registered because the constants in
   # titles/spiderman1/spider1_cd_stream.h are only as good as this scan: the tool asserts every one

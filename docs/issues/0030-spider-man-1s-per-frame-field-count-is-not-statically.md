@@ -5,8 +5,41 @@ status: open
 symptom: The workspace map recorded "`spider1`: `VSync(0)` x3, `VSync(-1)` x7 — **no waiting call at all** -> **unknown**", correctly refused to conclude, and left the title's lerp scope undecided. This issue answers it as far as the bytes allow, and says exactly what is left.
 tags: cadence,vsync,frame-rate,presentation,interpolation,lerp,bytes
 created: 2026-09-28
-updated: 2026-09-28
+updated: 2026-09-29
 ---
+
+## SUPERSEDED IN ITS "WHAT WOULD SETTLE IT", NOT IN ITS FINDING
+
+**The static finding below stands and is re-proved** by `docs/issues/0031`: the counter is
+`[gp+0x0C74] = 0x800B5468` (recovered from the crt0's bytes — the PS-X EXE header's `gp` is 0 for
+this image), it has exactly one `+1` writer at `0x8005E53C` over 186,880 text words, and every
+field-wait call site passes the literal 1.
+
+**The named next step — "a headless run reporting game-frames-per-second and the per-frame advance
+of `[gp+0x0C74]` together" — has been taken.** `tools/probe_spider1_cadence.py` does exactly that,
+its selftest is 22/22, and it is registered in the gate. The result is in 0031 and it is a real
+answer with a different shape than expected: the instrument works and the measurement is clean
+(**1.0000 display fields per presented frame at 59.71 presents/second**, `interp=0`), but the guest's
+field wait `0x8005E748` and the outer selector `0x8002C354` are **native overrides** in this port and
+`0x8002C174` never runs, so that ratio is the host's declared cadence (`quota=1`, 57/57 from the
+product's own pacer channel) and **not** the guest's per-frame field count.
+
+So this issue's question is still open, and it is now open for a sharper reason: **it is not
+answerable from a build in which the guest's cadence has been replaced.** 0031 §7 names the two
+changes that would make it answerable, and they are blocked on the black-picture frontier, not on
+instruments.
+
+Two corrections this issue carries forward, both found while taking the measurement:
+
+* **A census that omitted `sw` (0x2B) reported ZERO writers on a counter with a known one.** The
+  first store sweep of 0031's instrument enumerated `0x20/0x21/0x23/0x24/0x25/0x28/0x29` and
+  stopped there. The complete store set is `{sb, sh, swl, sw, sd}` and it is now pinned by shape in
+  that instrument's selftest. This is the workspace's fourth instance of a confident zero produced
+  by an incomplete classifier, after `is3d`, the `VSync(0)` census and `OtAttr`.
+* **The guest's own `VSync` census at the top of this issue is still a `jal`-only zero and is still
+  not an absence proof.** This image reaches its routines through `jalr $ra,$vN`. 0031 re-proved the
+  field counter with a different, complete-enumeration method precisely because that lesson applied
+  twice already.
 
 ## Answer
 
