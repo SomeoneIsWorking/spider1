@@ -17,6 +17,22 @@ S018 — the second movie field. The CD interrupt delivery gate is fixed and the
 the next boundary is the sector handoff at `0x8008DCC8(0x190)` and the sector still is not accepted
 into the libstr ring.
 
+**Re-measured 2026-09-29 against the tree that carries the CD-stream recovery (`4b96e51`) and the
+cadence instrument (`a2a0175`), both legs taken on this machine and both captures opened and looked
+at — the picture is still black, and the widening is still live:**
+
+| leg | settings | last `[wide]` line | presented picture |
+|---|---|---|---|
+| 4:3 | `config/aspect_4x3.ini`, sink 960x720 | `native_width=512 render_width=512` | **0 / 691,200 non-black (0.00%)** |
+| 16:9 | `config/aspect_16x9.ini`, sink 1284x720 | `native_width=320 render_width=428` | **0 / 924,480 non-black (0.00%)** |
+
+Quoting the **LAST** `[wide]` line in each leg, per the trap that has bitten this workspace twice:
+`picture_announce` prints on CHANGE, so the 16:9 leg carries `512 == 512` at its first line and
+`320 -> 428` at its last. **The widening is 428 vs 320 and the picture is 0 of 924,480**, so issue
+0025's refusal stands unchanged: a widened canvas with nothing in it is not a widened picture. The
+captures are `scratch/screenshots/present_400.png` (overwritten by the 16:9 leg) and the run logs
+are `scratch/picture_4x3.log` / `scratch/picture_16x9.log`.
+
 ## Capability inventory
 
 | ID | Capability / observable outcome | State | Dependencies | Goals |
