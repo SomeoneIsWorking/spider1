@@ -108,3 +108,21 @@ Constraints and non-goals:
 - A green focused test does not imply runtime pixels, gameplay, audio, or pacing outside its scope.
 
 Related state: S001, S011, S015.
+
+## G005 — Loading removal
+
+Remove storage latency and loading-only waits from every load the game performs, without changing
+unrelated scripted timing or faking completion. Loading runs asynchronously and the product goes
+straight to the next real presentation.
+
+Success requires each measured load operation to deliver the same payload and terminal state as
+retail while omitting its loading-only presentation. Logo screens accept Start/Cross through the
+title's recovered cancellation route (or a purpose-built skip establishing the same lifecycle,
+resource, and state invariants). Authored transition cutscenes are presentation, not loading, and
+remain.
+
+Faster simulation, bypassed lifecycle callbacks, written phase/timer/scene words, and presentation
+tricks that hide a wait are not implementations of this goal. Loading removal is suppressed under
+oracle comparison.
+
+Contributing state: S020.

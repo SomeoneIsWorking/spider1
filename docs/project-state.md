@@ -56,6 +56,7 @@ are `scratch/picture_4x3.log` / `scratch/picture_16x9.log`.
 | S017 | psxport executes remaining Spider guest code through a per-Core Lightrec runtime with no selectable interpreter mode | partial | S001 | G001, G003, G004 |
 | S018 | Spider-Man reaches `dem1` dynamically and resumes the retail movie player through host-owned field boundaries | missing | S004, S017 | G001, G003 |
 | S019 | Representative Spider-Man gameplay conforms on each released host through the native/Lightrec product | missing | S006, S008, S009, S013, S018 | G001, G002, G003, G004 |
+| S020 | Spider-Man 1 and 2: load operations complete without loading-only waits or presentation; logos cancel through the recovered route | missing | S017 | G005 |
 
 ### S001 — Authenticated default launcher
 
@@ -456,6 +457,13 @@ current verified frontier with native and scoped-original dispatch, executable-m
 independent-oracle state checks, and the declared correctness/frame-time budget on each released host.
 The obsolete generator, corpus, seeds, dispatcher/tests, and build/provisioning route have already
 been removed break-first; none may return as a fallback.
+
+### S020 — Spider-Man 1 and 2 loading removal
+
+Missing. No load operation has been censused or classified for Spider-Man 1 and 2. Gap: enumerate its load
+issuers and the wait and presentation each drives, then complete each through the title's own load
+mechanics without its loading-only wait, with payload and terminal state compared against retail
+and the absence of loading presentation captured.
 
 ## Hosted platform coverage
 
