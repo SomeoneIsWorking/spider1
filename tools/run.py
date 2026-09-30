@@ -548,7 +548,7 @@ def launch(argv: Sequence[str]) -> int:
     build_root = player_build_root(cc, cxx)
 
     run_or_refuse(
-        [python, "tools/psxport_sync.py", "--auto"],
+        [python, "tools/psxport_fetch.py", "--auto"],
         "could not resolve external/psxport",
     )
     framework_text = os.environ.get("PSXPORT_DIR") or "external/psxport"
