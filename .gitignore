@@ -11,8 +11,8 @@ scratch/
 SLUS_*
 .env
 
-# The framework. Not tracked: either a symlink to the workspace shared clone (local) or a
-# private clone at psxport.pin (fresh machine). Managed by tools/psxport_sync.py.
+# The framework. Not tracked: either a relative symlink to the workspace's live psxport checkout
+# (local) or a clone of its main (fresh machine). Managed by tools/psxport_fetch.py.
 /external/psxport
 /external/re-harness
 *.log

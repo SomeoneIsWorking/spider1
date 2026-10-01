@@ -1,7 +1,9 @@
 # Project state — spider1
 
 `partial` = some subset demonstrated; `missing` = nothing product-facing exists; `blocked` = the
-predecessor is missing; `verified` = the observable condition holds.
+predecessor is missing; `verified` = the observable condition holds. Which reverse-engineering steps
+are ground-truth-ready and which are not lives in `docs/re-frontier.md` (read through
+`tools/re_frontier.py`).
 
 | id | capability | state | evidence / gap |
 |---|---|---|---|

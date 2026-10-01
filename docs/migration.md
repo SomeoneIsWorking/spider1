@@ -30,10 +30,10 @@ with `Core`, service callbacks, bounded exits, complete image identity, native-o
 scoped original calls, and invalidation. Spider title code owns only measured title policy and native
 behavior.
 
-The exact consumer boundary is PSXPort `9e104d9fe7d04043d98fe451732596d68e45022c` with its required
-Lightrec runtime ABI at `b1457137c31cedff5f440d59da29401d021ba2da`. `psxport.pin`, the hosted
-checkout, and the CMake dependency refusal must move together; a different or dirty dependency is
-not compatible evidence.
+The consumer boundary is the workspace's live PSXPort checkout (`external/psxport`, established by
+`tools/psxport_fetch.py`) with its required Lightrec runtime ABI at
+`b1457137c31cedff5f440d59da29401d021ba2da`. The hosted checkout and the CMake dependency refusal must
+move together; a different or dirty dependency is not compatible evidence.
 
 WebAssembly is part of the migration release contract: add a browser-capable path that follows
 the same runtime boundary and typed fallback accounting as desktop hosts. If web parity is not yet

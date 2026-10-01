@@ -9,22 +9,9 @@ set(PSXPORT_DIR "${CMAKE_SOURCE_DIR}/external/psxport" CACHE PATH
     "psxport framework source directory")
 if(NOT EXISTS "${PSXPORT_DIR}/cmake/psxport.cmake")
   message(FATAL_ERROR
-    "PSXPORT_DIR=${PSXPORT_DIR} has no cmake/psxport.cmake; resolve the pinned psxport checkout")
+    "PSXPORT_DIR=${PSXPORT_DIR} has no cmake/psxport.cmake; run tools/psxport_fetch.py")
 endif()
-
-execute_process(
-  COMMAND git -C "${PSXPORT_DIR}" rev-parse HEAD
-  OUTPUT_VARIABLE PSXPORT_RESOLVED_SHA
-  OUTPUT_STRIP_TRAILING_WHITESPACE
-  ERROR_VARIABLE PSXPORT_REVISION_ERROR
-  RESULT_VARIABLE PSXPORT_REVISION_RESULT)
-if(NOT PSXPORT_REVISION_RESULT EQUAL 0)
-  message(FATAL_ERROR
-    "cannot identify PSXPORT_DIR=${PSXPORT_DIR}: ${PSXPORT_REVISION_ERROR}")
-endif()
-file(WRITE "${CMAKE_BINARY_DIR}/psxport_resolved.txt"
-  "dir = ${PSXPORT_DIR}\ncommit = ${PSXPORT_RESOLVED_SHA}\n")
-message(STATUS "psxport framework: ${PSXPORT_DIR} at ${PSXPORT_RESOLVED_SHA}")
+message(STATUS "psxport framework: ${PSXPORT_DIR}")
 
 find_package(ZLIB REQUIRED)
 find_package(zstd CONFIG QUIET)
@@ -227,9 +214,6 @@ if(BUILD_TESTING)
       COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/test_help_contract.py
               --executable $<TARGET_FILE:spiderman_port>)
   endif()
-  add_test(NAME psxport_pin
-    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/external/psxport/tools/psxport_sync.py
-            --repo ${CMAKE_SOURCE_DIR} --check --build ${CMAKE_BINARY_DIR})
   add_test(NAME cpp_policy
     COMMAND ${Python3_EXECUTABLE} ${PSXPORT_DIR}/tools/check_cpp_style.py
             --root ${CMAKE_SOURCE_DIR} --compile-commands ${CMAKE_BINARY_DIR}
@@ -242,7 +226,3 @@ if(BUILD_TESTING)
             --cap titles/spiderman1/spider1_frame_driver.cpp=573
             --cap titles/spiderman1/spider1_mode_driver.cpp=559)
 endif()
-
-# The pin tool's own behaviour (staleness guard, a bump that records the commit the build RESOLVED) is
-# tested once, in the framework (tests/test_psxport_sync.py). The only pin tool this repository ships
-# is tools/psxport_fetch.py.

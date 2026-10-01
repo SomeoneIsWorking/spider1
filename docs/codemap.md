@@ -32,7 +32,7 @@ points compose peer owners; they do not absorb rendering, input, storage, or dia
 
 | Subsystem | Responsibility | Current / target location | Entry point | Deep doc |
 |---|---|---|---|---|
-| Launcher | Frozen Python environment, pre-discovery help, dependency refusal, framework pin/configure provenance, title selection, provisioning, build, launch | `run.sh`, `bootstrap.py`, `tools/run.py`, `tools/psxport_fetch.py`, `tools/launcher_dependencies.py`, `tools/disc_path.py` | `tools/run.py::main` | `README.md` |
+| Launcher | Frozen Python environment, pre-discovery help, dependency refusal, framework resolution, title selection, provisioning, build, launch | `run.sh`, `bootstrap.py`, `tools/run.py`, `tools/psxport_fetch.py`, `tools/launcher_dependencies.py`, `tools/disc_path.py` | `tools/run.py::main` | `README.md` |
 | Product process CLI | Pre-identity help, authenticated executable boot composition, and bounded typed-exit resumption shared by both title products | `game/core/spider_port.*`, `game/core/guest_execution.*` | `spider::runPort` | `CLAUDE.md` |
 | Title catalog | Serial-keyed labels, executable identity, and title target metadata | `titles/*/title.json`, `tools/title_catalog.py`, `cmake/title_manifest.cmake` | `tools/title_catalog.py::load_catalog` | `CLAUDE.md` |
 | Runtime image provisioning | Extract and authenticate the selected executable without emitting guest bodies | `tools/provision.py`; title manifests beneath `titles/` remain fact authority | `provision_executable` | `docs/migration.md` |

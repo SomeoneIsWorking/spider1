@@ -39,9 +39,9 @@ A bounded representative interactive gameplay milestone must also prove:
 
 The removed pipeline cannot return as a compatibility mode while this work is incomplete.
 
-The exact verified PSXPort revision is recorded in [`psxport.pin`](psxport.pin), and PSXPort's
-dependency declaration pins Lightrec. CMake refuses a dirty or mismatched Lightrec checkout; the
-consumer pin test refuses a different PSXPort build.
+`external/psxport` is the workspace's LIVE PSXPort checkout (`tools/psxport_fetch.py` links it, or
+clones psxport `main` where there is none); there is no consumer pin to keep in step. PSXPort's own
+dependency declaration still pins Lightrec, and CMake refuses a dirty or mismatched Lightrec checkout.
 
 ## Intended player experience
 
