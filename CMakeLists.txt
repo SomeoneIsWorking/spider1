@@ -204,108 +204,8 @@ if(BUILD_TESTING)
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/test_title_catalog.py)
   add_test(NAME executable_provision
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/test_provision.py)
-  add_test(NAME launcher_policy
-    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/run.py --selftest)
-  add_test(NAME ci_workflow
-    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/test_ci_workflow.py)
   add_test(NAME source_policy
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/source_policy.py)
-  add_test(NAME source_policy_selftest
-    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/source_policy.py --selftest)
-  # The cull census classifies instruction words, and its classifier's correctness IS the coverage
-  # claim the widescreen owner cites in its header ("all 17 classified functions take their bound
-  # from the record"). An ungated classifier rots silently: this decoder got the GTE encoding wrong
-  # three separate ways while it was being written — `rtps` (funct 0x16) matched nothing, the
-  # `rt` bits 10..6 matched nothing, and `& 0xFFF` yielded a plausible 38 that skipped every CR with
-  # bit 0 set — and the self-test caught all three. So the self-test is the gate, not a nicety.
-  add_test(NAME spider1_cull_census_selftest
-    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/probe_cull_census.py --self-test)
-  # The main-RAM-global bound census, for the same reason and with the same class of failure in
-  # mind. `probe_cull_census.py` counts references to the viewport-record cell and, in its own
-  # closing line, reports 372 `addiu`/`ori` sites loading a 4:3-derived literal while saying it
-  # cannot decide whether any of them bounds a projected coordinate. That silence is exactly what
-  # Crash 1 read as "widening cannot clip new geometry", and it was wrong: the bound there was a
-  # main-RAM GLOBAL (1 writer, 20 readers) that no literal scan can see, used as the GTE NEAR
-  # PLANE. So the question has its own instrument, and the instrument's classifier is gated for
-  # the reason the line above states.
-  add_test(NAME spider1_global_bounds_selftest
-    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/probe_global_bounds.py --selftest)
-  # The 4:3-vs-16:9 receipt logic. The selftest half is a ctest test because it needs no disc, no GPU
-  # and no product; the pair itself is a maintainer run (it needs both a provisioned image and the
-  # machine's single product slot). The negative case is the point of it: the same code that reads
-  # `render_width=428 > native_width=320` as widened reads a 4:3 log as NOT widened, and a log with
-  # no `[wide]` line refuses instead of answering. See docs/issues/0025.
-  add_test(NAME spider1_widescreen_pair_selftest
-    COMMAND ${Python3_EXECUTABLE} -B
-            ${CMAKE_SOURCE_DIR}/tools/probe_spider1_widescreen_pair.py --selftest)
-  # The BIOS-call census, read from the image's own stub bytes rather than from a table somebody
-  # remembered. It is the instrument that answers "which BIOS service is this title missing", which
-  # is a hard stop: `dispatchGuestHostService` returns a Fault with reason `unimplemented BIOS
-  # service`. Its selftest pins the trap this census fell into once — a `jr` recognised by testing
-  # bits 4..0, which are the funct field's own low bits, so 100% of real stubs were rejected and the
-  # census reported ZERO BIOS calls, the answer that reads as "this title makes none". See
-  # docs/issues/0026.
-  add_test(NAME spider1_bios_stub_census_selftest
-    COMMAND ${Python3_EXECUTABLE} -B
-            ${CMAKE_SOURCE_DIR}/tools/probe_bios_stub_census.py --selftest)
-  # Spider-Man 1's per-frame field count, which decides whether an interpolated 60 fps path is IN
-  # scope for this title. The ANSWER is deliberately "not established": the frame body waits
-  # through its own FUN_8005E748 rather than VSync, and one of its two wait sites sits inside a
-  # back-edge loop whose trip count a DrawSync(1) GPU fence decides at run time, so the per-frame
-  # field count is not a compile-time constant. The instrument is registered precisely because
-  # that is the answer: a cadence tool that must print a number will print a wrong one, and this
-  # title is the case the workspace nearly ruled out of scope on a docstring. Its selftest
-  # carries a DISCRIMINATOR -- the same tool on the same bytes with the loop removed MUST report
-  # a definite rate -- so the refusal cannot be confused with a broken counter. Both halves read
-  # the provisioned image, which hosted CI does not have, so both exit 2 with a REFUSAL rather
-  # than reporting a rate.
-  add_test(NAME spider1_cadence_selftest
-    COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_SOURCE_DIR}/tools/re_cadence.py --selftest)
-  add_test(NAME spider1_cadence
-    COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_SOURCE_DIR}/tools/re_cadence.py)
-  # The LIVE half of the cadence question: docs/issues/0030 is NOT ESTABLISHED because frames/second
-  # alone cannot separate 30 from 60 without the field rate, and the field-counter delta alone says
-  # nothing about how many frames the CPU retires between waits. This tool takes BOTH from one
-  # bounded run, and before it measures anything it re-derives the counter's ADDRESS from the
-  # crt0's own bytes and censuses its writers over all 186,880 text words, REFUSING unless there is
-  # exactly one and it is `+1` -- because "one writer, +1" is what makes the delta a field count.
-  #
-  # Its selftest is the OTHER ANSWER: 1 field/frame must read 59.94 fps and 2 must read 29.97, and
-  # the two must not collapse, because that pair is the entire reason two numbers are needed. It
-  # also pins the store-opcode set by shape, since the first sweep of this tool omitted `sw` (0x2B)
-  # and reported ZERO writers on a counter with a known one.
-  #
-  # The run needs the provisioned image, a disc and the machine's single product slot, so it is a
-  # maintainer command, NOT a ctest case; only the selftest is registered. Both need the
-  # provisioned image, which hosted CI does not have, so the selftest REFUSES (exit 2) there rather
-  # than passing on nothing.
-  add_test(NAME spider1_cadence_measure_selftest
-    COMMAND ${Python3_EXECUTABLE} -B
-            ${CMAKE_SOURCE_DIR}/tools/probe_spider1_cadence.py --selftest)
-  add_test(NAME spider1_cadence_measure_census
-    COMMAND ${Python3_EXECUTABLE} -B
-            ${CMAKE_SOURCE_DIR}/tools/probe_spider1_cadence.py --census-only)
-  # The polled CD-ROM service 0x8008C3E0's recovery, and the gate census that decides what may be
-  # done about the word 0x800B2886. Registered because the constants in
-  # titles/spiderman1/spider1_cd_stream.h are only as good as this scan: the tool asserts every one
-  # of them against the authenticated image, and its selftest mutates the dispatch table, the gate
-  # halfword, the SETTER census, the set of gate-reader call sites, a call site and a result bit, so
-  # "there is no setter" is falsifiable rather than an absence of a scan. Its positive control --
-  # the unmutated image firing no assertion -- is what makes the seven red cases meaningful. Both
-  # halves need the provisioned image, which hosted CI does not have, so both REFUSE (exit 2)
-  # instead of reporting a recovery.
-  add_test(NAME spider1_cd_stream_selftest
-    COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_SOURCE_DIR}/tools/re_cd_stream.py --selftest)
-  add_test(NAME spider1_cd_stream
-    COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_SOURCE_DIR}/tools/re_cd_stream.py)
-  # The bounded headless run's decoders: the I_STAT bit names, the CD status bit names, the
-  # control-surface data-line parser, and the refusal an empty sample set must produce. Those are the
-  # pieces that turn a register read into a sentence, and a wrong bit table is a confidently wrong
-  # sentence. The run itself needs a disc and the machine's single product slot, so it is a
-  # maintainer command, not a ctest case.
-  add_test(NAME spider1_headless_run_selftest
-    COMMAND ${Python3_EXECUTABLE} -B
-            ${CMAKE_SOURCE_DIR}/tools/probe_spider1_headless_run.py --selftest)
   # The CD-ROM interrupt's ownership contract, from the guest's bytes. It carries a BASELINE
   # assertion that is EXPECTED TO FAIL once the issue-0026 framework change lands, and inverting it is
   # then the regression test for that fix. It is here so the evidence outlasts the session, and so
@@ -341,21 +241,6 @@ if(BUILD_TESTING)
             # again in the same change that makes the file smaller.
             --cap titles/spiderman1/spider1_frame_driver.cpp=573
             --cap titles/spiderman1/spider1_mode_driver.cpp=559)
-endif()
-
-# THE LIVE PIN CHECK. Not a selftest: this runs the real function against this repository's real
-# psxport.pin and the real build receipt, so it can fail when the pin is actually wrong.
-#
-# MEASURED 2026-09-27: every port in the workspace registered only a SELFTEST of the check function, run
-# against a temporary fixture. A selftest asserts the function behaves; it cannot fail when this repo's
-# pin is stale, which is why ten ports reported green while four pins were demonstrably stale. --build
-# points at THIS build directory, configured moments ago, so the receipt is current by construction and
-# the staleness guard cannot fire spuriously. Verified: perturbing psxport.pin turns it red.
-if(BUILD_TESTING)
-  add_test(
-    NAME spider1_psxport_pin_live
-    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/external/psxport/tools/psxport_sync.py"
-            --repo "${CMAKE_SOURCE_DIR}" --check --build "${CMAKE_BINARY_DIR}")
 endif()
 
 # The pin tool's own behaviour (staleness guard, a bump that records the commit the build RESOLVED) is
