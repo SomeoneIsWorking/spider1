@@ -66,8 +66,8 @@ jobs:
             libsdl3-dev libsdl3-image-dev libssl-dev libzstd-dev ninja-build pkg-config zlib1g-dev
       - name: Create the locked Python environment
         run: uv sync --frozen
-      - name: Clone psxport at the recorded pin
-        run: uv run --frozen python tools/psxport_sync.py --clone
+      - name: Fetch psxport at the recorded pin
+        run: uv run --frozen python tools/psxport_fetch.py
       - name: Restore exact psxport dependencies
         run: |
           git -C external/psxport submodule update --init \

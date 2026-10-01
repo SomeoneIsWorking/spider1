@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 
 WORKFLOW = Path(__file__).resolve().parents[1] / ".github/workflows/ci.yml"
-CLONE_COMMAND = "uv run --frozen python tools/psxport_sync.py --clone"
+FETCH_COMMAND = "uv run --frozen python tools/psxport_fetch.py"
 
 
 def validate_psxport_checkout(workflow: str) -> None:
@@ -24,12 +24,12 @@ def validate_psxport_checkout(workflow: str) -> None:
         return matches[0]
 
     environment = step_index("uv sync --frozen")
-    clone = step_index(CLONE_COMMAND)
+    fetch = step_index(FETCH_COMMAND)
     restore = step_index("git -C external/psxport submodule update --init")
     verify = step_index("uv run --frozen python tools/verify.py")
-    if not environment < clone < restore < verify:
+    if not environment < fetch < restore < verify:
         raise ValueError(
-            "CI must create the locked environment, clone the pin, restore deps, then verify"
+            "CI must create the locked environment, fetch the pin, restore deps, then verify"
         )
 
     restore_step = steps[restore]
@@ -55,8 +55,8 @@ class CiWorkflowTest(unittest.TestCase):
           ref: 9e104d9fe7d04043d98fe451732596d68e45022c
 """
         workflow = WORKFLOW.read_text(encoding="utf-8").replace(
-            "      - name: Clone psxport at the recorded pin\n",
-            old_checkout + "      - name: Clone psxport at the recorded pin\n",
+            "      - name: Fetch psxport at the recorded pin\n",
+            old_checkout + "      - name: Fetch psxport at the recorded pin\n",
         )
         with self.assertRaisesRegex(ValueError, "hardcoded psxport checkout"):
             validate_psxport_checkout(workflow)

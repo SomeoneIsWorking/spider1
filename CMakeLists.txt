@@ -328,8 +328,8 @@ if(BUILD_TESTING)
               --executable $<TARGET_FILE:spiderman_port>)
   endif()
   add_test(NAME psxport_pin
-    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/psxport_sync.py
-            --check --build ${CMAKE_BINARY_DIR})
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/external/psxport/tools/psxport_sync.py
+            --repo ${CMAKE_SOURCE_DIR} --check --build ${CMAKE_BINARY_DIR})
   add_test(NAME cpp_policy
     COMMAND ${Python3_EXECUTABLE} ${PSXPORT_DIR}/tools/check_cpp_style.py
             --root ${CMAKE_SOURCE_DIR} --compile-commands ${CMAKE_BINARY_DIR}
@@ -354,14 +354,10 @@ endif()
 if(BUILD_TESTING)
   add_test(
     NAME spider1_psxport_pin_live
-    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/psxport_sync.py"
-            --check --build "${CMAKE_BINARY_DIR}")
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/external/psxport/tools/psxport_sync.py"
+            --repo "${CMAKE_SOURCE_DIR}" --check --build "${CMAKE_BINARY_DIR}")
 endif()
 
-# The pin tool's own behaviour: the staleness guard, and a bump that records the commit the build
-# RESOLVED rather than the framework's current HEAD. Added because 7 of 10 ports shipped the tool with no
-# test gating it at all. Unguarded on purpose where this repository does not define BUILD_TESTING -- a
-# guarded add_test there is silently inert, which is the failure this gate exists to prevent.
-add_test(
-  NAME spider1_psxport_pin_selftest
-  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_psxport_sync.py")
+# The pin tool's own behaviour (staleness guard, a bump that records the commit the build RESOLVED) is
+# tested once, in the framework (tests/test_psxport_sync.py). The only pin tool this repository ships
+# is tools/psxport_fetch.py.
