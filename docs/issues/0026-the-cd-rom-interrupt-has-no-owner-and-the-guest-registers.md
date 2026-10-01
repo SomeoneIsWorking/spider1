@@ -87,48 +87,7 @@ The 71-sector STR read is issued. **The guest asks, and the answer is lost upstr
 So "armed and never started" is a consequence, not the cause, and the cause is the absence of any
 CD-ROM interrupt owner.
 
-## 4. The BIOS census, read from the image's own stub bytes
-
-`tools/probe_bios_stub_census.py --selftest` is 53/53; the census itself:
-
-```
-[image]     747520 text bytes at 0x80010000, declared by the file's own t_addr/t_size
-[denominator] words scanned 186880 of 186880 asked for; jr instructions 1810;
-             jr whose DELAY SLOT carries `addiu $t1,$zero,FN` 41;
-             stubs matched 41; candidates REFUSED 0
-[emitted]   41 distinct BIOS function(s) across 41 stub site(s)
-[framework] hle.cpp 47 case label(s), bios_libc_string.cpp 12, memcard.cpp 20,
-             bios_pad_work_area.cpp 3 -> 63 distinct function numbers
-[FINDING]   A0:0x2E  first 0x8008BF80  words=240A00A0 01400008 2409002E
-            B0:0x41  first 0x800848D0  words=240A00B0 01400008 24090041
-```
-
-The full 41, by table: `A0` 0x13, 0x17, 0x18, 0x19, 0x1B, 0x28, 0x2A, 0x2B, 0x2E, 0x39, 0x3F, 0x44,
-0x49, 0x70, 0x72, 0xAB, 0xAC · `B0` 0x07, 0x08, 0x0A, 0x0B, 0x0C, 0x17, 0x18, 0x19, 0x32, 0x34,
-0x35, 0x36, 0x3F, 0x41, 0x42, 0x43, 0x4A, 0x4B, 0x4E, 0x50, 0x5B · `C0` 0x02, 0x03, 0x0A.
-
-**Of the two the framework's declared set does not contain, NEITHER is reached.** From the product's
-own `bios` channel over 4,047,000 instructions: **25 distinct functions reached, 0
-`unimplemented BIOS` lines**, and `A0:0x2E` **0** occurrences, `B0:0x41` **0** occurrences. Reached:
-`B0:0x17` x10,813 · `A0:0x28` x6,724 · `A0:0x18` x722 · `A0:0x17` x150 · `A0:0x2A` x82 · `B0:0x0C` x18
-· `B0:0x08` x18 · `C0:0x0A` x8 · `A0:0x44` x8 · `C0:0x03` x6 · `B0:0x5B` x6 · `A0:0x3F` x6 ·
-`C0:0x02` x4 · `B0:0x57` x4 · `B0:0x56` x4 · `B0:0x4B` x2 · `B0:0x4A` x2 · `B0:0x19` x2 ·
-`B0:0x0B` x2 · `A0:0x72` x2 · `A0:0x70` x2 · `A0:0x49` x2 · `A0:0x39` x2 · `A0:0x13` x2.
-
-**So the Crash-1-shaped answer is the OPPOSITE one here: this title is not missing a BIOS libc leaf.**
-`A0:0x27` (the one the framework just implemented, `67f1af1c`) is not even emitted by this title. The
-`bios` census is negative over a run that executed 88.9M guest instructions, and that is a real zero
-— 25 distinct names were logged, so the channel demonstrably fires.
-
-**A limitation the tool states and this note inherits:** the census of what the image CONTAINS is
-not a census of what a run REACHES, and the framework side is a text scan of `case 0xNN:` labels
-unioned across four files with no per-table attribution. `A0:0x2E` sits immediately before a
-hand-rolled byte-copy loop at `0x8008BF90` in the guest's own libc, so it is very likely a
-memory-family member under a different number than the framework's — **that is an inference from
-neighbourhood, not a reading of the BIOS's own dispatch table**, and it does not matter for this
-frontier because the function is never reached.
-
-## 5. The cause, from bytes
+## 4. The cause, from bytes
 
 ### 5a. What the guest's CD-ROM service actually is
 
@@ -245,7 +204,7 @@ it. That omission is a title-side defect. **It is not the blocking one**, becaus
 not walk `0x800B2888` either, so restoring the guest's registration would still leave IRQ2 with no
 service.
 
-## 6. The fix: a framework finding, and why it is not a title one
+## 5. The fix: a framework finding, and why it is not a title one
 
 **`Hle::deliverEvent` must have a CD-ROM arm, and `Hle::irqPoll` must invoke the BIOS CD-ROM
 callback on IRQ2. Both are `psxport`, so this note proposes them and edits nothing.**
@@ -287,7 +246,7 @@ be a tap: the guest's own CD-ROM service would still never run.
 * Writing the missing `OpenEvent` state into guest RAM from the host. That is manufacturing guest
   state.
 
-## 7. Where the product actually is, and what was NOT verified
+## 6. Where the product actually is, and what was NOT verified
 
 Reached: authenticated crt0, pre-main `ResetGraph` at `0x8008479C`, field callback `0x8005E510`,
 `CdInit` `I_MASK 0x009 -> 0x00D`, the 71-sector STR read, retail STR movie field 1 at `0x8002AC8C`.
@@ -308,7 +267,7 @@ checkpoint, which is not gameplay conformance.
 **The standing measure is more than 2 submitted prims. It is 0, so the widening still has no picture
 to widen, and issue 0025 stands unchanged.**
 
-## 8. Two corrections recorded, because both were confident and wrong
+## 7. Two corrections recorded, because both were confident and wrong
 
 1. **The BIOS-census instrument reported ZERO stubs** on its first run because a `jr` was recognised
    by testing `word & 0x1F` for the `rd` field — and bits 4..0 are the funct field's own low bits,
@@ -322,13 +281,7 @@ to widen, and issue 0025 stands unchanged.**
 
 Both are in the tool's own docstring, because the failure mode is reusable.
 
-## 9. Instruments added
-
-* `tools/probe_bios_stub_census.py` — the BIOS census, from the image's stub bytes. `--selftest`
-  53/53, registered as `spider1_bios_stub_census_selftest`.
-* `tools/probe_spider1_headless_run.py` — the bounded headless run and the live CD-channel sampler.
-  `--selftest` 17/17, registered as `spider1_headless_run_selftest`. Its I_STAT and CD-status bit
-  decoders are selftested against **both** answers, including the two bit layouts that disagree.
+## 8. The control surface on a stuck run
 
 **A third obstacle, and this one is a framework defect: the control surface wedges permanently
 after its first command on a stuck run.** Measured here, from the same bounded run. A fresh

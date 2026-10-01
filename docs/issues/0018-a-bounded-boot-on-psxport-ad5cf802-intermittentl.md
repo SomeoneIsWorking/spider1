@@ -17,9 +17,8 @@ The deliberately separate 10-second census gate on the same binary did not repro
 
 The fault recurred after regenerating all 1,672 main functions and 30 overlays at recompiler version
 `2026-08-22.1`, cleanly configuring Clang against framework `57a17a14`, and passing all eight CTests.
-The bounded combined gate
-`python3 tools/gate.py boot --seconds 20 --grace 8 --watchdog 30 --debug allocaudit,meshprobe`
-stopped after 1.4 seconds in `scratch/logs/gate-boot-20260822-190346.log`. The first watched
+The bounded combined run
+(`--debug allocaudit,meshprobe`, 20 s) stopped after 1.4 seconds in `scratch/logs/gate-boot-20260822-190346.log`. The first watched
 external write was:
 
 ```
@@ -122,11 +121,6 @@ returns through `jr $ra` at `0x8002A460` to the live link supplied by its caller
 reach the enclosing decoder's save-and-suspend tail at `0x8002A7F4`; reaching that tail requires the
 separate `0x8002A424` continuation path. Keeping `0x8002A5F4` as a host callee therefore does not
 explain the intermittent overrun.
-
-`tools/callee_contract.py` had encoded the opposite conclusion as `WANT_VIOLATION=0x8002A5F4` even
-though its own CFG walk correctly returned `ok`. That stale expected failure has been removed. The
-tool remains report-only and its hermetic selftest still proves it distinguishes a balanced leaf,
-an unbalanced pop, and a matching save/restore path.
 
 ## Next bounded discriminator: callback clock versus sector-ready clock
 

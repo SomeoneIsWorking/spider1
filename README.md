@@ -86,8 +86,9 @@ generated executable guest bodies are not part of the target architecture.
 
 See [`docs/project-goals.md`](docs/project-goals.md) for durable outcomes,
 [`docs/project-state.md`](docs/project-state.md) for factual coverage,
-[`docs/codemap.md`](docs/codemap.md) for ownership, and
-[`docs/re-frontier.md`](docs/re-frontier.md) for the ordered binary-evidence chain.
+[`docs/codemap.md`](docs/codemap.md) for ownership,
+[`docs/migration.md`](docs/migration.md) for the product-execution plan and preserved binary facts,
+and [`docs/issues/`](docs/issues) for open bugs and missing capabilities.
 
 ## Legal
 

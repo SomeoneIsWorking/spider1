@@ -204,30 +204,14 @@ which means `guest`'s single `invalidations` number is counting **candidates, no
 per translated block this is worth knowing before anyone reads the figure as 14.7M blocks dropped.
 Not a spider1 defect and not fixed here.
 
-## Widescreen cull contract — a tool, and an unresolved half
+## Widescreen cull contract — an open half
 
-`tools/probe_cull_census.py` establishes the record-based owners (39 distinct sites against the
-cell at `0x800B5918`, cross-checked as a lower bound against Ghidra's 27 references) and states in
-its own closing line that it cannot decide the 372 `addiu`/`ori` literal sites. That silence is
-what Crash 1 read as "widening cannot clip new geometry", and it was wrong: the bound there was a
-main-RAM global, 1 writer and 20 readers, used as the GTE NEAR PLANE.
+The horizontal-window contract is established for every owner that reads the viewport record cell
+`0x800B5918` (9 named in `spider1_widescreen.h`, all reached through the cell, all shifted by the
+same margin as `OFX`).
 
-`tools/probe_global_bounds.py` (new, `--selftest` 6/6, registered as
-`spider1_global_bounds_selftest`) is the instrument for that shape. On SLUS_008.75 it scans
-186,741 instruction words in `[0x80010000, 0x800C65D4)`, decodes 179,634 and is refused 7,107, and
-names **843** main-RAM globals through a `lui` + 16-bit-displacement pair, of which **213 have both
-a writer and at least one reader**.
-
-**213 is a candidate list, not an answer, and I did not resolve it.** Which of them, if any, bounds a
-projected coordinate, and along which axis, is the comparison's dataflow, which the tool does not
-compute and says so in its own output. The tool also has a blind spot that makes it an *additional*
-form and not a superset: it names a global through `lui` + `addiu`/`ori` on the base register, so it
-does **not** see the `lui` + `lw`-at-displacement form — `0x800B5918`, the viewport record cell
-itself, is absent from its output for exactly that reason. So:
-
-* the horizontal-window contract is established for every owner that reads the record (9 named in
-  `spider1_widescreen.h`, all reached through the cell, all shifted by the same margin as `OFX`);
-* whether some other main-RAM global bounds horizontally on this title is **NOT established**, and
-  the widening's safety argument currently rests on the record-based owners alone.
-
-Recorded as remaining, not as a pass.
+What is **not** established: whether some other main-RAM global bounds a projected coordinate
+horizontally on this title. A `lui` + displacement scan of the text section names 843 such globals,
+213 of them with both a writer and a reader — a candidate list, not an answer, because deciding
+which one bounds a projected coordinate is a dataflow question the scan does not answer. The
+widening's safety argument therefore rests on the record-based owners alone.

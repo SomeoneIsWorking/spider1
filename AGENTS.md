@@ -3,9 +3,9 @@
 This repository targets both Neversoft PSX Spider-Man games as native PC products whose remaining
 guest instructions execute through psxport's runtime Lightrec integration. Read `../AGENTS.md` and
 `external/psxport/AGENTS.md`, and use the shared dynarec skills before changing execution
-architecture. Project intent, current coverage, placement, migration order, and binary-evidence order
-live respectively in `docs/project-goals.md`, `docs/project-state.md`, `docs/codemap.md`,
-`docs/migration.md`, and `docs/re-frontier.md`.
+architecture. Project intent, current coverage, placement, and the product-execution plan live
+respectively in `docs/project-goals.md`, `docs/project-state.md`, `docs/codemap.md`, and
+`docs/migration.md`. Open bugs and missing capabilities are in `docs/issues/`.
 
 ## Product execution contract
 
@@ -41,17 +41,14 @@ address or behavior from lineage similarity.
 
 ## Working discipline
 
-- Begin non-trivial work with `uv run --frozen python tools/info.py brief <terms>`, then consult
-  `uv run --frozen python tools/re_frontier.py next` and the relevant issue. Update the one authority
-  whose answer changes.
+- Read `docs/project-state.md` and the relevant `docs/issues/` entry before non-trivial work. Update
+  the one authority whose answer changes.
 - Preserve verified binary addresses, behavior, native subsystem contracts, and real scenarios.
   Do not preserve static-recompiler methodology merely because it produced the earlier evidence.
 - Native render producers consume pre-GTE game state. Guest GTE/OT/packet output can remain an
   explicit, non-interpolated whole-frame debt path, never native-producer input.
 - Never guess a guest address or module identity. Complete identity is executable/module generation
   plus address wherever runtime-loaded images reuse addresses.
-- Diagnostics must report their denominator and prove both answers. A clean trace or a boot screen is
-  not gameplay conformance.
 - Do not use `./run.sh` for agent verification; use focused build/test commands. The launcher is a
   player surface and now builds only the native/Lightrec product.
 

@@ -90,8 +90,8 @@ present mode, not measured — the compositor's scanout is not observable from i
 
 ## What this is NOT — the pictorial hypothesis is negative, with its denominator
 
-390 consecutive presents captured at the PRESENT stage across 3 named scenes, each analysed by
-`tools/present_flicker.py` from the run's own `[present_shot]` manifest (never a directory glob):
+390 consecutive presents captured at the PRESENT stage across 3 named scenes, taken from the run's
+own `[present_shot]` manifest (never a directory glob):
 
   * pause screen, resting (150 presents, `PSXPORT_PRESENT_BURST=3600:150:...`):
     1 distinct picture, 546 colours every present, 0 of 149 consecutive pairs differ.

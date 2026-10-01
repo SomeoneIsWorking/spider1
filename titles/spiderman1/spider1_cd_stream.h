@@ -5,7 +5,7 @@
 // interrupt handler" and named an unowned callback as the reason. Both are wrong in a way that
 // pointed the fix at the wrong subsystem, and the correction is structural, not cosmetic:
 //
-//   `0x8008C3E0` is POLLED, not interrupted. tools/re_cd_stream.py measures exactly four direct
+//   `0x8008C3E0` is POLLED, not interrupted. A whole-text word scan finds exactly four direct
 //   `jal` sites (0x8008CAAC, 0x8008CD2C, 0x8008D188, 0x8008DA58) and ZERO `lui+addiu`
 //   materialisations, ZERO stored pointers and ZERO jumps through a materialised address across
 //   all 186,880 text words. Nothing routes an IRQ to it. Its own body contains no `jalr` and no
@@ -169,8 +169,7 @@ inline constexpr std::uint32_t kResponseByteMask = 0x001Du;
 //   [3] 0x8008C810  read state
 //   [4] 0x8008C890  error
 //
-// (The first draft of tools/re_cd_stream.py listed these in a different order and the tool went
-// red on its own author. The index is `type-1`, which is why.)
+// (An earlier draft listed these in a different order. The index is `type-1`, which is why.)
 
 // The arms' observable effects, all of them guest RAM writes:
 //
@@ -311,8 +310,7 @@ public:
   [[nodiscard]] std::uint32_t gateObserved(Core &core) const;
 
   // The recovered pure rules, exposed so a test can assert them without a `Core`. Each is the
-  // exact branch the guest's own code takes, and each has a matching byte assertion in
-  // tools/re_cd_stream.py.
+  // exact branch the guest's own code takes, and each was checked against the image bytes.
   [[nodiscard]] std::uint32_t typeIsDispatchable(std::uint8_t type) const noexcept;
   [[nodiscard]] std::uint32_t resultHasDataReady(std::uint32_t result) const noexcept;
   [[nodiscard]] std::uint32_t resultHasCommandAcknowledge(std::uint32_t result) const noexcept;

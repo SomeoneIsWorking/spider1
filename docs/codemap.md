@@ -2,8 +2,7 @@
 
 This map answers only which subsystem owns a responsibility and where related work belongs.
 Product intent is in `docs/project-goals.md`; capability coverage and current focus are in
-`docs/project-state.md`; atomic work is in `docs/issues/`; RE dependency order is in
-`docs/re-frontier.md`; evidence is in `docs/info/`.
+`docs/project-state.md`; atomic work is in `docs/issues/`.
 
 ## Architecture
 
@@ -41,38 +40,38 @@ points compose peer owners; they do not absorb rendering, input, storage, or dia
 | Runtime dispatch | Image-aware native overrides, scoped original calls, and override-change invalidation | `external/psxport/runtime/cpu/native_dispatch.*`; title wrappers in `game/core/guest_execution.*` | `dispatchGuest`, `callOriginal` | `docs/migration.md` |
 | Product targets | One executable per title, each consuming only its authenticated runtime image and title policy | `CMakeLists.txt` | `spider_add_runtime_target` | `docs/migration.md` |
 | Lineage runtime | Address-free two-title identity and refusal mechanism | `game/core/spider_runtime.*` | `spider::SpiderRuntime` | `CLAUDE.md` |
-| Spider-Man runtime | Authenticated image policy and JIT entry | `titles/spiderman1/` | `spider::Spider1Runtime` in `spider1_runtime.cpp` | `docs/re-frontier.md` |
+| Spider-Man runtime | Authenticated image policy and JIT entry | `titles/spiderman1/` | `spider::Spider1Runtime` in `spider1_runtime.cpp` | `docs/migration.md` |
 | Enter Electro runtime | Direct runtime, executable facts, capability refusal, and EE boot boundary | `titles/spiderman2/enter_electro_runtime.*` | `spider::EnterElectroRuntime` | `docs/migration.md` |
-| Enter Electro enhanced renderer | Title-derived render seam, native producer, wide projection, and temporal history | target beneath `titles/spiderman2/`, plus address-free lineage peers in `game/render/` | target Enter Electro render installer | `docs/re-frontier.md` |
+| Enter Electro enhanced renderer | Title-derived render seam, native producer, wide projection, and temporal history | target beneath `titles/spiderman2/`, plus address-free lineage peers in `game/render/` | target Enter Electro render installer | `docs/migration.md` |
 | Executable identity | Shipping serial, size, magic, and SHA-256 authentication | `game/core/executable_identity.*` | `verifyExecutableIdentity` | `CLAUDE.md` |
-| Frame cadence | Spider-Man 1 pre-main and exact retail-movie VSync field continuations, the display field clock `VSync(0)` is defined in terms of, and the finite host-stepped fiber the boot prefix and the mode steps run on | `titles/spiderman1/spider1_frame_driver.*`, `spider1_field_clock.*`, `spider1_host_stepped_fiber.*`, `spider1_movie_execution.*` | `Spider1FrameDriver::serviceBootstrapVsync`, `serviceBootstrapMovieVsync`, `Spider1FieldClock::vsyncReturnValue`, `Spider1HostSteppedFiber` | `docs/issues/0029` |
-| Guest field facts | Every named SLUS_008.75 guest field, mode id, table offset, service entry, and threshold the title's drivers touch, declared ONCE at the name — including the ones whose role is genuinely unknown, named `kUnattributed…` so the open question is visible instead of hidden | `titles/spiderman1/spider1_guest_layout.h`; the measured platform and CD facts stay in `spider1_platform_facts.h` | `spider1::padRead`, `spider1::asyncModeState`, `spider1::kUnattributedWord4F38` | `docs/issues/0028` |
-| Retail mode state machine | Spider-Man 1's outer selector, its primary mode, its 3D transition, and its level route, with one named method per route arm rather than one long switch | `titles/spiderman1/spider1_mode_driver.*` | `spider1OuterRoute`, `Spider1ModeDriver::dispatchPrimaryExit` | `docs/issues/0029` |
-| Retail mode functions | The mode functions the state machine COMPOSES rather than absorbs: the title menu, the alternate mode, the invalid-selector input wait, the 3D wipe, and the display-field boundary the three modes share | `titles/spiderman1/spider1_menu_mode.*`, `spider1_alternate_mode.*`, `spider1_invalid_selector_input.*`, `spider1_transition_wipe.*`, `spider1_mode_frame_boundary.*`, `spider1_mode_host.h`, `spider1_mode_decisions.h`, `spider1_guest_call.h`, `spider1_guest_stack_frame.h` | `Spider1MenuMode`, `Spider1AlternateMode`, `Spider1InvalidSelectorInput`, `Spider1TransitionWipe` | `docs/issues/0029` |
-| Platform/HLE bridge | Measured SCEI service entries and pad receive buffers; framework handlers and Spider-Man's per-Core StGetNext stream and ring-diagnostic owner | `titles/spiderman1/spider1_platform_facts.h`, `spider1_stream_driver.*`; framework `PlatformHle` | `Spider1Runtime::platformHlePlan`, `guestPadBufferLayout`, `guestCdStreamCallbackLayout`, `createContext`, `registerOverrides` | `docs/re-frontier.md` |
-| Runtime modules | Guest allocator placement, authenticated image activation, and cache invalidation | title loader observation plus `external/psxport/runtime/cpu/image_identity.*` and `invalidation.*` | image catalog activation | `docs/issues/0001-recomp-miss-0x800c6684-three-cd-wad-modules-live.md` |
-| Scene identity | Binary-derived level/sublevel identity for render policy | `game/render/scene_id.*` | `classifyScene` | `docs/re-frontier.md` |
-| Frame fence | Target mapping from finite retail mode steps onto submitted, repeated-field, or unpresented framework boundaries | preserved `titles/spiderman1/spider1_frame_driver.*`, `spider1_mode_driver.*`; the pure decisions stay in `spider1_field_schedule.h` and `spider1_mode_decisions.h`, and the frame driver's four presentation commits share one `claimFrameFence` check | attach only after JIT conformance | `docs/issues/0017-spider-man-aborts-after-entering-dem1-because-ca.md` |
+| Frame cadence | Spider-Man 1 pre-main and exact retail-movie VSync field continuations, the display field clock `VSync(0)` is defined in terms of, and the finite host-stepped fiber the boot prefix and the mode steps run on | `titles/spiderman1/spider1_frame_driver.*`, `spider1_field_clock.*`, `spider1_host_stepped_fiber.*`, `spider1_movie_execution.*` | `Spider1FrameDriver::serviceBootstrapVsync`, `serviceBootstrapMovieVsync`, `Spider1FieldClock::vsyncReturnValue`, `Spider1HostSteppedFiber` | `docs/migration.md` |
+| Guest field facts | Every named SLUS_008.75 guest field, mode id, table offset, service entry, and threshold the title's drivers touch, declared ONCE at the name — including the ones whose role is genuinely unknown, named `kUnattributed…` so the open question is visible instead of hidden | `titles/spiderman1/spider1_guest_layout.h`; the measured platform and CD facts stay in `spider1_platform_facts.h` | `spider1::padRead`, `spider1::asyncModeState`, `spider1::kUnattributedWord4F38` | `titles/spiderman1/spider1_guest_layout.h` |
+| Retail mode state machine | Spider-Man 1's outer selector, its primary mode, its 3D transition, and its level route, with one named method per route arm rather than one long switch | `titles/spiderman1/spider1_mode_driver.*` | `spider1OuterRoute`, `Spider1ModeDriver::dispatchPrimaryExit` | `docs/migration.md` |
+| Retail mode functions | The mode functions the state machine COMPOSES rather than absorbs: the title menu, the alternate mode, the invalid-selector input wait, the 3D wipe, and the display-field boundary the three modes share | `titles/spiderman1/spider1_menu_mode.*`, `spider1_alternate_mode.*`, `spider1_invalid_selector_input.*`, `spider1_transition_wipe.*`, `spider1_mode_frame_boundary.*`, `spider1_mode_host.h`, `spider1_mode_decisions.h`, `spider1_guest_call.h`, `spider1_guest_stack_frame.h` | `Spider1MenuMode`, `Spider1AlternateMode`, `Spider1InvalidSelectorInput`, `Spider1TransitionWipe` | `docs/migration.md` |
+| Platform/HLE bridge | Measured SCEI service entries and pad receive buffers; framework handlers and Spider-Man's per-Core StGetNext stream and ring-diagnostic owner | `titles/spiderman1/spider1_platform_facts.h`, `spider1_stream_driver.*`; framework `PlatformHle` | `Spider1Runtime::platformHlePlan`, `guestPadBufferLayout`, `guestCdStreamCallbackLayout`, `createContext`, `registerOverrides` | `docs/migration.md` |
+| Runtime modules | Guest allocator placement, authenticated image activation, and cache invalidation | title loader observation plus `external/psxport/runtime/cpu/image_identity.*` and `invalidation.*` | image catalog activation | `docs/migration.md` |
+| Scene identity | Binary-derived level/sublevel identity for render policy | `game/render/scene_id.*` | `classifyScene` | `docs/migration.md` |
+| Frame fence | Target mapping from finite retail mode steps onto submitted, repeated-field, or unpresented framework boundaries | preserved `titles/spiderman1/spider1_frame_driver.*`, `spider1_mode_driver.*`; the pure decisions stay in `spider1_field_schedule.h` and `spider1_mode_decisions.h`, and the frame driver's four presentation commits share one `claimFrameFence` check | attach only after JIT conformance | `docs/migration.md` |
 | Frame envelope | Native DRAWENV/DISPENV and background-clear production | `game/render/frame_envelope.*`, `game/render/gpu_env.*` | `FrameEnvelope::submit` | `docs/issues/0013-a-native-producer-whose-only-scene-is-the-boot-i.md` |
-| Asset ownership | Retained texture/CLUT bytes and upload lifetime | `game/render/asset_upload_ledger.*`, `game/render/mesh_asset_cook.*` | `AssetUploadLedger`, `cookMeshAsset` | `docs/issues/0016-first-dem1-mesh-has-no-renderer-time-raw-texture.md` |
-| Mesh source format | Retail header, face stream, and caller-family contracts | `game/render/mesh_face_format.*`, `game/render/face_builder_census.*` | `deriveMeshLayout`, `FaceBuilderCensus::record` | `docs/re-frontier.md` |
-| MIPS fixed-point decode | Signed packed values and retail arithmetic shift-by-four semantics | `game/render/mips_fixed_point.*` | `mipsSignedHalf`, `mipsSignedWord`, `mipsArithmeticShiftRight4` | `docs/re-frontier.md` |
-| Direct mesh transform | Pre-GTE camera/object/relative transform decode | `game/render/mesh_transform.*` | `inspectMeshDirectTransform` | `docs/info/claims/040-spider-man-s-fun-80077d64-direct-mesh-path-trans.md` |
-| Animated vertex staging | Projection/reuse/retain and near/far fixed-point input semantics | `game/render/mesh_animated_vertex.*` | `decodeAnimatedVertexRecord` | `docs/info/claims/054-spider-man-animated-vertex-flag-0x0002-reinterpr.md` |
-| Animated pose contract | Pre-GTE base, secondary, and authored-pose decode plus temporal identity | `game/render/mesh_pose_contract.*` | `decodeMeshPoseInput` | `docs/info/claims/055-spider-man-s-animated-pose-composers-consume-thr.md` |
-| Temporal pose history | Previous/current authored poses and interpolation sampling | target `game/render/mesh_pose_history.*` | target `MeshPoseHistory::record` / `sample` | `docs/re-frontier.md` |
-| Native animated producer | PC matrix composition, projection/outcodes, common face rules, and queue emission | target `game/render/mesh_native_producer.*` | target `NativeMeshProducer::submit` | `docs/re-frontier.md` |
-| Spider-Man projection | Pure 16:9 projection calculation preserving focal length; runtime publication is not attached | `titles/spiderman1/spider1_widescreen.*` | `Spider1Widescreen::presentationAspect` | `docs/re-frontier.md` |
-| Enter Electro projection | Publish title-owned wide projection after its viewport boundary is measured | target beneath `titles/spiderman2/` | target Enter Electro projection owner | `docs/re-frontier.md` |
-| Historical render evidence | Durable claims and instrument records only; retired runtime probes are absent from product source | `docs/info/` | `tools/info.py brief` | `docs/info/instruments/` |
-| BIOS call census | Which BIOS services a title emits, enumerated from the image's own stub bytes and diffed against the framework's declared case set | `tools/probe_bios_stub_census.py` | `main` / `selftest` | `docs/issues/0026` |
-| Field cadence | Fields consumed per game frame, which decides whether an interpolated 60 fps path is in scope. TWO owners, and the split is the finding: `re_cadence.py` answers it STATICALLY from the image (the frame body's second wait site is inside a GPU-fence loop, so the count is not a compile-time constant), while `probe_spider1_cadence.py` answers it DYNAMICALLY from one paced run (both required numbers together: 59.71 presents/second and 1.0000 fields per present) | `tools/re_cadence.py`, `tools/probe_spider1_cadence.py` | `main` / `selftest` / `census_only` | `docs/issues/0030`, `docs/issues/0031` |
-| Guest CD-ROM service | The polled service `0x8008C3E0` recovered as named structs, constants and a five-arm dispatch, owned natively at the one site retail executes. It is a POLL, not an interrupt handler, and the framework's callback delivery is not a substitute for it | `titles/spiderman1/spider1_cd_stream.*`, `tools/re_cd_stream.py` | `CdStreamService::service`, `runArm`, `report`; `main` / `selftest` | `docs/issues/0026`, commit `4b96e51` |
-| Stuck-state run instrument | One bounded headless run with live CD-channel sampling over frames, single product slot, captured-PID lifetime | `tools/probe_spider1_headless_run.py` | `main` / `selftest` | `docs/issues/0026` |
+| Asset ownership | Retained texture/CLUT bytes and upload lifetime | `game/render/asset_upload_ledger.*`, `game/render/mesh_asset_cook.*` | `AssetUploadLedger`, `cookMeshAsset` | `docs/migration.md` |
+| Mesh source format | Retail header, face stream, and caller-family contracts | `game/render/mesh_face_format.*`, `game/render/face_builder_census.*` | `deriveMeshLayout`, `FaceBuilderCensus::record` | `docs/migration.md` |
+| MIPS fixed-point decode | Signed packed values and retail arithmetic shift-by-four semantics | `game/render/mips_fixed_point.*` | `mipsSignedHalf`, `mipsSignedWord`, `mipsArithmeticShiftRight4` | `docs/migration.md` |
+| Direct mesh transform | Pre-GTE camera/object/relative transform decode | `game/render/mesh_transform.*` | `inspectMeshDirectTransform` | `docs/migration.md` |
+| Animated vertex staging | Projection/reuse/retain and near/far fixed-point input semantics | `game/render/mesh_animated_vertex.*` | `decodeAnimatedVertexRecord` | `docs/migration.md` |
+| Animated pose contract | Pre-GTE base, secondary, and authored-pose decode plus temporal identity | `game/render/mesh_pose_contract.*` | `decodeMeshPoseInput` | `docs/migration.md` |
+| Temporal pose history | Previous/current authored poses and interpolation sampling | target `game/render/mesh_pose_history.*` | target `MeshPoseHistory::record` / `sample` | `docs/migration.md` |
+| Native animated producer | PC matrix composition, projection/outcodes, common face rules, and queue emission | target `game/render/mesh_native_producer.*` | target `NativeMeshProducer::submit` | `docs/migration.md` |
+| Spider-Man projection | Pure 16:9 projection calculation preserving focal length; runtime publication is not attached | `titles/spiderman1/spider1_widescreen.*` | `Spider1Widescreen::presentationAspect` | `docs/migration.md` |
+| Enter Electro projection | Publish title-owned wide projection after its viewport boundary is measured | target beneath `titles/spiderman2/` | target Enter Electro projection owner | `docs/migration.md` |
+| Bounded product runs | One bounded headless run with live CD-channel sampling over frames, single product slot, captured-PID lifetime | `tools/probe_spider1_headless_run.py` | `main` | `docs/issues/0026` |
+| Widescreen picture pair | A matched 4:3 / 16:9 capture from the real product, one process per aspect, ruled on by the framework's own discriminator | `tools/probe_spider1_widescreen_pair.py` | `main` | `docs/issues/0025` |
+| Pad replay | A deterministic pad-mask file so a present index means the same content twice | `tools/make_pad_replay.py` | `main` | `docs/issues/0009` |
+| Decomp pipeline | Ghidra headless query/export/import over the image's own RAM dump | `tools/ghidra_query.py`, `tools/ghidra_export.py`, `tools/ghidra_import.py`, `tools/redump_ram.py` | `main` | `docs/codemap.md` |
+| Guest CD-ROM service | The polled service `0x8008C3E0` recovered as named structs, constants and a five-arm dispatch, owned natively at the one site retail executes. It is a POLL, not an interrupt handler, and the framework's callback delivery is not a substitute for it | `titles/spiderman1/spider1_cd_stream.*` | `CdStreamService::service`, `runArm`, `report` | `docs/issues/0026` |
 | Hermetic tests | Production-contract falsifiers and title runtime ownership tests | `tests/` | CTest registrations in `CMakeLists.txt` | `README.md` |
 | Consumer verification | Title-owned configuration for the shared Clang/Ninja build, CTest, and linked execution-boundary inspector | `tools/verify.py`; engine in `external/psxport/tools/port/consumer_verify.py` | `tools/verify.py::main` | `README.md` |
 | Hosted verification | Real asset-free Linux x86-64 product and consumer-boundary verification; unsupported host gaps remain explicit in project state | `.github/workflows/ci.yml` | `linux-x86_64` job | `docs/project-state.md` |
-| Project registries | Epic intent, capability state, atomic issues, ownership, RE order, and evidence | `docs/project-goals.md`, `docs/project-state.md`, `docs/issues/`, `docs/codemap.md`, `docs/re-frontier.md`, `docs/info/` | `tools/info.py brief` | `CLAUDE.md` |
+| Project documents | Epic intent, capability state, atomic issues, ownership, and the execution plan | `docs/project-goals.md`, `docs/project-state.md`, `docs/issues/`, `docs/codemap.md`, `docs/migration.md` | — | `CLAUDE.md` |
 | Framework | Game-agnostic Lightrec executor, PSX services, verification harness, and renderer | `external/psxport/` resolved checkout | framework runtime seam | framework `AGENTS.md` |
 
 ## Source tree
@@ -81,12 +80,11 @@ points compose peer owners; they do not absorb rendering, input, storage, or dia
 game/  —  3,138 lines, 34 files
 ├─ core/  494 lines, 10 files
 └─ render/  2,644 lines, 24 files
-titles/  —  5,413 lines, 41 files
-├─ spiderman1/  5,303 lines, 38 files
-│  ├─ tools/  393 lines, 1 file
-├─ spiderman2/  110 lines, 3 files
-tools/  —  8,912 lines, 35 files
-tests/  —  3,040 lines, 19 files
+titles/  —  5,864 lines, 46 files
+├─ spiderman1/  5,723 lines, 41 files
+└─ spiderman2/  141 lines, 5 files
+tools/  —  3,611 lines, 17 files
+tests/  —  2,788 lines, 17 files
 ```
 
 Refresh with:

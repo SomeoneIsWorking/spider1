@@ -91,12 +91,11 @@ saturation cannot look like complete temporal/oracle coverage.
 
 2026-08-26: the next producer dependency now has a falsifying corpus boundary. Exact FUN_8007FB1C/8007FD1C inputs decode in game/render/mesh_pose_contract.cpp; PSXPORT_DEBUG=meshprobe wraps their FUN_80077198 owner scope, copies pre-GTE inputs, super-calls retail, and logs CR0..CR7 only as an oracle. Repeated identical input signatures are compared automatically, with an oracle comparison denominator and mismatch count. The Clang pure test and port link pass. This does not make the black envelope pixel gate meaningful and does not add a display-list producer; a serialized product run must first show valid POSE_CORPUS rows, real temporal changes, mesh bindings, zero owner mismatches, and nonzero oracle comparisons with zero mismatches before the PC composer can be implemented and diffed.
 
-The serialized run command is bounded by the project gate and exercises the actual built product;
-do not run it concurrently with another game instance:
+The serialized run is bounded and exercises the actual built product through the control channel;
+do not run it concurrently with another game instance (see `tools/probe_spider1_headless_run.py`):
 
 ```sh
-PSXPORT_RENDER_PATH=native PSXPORT_FPS60=0 .venv/bin/python tools/gate.py boot \
-  --seconds 120 --watchdog 30 --grace 120 --debug meshprobe
+uv run --frozen python tools/probe_spider1_headless_run.py --seconds 120 --debug meshprobe
 ```
 
 ### Live falsifier (2026-08-26, clean framework `99a42aa3`)

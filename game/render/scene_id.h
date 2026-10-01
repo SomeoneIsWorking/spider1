@@ -3,7 +3,7 @@
 // WHY THIS EXISTS. A native renderer needs to know WHICH scene it is being asked to draw, so that a
 // scene with no producer can fail fast naming itself instead of drawing something plausible.
 // Tomba!2 keys on its scheduler's stage pointer + substate selectors; this game has no visible task
-// table (docs/re-frontier.md RE-13), and the guest MODULE REGISTRY — the only other candidate — was
+// table, and the guest MODULE REGISTRY — the only other candidate — was
 // MEASURED useless as a discriminator: 8 load/evict events over a 13757-present run, 94.3% of it on
 // one constant resident set spanning the attract fly-through AND live gameplay (claim C026, issue
 // 0011).
@@ -13,10 +13,10 @@
 // per-frame state machine FUN_80062CE0 (called twice per frame from the render walk FUN_8002BD5C)
 // switches on, over the constants 0x100..0x105, 0x201, 0x202, 0x301, 0x302, 0x401, 0x501..0x503,
 // 0x505..0x508, 0x604, 0x701, 0x702, 0x704, 0x803. So this is not an invented classifier: it is the
-// engine's own, ported. (docs/re-frontier.md RE-23, claim C030.)
+// engine's own, ported.
 //
 // COVERAGE, stated because it is the honest limit: this names the LEVEL, not the substate within it
-// (front-end page, cutscene vs play). That is still RE-13.
+// (front-end page, cutscene vs play).
 #pragma once
 #include <stdint.h>
 

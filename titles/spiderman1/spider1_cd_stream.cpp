@@ -19,7 +19,7 @@
 // a measured contract: which registers it reads, that it reads the response type TWICE and acts
 // only on a stable value, that it drains at most eight bytes, that it dispatches on type-1 through
 // a five-entry table, and that it writes a three-byte status triplet. All of that is recovered from
-// the image in `spider1_cd_stream.h` and gated by `tools/re_cd_stream.py`. Owning it means the
+// the image in `spider1_cd_stream.h` and checked against those same bytes. Owning it means the
 // service is READABLE and DEBUGGABLE in C++ rather than an opaque translated block, which is the
 // whole point of the decompile work order (psxport issue 0135): recover the code on the path of a
 // visible defect that has no native owner, then own it.
@@ -163,7 +163,7 @@ std::uint32_t CdStreamService::gateObserved(Core &core) const {
 //   0x8008C580  andi $s1,$v0,0x001D            carry = response byte 0 & 0x1D
 //   0x8008C634  lw   $v0,0x6670($at)           dispatch table[responseType - 1]
 //
-// Every one of those is asserted against the image by tools/re_cd_stream.py.
+// Every one of those was asserted against the authenticated image bytes.
 std::uint32_t CdStreamService::service(Core &core) {
   auto &cdc = core.game->cdc;
   ++services_;

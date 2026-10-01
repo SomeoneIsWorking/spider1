@@ -716,8 +716,8 @@ void test_recovered_cd_service_owns_the_polled_guest_routine() {
   CHECK_EQ(service.armForResponseType(5u), cds::kArmError);
   CHECK_EQ(service.armForResponseType(0u), cds::kUndispatchedType);
 
-  // THE LOAD-BEARING NEGATIVE. The gate word is 0 in the image and the census in
-  // tools/re_cd_stream.py finds no setter, so the owner must leave it alone. A service that wrote
+  // THE LOAD-BEARING NEGATIVE. The gate word is 0 in the image and a whole-text scan finds no
+  // setter, so the owner must leave it alone. A service that wrote
   // it would fabricate guest state the retail executable never has AND would enable the three poll
   // loops that are retail-dead code behind it.
   CHECK_EQ(service.gateObserved(core), 0u);

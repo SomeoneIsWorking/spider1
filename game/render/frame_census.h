@@ -70,7 +70,7 @@ struct FrameCensus {
 
 // The Sony DRAWENV / DISPENV the guest hands PutDrawEnv / PutDispEnv, as typed lenses over the
 // guest block rather than a pile of offsets at the use site. Sizes are pinned by the copy libgpu
-// performs: 0x5C bytes for DRAWENV, 0x14 for DISPENV (docs/re-frontier.md RE-12).
+// performs: 0x5C bytes for DRAWENV, 0x14 for DISPENV.
 struct DrawEnvView {
   int clipX = 0, clipY = 0, clipW = 0, clipH = 0;
   int ofsX = 0, ofsY = 0;

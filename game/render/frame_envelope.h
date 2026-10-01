@@ -42,7 +42,7 @@
 //     so it has no picture, and the native leg is right not to reproduce it. This is a stated
 //     omission with a reason, not a stub.
 //   * `GP1(06)`, the analog horizontal display range. See gpu_env.h.
-//   * The display list. That is the per-scene producers' job (docs/re-frontier.md RE-21), and until
+//   * The display list. That is the per-scene producers' job, and until
 //   a
 //     scene has one the seam still aborts naming it.
 #pragma once
