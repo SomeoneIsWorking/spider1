@@ -1,6 +1,7 @@
 #include "spider_port.h"
 #include "cfg.h"
 #include "dbg_server.h"
+#include "field_turn.h"
 #include "hw_bind.h"
 #include "psx_exe_image.h"
 #include "store_observe.h"
@@ -116,8 +117,9 @@ int runPort(SpiderRuntime &runtime, int argc, char **argv) {
   // and say what frame cap to run under, because a client-driven run must not be capped (the cap
   // exists to bound an unattended smoke run) while 0 means "run until told to stop". With the knob
   // unset `attach` returns the requested cap unchanged and starts nothing, so a player's run is the
-  // same loop it was. `honourPause` before each turn and `service` after it are the framework's
-  // own; a title that reimplements either is the second copy the factoring exists to prevent.
+  // same loop it was. The per-field services around the title's own field body are the framework's
+  // too, as `psx::FieldTurn` below; a title that reimplements them is the second copy the factoring
+  // exists to prevent.
   const int frameCap = game->dbg_server.attach(core, cfg_int("PSXPORT_NATIVE_FRAMES", 0));
   // PSXPORT_STORE_OBSERVE is the same class of opt-in diagnostic on the same title-owned spine, and
   // for the same reason it was never armed here: the arming line lives in native_boot_run, which
@@ -128,10 +130,17 @@ int runPort(SpiderRuntime &runtime, int argc, char **argv) {
                frameCap > 0 ? std::to_string(frameCap) : "uncapped",
                frameCap);
 
+  // The per-field services this loop owes — answer a client pause/step, re-arm the frame watchdog,
+  // honour PSXPORT_RAMDUMP_FRAME, service one queued command — are `psx::FieldTurn`'s, the same
+  // owner `native_boot_run` and `psx::Machine` use. Before it, this loop spelled out the pause and
+  // the service and nothing else, so its fields ran under an armed frame timeout with no re-arm,
+  // and its PSXPORT_RAMDUMP_FRAME was a bound knob that no code read. The field BODY below stays
+  // this title's.
+  const psx::FieldTurn fieldTurn;
   auto result = execution.enter(program->crt0Entry);
   int completedTurns = 0;
   for (;;) {
-    game->dbg_server.honourPause(core);
+    fieldTurn.beginField(*core);
     if (frameCap > 0 && completedTurns >= frameCap) {
       lucent::info(
           "boot", "Spider-Man 1 reached the requested frame cap of {} host turn(s)", frameCap);
@@ -141,7 +150,7 @@ int runPort(SpiderRuntime &runtime, int argc, char **argv) {
       // The executor's turn limit bounds one call, not the guest program. Resume its saved PC;
       // long finite work such as the retail allocator's heap fill crosses several turns.
       result = execution.resumeAt(result.guestPc);
-      game->dbg_server.service(core);
+      fieldTurn.endField(*core, static_cast<std::uint32_t>(completedTurns));
       continue;
     }
     if (!runtime.resumeBootstrapBoundary(*core, result)) {
@@ -149,7 +158,7 @@ int runPort(SpiderRuntime &runtime, int argc, char **argv) {
     }
     ++completedTurns;
     result = execution.resumeAt(core->pc);
-    game->dbg_server.service(core);
+    fieldTurn.endField(*core, static_cast<std::uint32_t>(completedTurns - 1));
   }
   return reportExecutionResult(*core, result, runtime.serial()) ? 0 : 3;
 }
