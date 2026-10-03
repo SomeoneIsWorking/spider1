@@ -11,7 +11,7 @@ namespace spider {
 
 Spider1HostSteppedFiber::~Spider1HostSteppedFiber() {
   if (hostTurnRegistered_) {
-    psx::cpu::shutdownHostTurn();
+    psx::cpu::shutdownHostTurn(*core_);
     hostTurnRegistered_ = false;
   }
   if (fiber_ && !fiber_->done()) {
@@ -54,7 +54,7 @@ void Spider1HostSteppedFiber::shutdownBootstrapHostTurn() {
   if (!hostTurnRegistered_) {
     return;
   }
-  psx::cpu::shutdownHostTurn();
+  psx::cpu::shutdownHostTurn(*core_);
   hostTurnRegistered_ = false;
   lucent::info("hostturn",
                "Spider-Man 1 bootstrap turn complete; native frame driver now owns every field");
