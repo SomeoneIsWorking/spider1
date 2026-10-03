@@ -93,7 +93,7 @@ void resetCalls() {
 
 void installProbe(Core &core, uint32_t entry, uint32_t result = 0) {
   g_results[entry] = result;
-  installNativeOverride(core, entry, "spider1 test probe", &probeEntered);
+  psx::cpu::installNativeOverride(core, entry, "spider1 test probe", &probeEntered);
 }
 
 unsigned countOf(const std::vector<uint32_t> &calls, uint32_t entry) {
@@ -292,10 +292,11 @@ uint8_t PadStage::firstKey = 0;
 
 void test_invalid_input_latches_a_press_before_it_accepts_a_release(void) {
   const std::unique_ptr<Core> core = makeCore("invalid input");
-  installNativeOverride(*core, spider1::padRead, "test pad read", &PadStage::read);
-  installNativeOverride(*core, spider1::invalidWaitSetup, "test invalid setup", [](Core *c) {
-    c->r[2] = 0;
-  });
+  psx::cpu::installNativeOverride(*core, spider1::padRead, "test pad read", &PadStage::read);
+  psx::cpu::installNativeOverride(
+      *core, spider1::invalidWaitSetup, "test invalid setup", [](Core *c) {
+        c->r[2] = 0;
+      });
   // The gate records the field it started on, so the timeout is measured from the start and not
   // from an absolute counter the test cannot reach.
   core->mem_w32(spider1::gameVblankCount, 10u);

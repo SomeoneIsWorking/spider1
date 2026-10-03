@@ -174,9 +174,9 @@ void test_stock_cd_command_preserves_measured_guest_state_and_pending_result() {
   // has no callback-dispatch owner; a later implementation must make this assertion change with
   // proved controller/event semantics, not by assuming these callbacks are harmless.
   CdCallbackProbe::calls = 0;
-  spider::installNativeOverride(
+  psx::cpu::installNativeOverride(
       core, spider::spider1::cdReadyCallback, "test CD ready callback", CdCallbackProbe::invoked);
-  spider::installNativeOverride(
+  psx::cpu::installNativeOverride(
       core, spider::spider1::cdSyncCallback, "test CD sync callback", CdCallbackProbe::invoked);
   core.r[31] = kCdReturn;
   CHECK(psx::cpu::dispatchGuest(
@@ -266,7 +266,7 @@ void test_retail_movie_field_exit_resumes_at_each_authenticated_return() {
   runtime.registerOverrides(*game);
   runtime.prepareBootstrap(*game);
   CHECK(game->platform_hle.lookup(kVsyncCallbackEntry) != nullptr);
-  spider::installNativeOverride(
+  psx::cpu::installNativeOverride(
       core, kSyntheticFieldCallback, "test display field callback", FieldCallbackProbe::invoked);
   FieldCallbackProbe::calls = 0;
   core.r[4] = kSyntheticFieldCallback;
@@ -345,7 +345,7 @@ void test_direct_stream_wait_preserves_original_result_and_field_ownership() {
   CHECK_EQ(runtime.guestCdStreamCallbackLayout()->owner,
            GuestCdStreamCallbackLayout::DeliveryOwner::GuestInterrupt);
 
-  spider::installNativeOverride(
+  psx::cpu::installNativeOverride(
       core, kSyntheticFieldCallback, "test display field callback", FieldCallbackProbe::invoked);
   FieldCallbackProbe::calls = 0;
   core.r[4] = kSyntheticFieldCallback;
@@ -359,7 +359,7 @@ void test_direct_stream_wait_preserves_original_result_and_field_ownership() {
   core.mem_w32(entry + 4u, 0x24020001u); // addiu v0, zero, 1: no sector ready
   core.mem_w32(entry + 8u, 0x03E00008u); // jr ra
   core.mem_w32(entry + 12u, 0u);
-  spider::installNativeOverride(
+  psx::cpu::installNativeOverride(
       core, kStreamCallback, "test stream callback", CdCallbackProbe::invoked);
   core.mem_w32(spider::spider1::cdReadyCallbackSlot, kStreamCallback);
   game->cd.stream_active = 1;
@@ -411,7 +411,7 @@ void test_stream_int1_reaches_ready_callback_only_after_guest_isr_consumes_respo
       "Spider-Man resident", runtime.guestProgramImage()->residentText, 1u);
   runtime.registerOverrides(*game);
   installGuestCdIsr(*game);
-  spider::installNativeOverride(
+  psx::cpu::installNativeOverride(
       core, kStreamCallback, "test stream callback", CdCallbackProbe::invoked);
   core.mem_w32(spider::spider1::cdReadyCallbackSlot, kStreamCallback);
   core.mem_w8(kSyntheticCdResponse, 0xFFu);
@@ -456,7 +456,7 @@ void test_ready_stream_slot_returns_guest_result_without_host_field() {
   core.mem_w32(entry + 4u, 0x24020000u); // addiu v0, zero, 0: ready
   core.mem_w32(entry + 8u, 0x03E00008u); // jr ra
   core.mem_w32(entry + 12u, 0u);
-  spider::installNativeOverride(
+  psx::cpu::installNativeOverride(
       core, kStreamCallback, "test stream callback", CdCallbackProbe::invoked);
   core.mem_w32(spider::spider1::cdReadyCallbackSlot, kStreamCallback);
   game->cd.stream_active = 1;
@@ -528,7 +528,7 @@ void test_guest_isr_callback_exit_does_not_retry_original_stream_poll() {
   core.mem_w32(entry + 4u, 0x24020001u); // addiu v0, zero, 1: dry
   core.mem_w32(entry + 8u, 0x03E00008u); // jr ra
   core.mem_w32(entry + 12u, 0u);
-  spider::installNativeOverride(
+  psx::cpu::installNativeOverride(
       core, kStreamCallback, "test exiting stream callback", CdCallbackExitProbe::invoked);
   core.mem_w32(spider::spider1::cdReadyCallbackSlot, kStreamCallback);
   installGuestCdIsr(*game);
