@@ -1,0 +1,33 @@
+# Build and runtime artifacts.
+build/
+scratch/
+
+# Game inputs are provisioned locally and never committed: the disc image and anything extracted
+# from it are the copyright holder's, not this repo's.
+*.chd
+*.bin
+*.BIN
+*.exe
+SLUS_*
+.env
+
+# The framework. Not tracked: either a relative symlink to the workspace's live psxport checkout
+# (local) or a clone of its main (fresh machine). Managed by tools/psxport_fetch.py.
+/external/psxport
+/external/re-harness
+*.log
+
+# Python bytecode — never committed. Compiled .pyc embed ABSOLUTE SOURCE PATHS, i.e. a machine-path
+# leak that a TEXT-only audit cannot see, because they are binary.
+.venv/
+__pycache__/
+*.pyc
+
+# Editor / OS noise
+compile_commands.json
+.DS_Store
+
+# Ghidra headless project (derived from your own disc image via tools/redump_ram.py)
+scratch/ghidra/
+scratch/decomp/
+.claude/scheduled_tasks.lock
