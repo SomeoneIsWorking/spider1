@@ -24,6 +24,7 @@ class Title:
     runtime_modules: bool
     file_size: int
     executable_sha256: str
+    hosted: bool = False
 
     @classmethod
     def from_manifest(cls, path: Path) -> Title:
@@ -58,6 +59,9 @@ class Title:
             raise TitleCatalogError(
                 f"{path}: runtimeModules must be true or false, got {runtime_modules!r}"
             )
+        hosted = data.get("hosted", False)
+        if not isinstance(hosted, bool):
+            raise TitleCatalogError(f"{path}: hosted must be true or false, got {hosted!r}")
         return cls(
             id=str(data["id"]),
             label=str(data["label"]),
@@ -68,6 +72,7 @@ class Title:
             runtime_modules=runtime_modules,
             file_size=file_size,
             executable_sha256=executable_sha256,
+            hosted=hosted,
         )
 
 

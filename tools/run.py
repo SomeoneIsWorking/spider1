@@ -611,11 +611,9 @@ def launch(argv: Sequence[str]) -> int:
     say(f"launching {title.label} (native PC port)…")
     launch_env = launch_environment(os.environ, framework_text, disc, title)
     port_executable = port_build / "bin" / title.target
-    os.execvpe(
-        str(port_executable),
-        [str(port_executable), str(title.guest_executable)],
-        launch_env,
-    )
+    # A hosted title opens the in-window picker; the others run their one executable.
+    arguments = [] if title.hosted else [str(title.guest_executable)]
+    os.execvpe(str(port_executable), [str(port_executable), *arguments], launch_env)
     return 0
 
 

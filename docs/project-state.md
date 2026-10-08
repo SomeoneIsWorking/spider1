@@ -27,6 +27,7 @@ are ground-truth-ready and which are not lives in `docs/re-frontier.md` (read th
 | S018 | Spider-Man reaches `dem1` dynamically and resumes the retail movie player through host-owned field boundaries | missing | `Spider1MovieExecution` resumes at the three authenticated return PCs; sector still not accepted at `0x8008DCC8(0x190)` |
 | S019 | Representative interactive gameplay conforms on each released host | missing | the frontier above; also needs invalidation, oracle comparison, and per-host frame-time budgets |
 | S020 | Load operations complete without loading-only waits; logos cancel through the recovered route | missing | no load operation has been classified yet |
+| S021 | Spider-Man 1 runs through psxport's multi-title host (in-window picker) | partial | zero arguments open the picker (`Spider1Catalog`), `pick spiderman1` boots the generic `TitleSession` into retail STR field 1 as before, `session return` rebuilds the picker; the panel never reports its pre-roll finished and the shots are black because the title presents no filled picture yet (S018). Spider-Man 2 is not in the catalog (EE-02). A guest stop ends the session with exit status 0 |
 
 ## Comparison baseline deltas
 

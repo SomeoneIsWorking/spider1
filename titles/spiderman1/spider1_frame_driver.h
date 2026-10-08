@@ -1,6 +1,7 @@
 #pragma once
 
 #include "game_runtime.h"
+#include "spider1_bootstrap_turn.h"
 #include "spider1_host_stepped_fiber.h"
 #include "spider1_mode_driver.h"
 #include "spider1_movie_execution.h"
@@ -28,6 +29,7 @@ public:
   void serviceBootstrapMovieVsync(Core &core);
   void serviceBootstrapStreamWait(Core &core);
   void runBootPrefix(Core &core);
+  void beginGuest(Core &core);
   void stepFrame(Core &core, uint32_t frame) override;
   static Spider1FrameDriver &from(Core &core);
 
@@ -61,6 +63,7 @@ private:
   static void startGpuDmaTimeout(Core *core);
 
   Game &game_;
+  Spider1BootstrapTurn turn_;
   std::unique_ptr<Spider1ModeDriver> modes_;
   Spider1MovieExecution movieExecution_;
   Spider1HostSteppedFiber fiber_;

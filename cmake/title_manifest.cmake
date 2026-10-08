@@ -6,6 +6,8 @@ function(spider_read_title TITLE_ID PREFIX)
   endif()
   file(READ "${_manifest}" _json)
   foreach(_field
+      id
+      label
       serial
       discEnv
       target
@@ -18,5 +20,13 @@ function(spider_read_title TITLE_ID PREFIX)
     endif()
     string(TOUPPER "${_field}" _upper)
     set("${PREFIX}_${_upper}" "${_value}" PARENT_SCOPE)
+  endforeach()
+  # The PS-X EXE header words are optional until a title joins the host catalog.
+  foreach(_field entry gp textAddress textSize stackAddress stackOffset)
+    string(JSON _value ERROR_VARIABLE _error GET "${_json}" header ${_field})
+    if(NOT _error)
+      string(TOUPPER "${_field}" _upper)
+      set("${PREFIX}_HEADER_${_upper}" "${_value}" PARENT_SCOPE)
+    endif()
   endforeach()
 endfunction()

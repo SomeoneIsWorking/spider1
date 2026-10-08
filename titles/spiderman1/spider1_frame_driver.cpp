@@ -53,7 +53,7 @@ constexpr std::array kBootSavedRegisters{
 } // namespace
 
 Spider1FrameDriver::Spider1FrameDriver(Game &game)
-    : game_(game),
+    : game_(game), turn_(game),
       modes_(std::make_unique<Spider1ModeDriver>(static_cast<Spider1ModeHost &>(*this))) {}
 
 Spider1FrameDriver::~Spider1FrameDriver() = default;
@@ -223,6 +223,7 @@ void Spider1FrameDriver::captureVsyncCallback(Core *core) {
 void Spider1FrameDriver::deliverField(Core &core) {
   core.mem_w32(libetcVblankCountAddress, core.mem_r32(libetcVblankCountAddress) + 1u);
   ++fieldsSinceCommit_;
+  game_.run.fieldDelivered();
   game_.spu_audio.frame();
   if (vsyncCallback_) {
     const R3000 saved = static_cast<const R3000 &>(core);
@@ -429,81 +430,12 @@ void Spider1FrameDriver::beginModeStep(Core &core, uint32_t frame) {
   fiber_.resume();
 }
 
-void Spider1FrameDriver::stepFrame(Core &core, uint32_t frame) {
-  // The boot host turn returns the non-returning prefix to the frame loop once; left armed it would
-  // be a second field owner, so after this only the title's field waits may yield the fiber.
-  fiber_.shutdownBootstrapHostTurn();
+void Spider1FrameDriver::beginGuest(Core &core) {
+  turn_.begin(core);
+}
 
-  game_.timing.logicFrame = frame;
-  core.rsub.otAttr.beginLogicFrame(frame);
-  game_.pad.serviceFrame();
-  // Re-latch the host canvas for the selected aspect and reached display extent; runs no guest
-  // code.
-  Spider1Widescreen::from(core).synchronizePresentation(core);
-  fieldsSinceCommit_ = 0;
-  frameCommitted_ = false;
-  bool deliveredField = false;
-
-  if (fiber_.active()) {
-    // A fiber carried over is blocked at a field boundary; deliver and resume in this same step so
-    // guest work runs before presentation pacing.
-    const Spider1FiberResumePlan resume =
-        planFiberResume(fiber_.fieldWaitOutstanding(), fiber_.fieldSatisfied());
-    if (!resume.valid) {
-      lucent::error("frame",
-                    "Spider-Man 1 carried a finite fiber across host frames without a field "
-                    "boundary");
-      std::abort();
-    }
-    if (resume.deliverField) {
-      deliverField(core);
-      deliveredField = true;
-    }
-    fiber_.clearFieldWait();
-    if (resume.resume) {
-      fiber_.resume();
-    }
-  } else if (!bootComplete_) {
-    lucent::error("boot",
-                  "Spider-Man 1 lost its finite boot fiber before initialization completed");
-    std::abort();
-  } else {
-    beginModeStep(core, frame);
-  }
-
-  if (fiber_.done()) {
-    if (fiber_.phase() == Spider1FiberPhase::Boot) {
-      finishBoot(core);
-      beginModeStep(core, frame);
-    }
-    if (fiber_.done() && fiber_.phase() == Spider1FiberPhase::Mode) {
-      fiber_.drop();
-    }
-  }
-
-  // A fiber at a new field wait owes one fence and may consume a field only if none was delivered
-  // this step.
-  const Spider1FiberYieldPlan yield = planFiberYield(
-      fiber_.fieldWaitOutstanding(), fiber_.fieldSatisfied(), deliveredField, frameCommitted_);
-  if (!yield.valid) {
-    lucent::error("frame",
-                  "Spider-Man 1 reached an STR/boot field wait after its host fence was already "
-                  "committed");
-    std::abort();
-  }
-  if (yield.commit) {
-    if (yield.deliverField) {
-      deliverField(core);
-    }
-    if (yield.fieldSatisfied) {
-      fiber_.setFieldSatisfied();
-    }
-    commitMovieField(core);
-  }
-  if (!frameCommitted_) {
-    lucent::error("frame", "Spider-Man 1 mode step {} returned without a frame fence", frame);
-    std::abort();
-  }
+void Spider1FrameDriver::stepFrame(Core &core, uint32_t) {
+  turn_.step(core);
 }
 
 } // namespace spider::spider1

@@ -345,6 +345,9 @@ inline constexpr unsigned ntscFieldRateMilliHz = 59940u;
 
 // Boot prefix stack frame; callee-saved registers spill into its top, highest first.
 inline constexpr uint32_t bootPrefixFrameBytes = 72u;
+// Return address crt0's `jal main` at 0x80087438 leaves in $ra.
+inline constexpr uint32_t crt0MainReturn = 0x80087440u;
+
 // crt0 values restored by the prefix: $gp, $s8 stack base, and $s7 (purpose unknown).
 inline constexpr uint32_t crt0GlobalPointer = 0x800B0000u;
 inline constexpr uint32_t crt0StackBase = 0x800A0000u;

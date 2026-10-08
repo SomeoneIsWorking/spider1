@@ -3,8 +3,6 @@
 #include "spider1_platform_facts.h"
 #include "spider1_stream_driver.h"
 
-#include "frame_loop_shell.h"
-
 #include "game.h"
 
 #include <cstdlib>
@@ -60,16 +58,12 @@ void Spider1Runtime::registerOverrides(Game &game) {
   installSpider1Widescreen(game.core);
 }
 
-void Spider1Runtime::bootInit(Core &) {
-  refuseUnported("native frame owner", "runtime Lightrec execution before native frame extraction");
+void Spider1Runtime::bootInit(Core &core) {
+  Spider1FrameDriver::from(core).beginGuest(core);
 }
 
 std::unique_ptr<FrameDriver> Spider1Runtime::createFrameDriver(Game &game) {
   return std::make_unique<Spider1FrameDriver>(game);
-}
-
-void Spider1Runtime::prepareBootstrap(Game &game) {
-  psx::frame::FrameLoopShell{}.prepareProduct(game);
 }
 
 bool Spider1Runtime::resumeBootstrapBoundary(Core &core, const psx::cpu::ExecutionResult &result) {

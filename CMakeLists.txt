@@ -35,6 +35,7 @@ set(SPIDER_COMMON_SOURCES
   game/core/spider_runtime.cpp)
 
 set(SPIDER1_FRAME_SOURCES
+  titles/spiderman1/spider1_bootstrap_turn.cpp
   titles/spiderman1/spider1_stream_driver.cpp
   titles/spiderman1/spider1_movie_execution.cpp
   titles/spiderman1/spider1_frame_driver.cpp
@@ -60,11 +61,22 @@ function(spider_add_runtime_target TARGET TITLE PREFIX MAIN RUNTIME)
   add_executable(${TARGET} ${SPIDER_COMMON_SOURCES} ${MAIN} ${RUNTIME})
   target_include_directories(${TARGET} PRIVATE game/core "titles/${TITLE}")
   target_compile_definitions(${TARGET} PRIVATE
+    SPIDER_TITLE_ID="${${PREFIX}_ID}"
+    SPIDER_TITLE_LABEL="${${PREFIX}_LABEL}"
     SPIDER_TITLE_SERIAL="${${PREFIX}_SERIAL}"
     SPIDER_TITLE_DISC_ENV="${${PREFIX}_DISCENV}"
     SPIDER_TITLE_GUEST_EXE="${${PREFIX}_GUESTEXECUTABLE}"
     SPIDER_TITLE_EXECUTABLE_SIZE=${${PREFIX}_FILESIZE}
     SPIDER_TITLE_EXECUTABLE_SHA256="${${PREFIX}_EXECUTABLESHA256}")
+  if(DEFINED ${PREFIX}_HEADER_ENTRY)
+    target_compile_definitions(${TARGET} PRIVATE
+      SPIDER_TITLE_HEADER_ENTRY=${${PREFIX}_HEADER_ENTRY}u
+      SPIDER_TITLE_HEADER_GP=${${PREFIX}_HEADER_GP}u
+      SPIDER_TITLE_HEADER_TEXT_ADDRESS=${${PREFIX}_HEADER_TEXTADDRESS}u
+      SPIDER_TITLE_HEADER_TEXT_SIZE=${${PREFIX}_HEADER_TEXTSIZE}u
+      SPIDER_TITLE_HEADER_STACK_ADDRESS=${${PREFIX}_HEADER_STACKADDRESS}u
+      SPIDER_TITLE_HEADER_STACK_OFFSET=${${PREFIX}_HEADER_STACKOFFSET}u)
+  endif()
   target_link_libraries(${TARGET} PRIVATE psxport OpenSSL::Crypto)
   set_target_properties(${TARGET} PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 endfunction()
@@ -75,7 +87,8 @@ foreach(SPIDER_TITLE IN LISTS SPIDER_TITLES)
     spider_add_runtime_target(
       spiderman_port spiderman1 SPIDER1
       game/core/main.cpp titles/spiderman1/spider1_runtime.cpp)
-    target_sources(spiderman_port PRIVATE ${SPIDER1_FRAME_SOURCES} ${SPIDER1_WIDESCREEN_SOURCES})
+    target_sources(spiderman_port PRIVATE
+      ${SPIDER1_FRAME_SOURCES} ${SPIDER1_WIDESCREEN_SOURCES} titles/spiderman1/spider1_catalog.cpp)
   elseif(SPIDER_TITLE STREQUAL "spiderman2")
     spider_add_runtime_target(
       enter_electro_port spiderman2 SPIDER2
@@ -191,6 +204,13 @@ if(BUILD_TESTING)
     add_test(NAME spider1_runtime_services COMMAND spider1_runtime_services_test)
     set_tests_properties(spider1_runtime_services PROPERTIES ENVIRONMENT
       "PSXPORT_NOWINDOW=1;PSXPORT_NOAUDIO=1;PSXPORT_NOPACE=1;PSXPORT_ASSET_DIR=${PSXPORT_DIR}")
+    spider_add_runtime_target(
+      spider1_catalog_test spiderman1 SPIDER1
+      tests/spider1_catalog_test.cpp titles/spiderman1/spider1_runtime.cpp)
+    target_sources(spider1_catalog_test PRIVATE
+      ${SPIDER1_FRAME_SOURCES} ${SPIDER1_WIDESCREEN_SOURCES} titles/spiderman1/spider1_catalog.cpp)
+    target_include_directories(spider1_catalog_test PRIVATE ${PSXPORT_DIR}/tests)
+    add_test(NAME spider1_catalog COMMAND spider1_catalog_test WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
     add_test(NAME launcher_help
       COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/test_help_contract.py
               --executable $<TARGET_FILE:spiderman_port>)
@@ -199,6 +219,6 @@ if(BUILD_TESTING)
     COMMAND ${Python3_EXECUTABLE} ${PSXPORT_DIR}/tools/check_cpp_style.py
             --root ${CMAKE_SOURCE_DIR} --compile-commands ${CMAKE_BINARY_DIR}
             # Shrink-only caps; lower them whenever the file shrinks.
-            --cap titles/spiderman1/spider1_frame_driver.cpp=510
+            --cap titles/spiderman1/spider1_frame_driver.cpp=441
             --cap titles/spiderman1/spider1_mode_driver.cpp=521)
 endif()

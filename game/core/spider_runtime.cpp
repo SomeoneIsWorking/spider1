@@ -10,10 +10,8 @@ std::string_view SpiderRuntime::serial() const {
   return executableIdentity().serial;
 }
 
-void SpiderRuntime::prepareBootstrap(Game &) {}
-
-bool SpiderRuntime::resumeBootstrapBoundary(Core &, const psx::cpu::ExecutionResult &) {
-  return false;
+const char *SpiderRuntime::discEnvVar() const {
+  return discEnvironment().data();
 }
 
 [[noreturn]] void SpiderRuntime::refuseUnported(std::string_view boundary,

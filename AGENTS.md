@@ -25,6 +25,14 @@ respectively in `docs/project-goals.md`, `docs/project-state.md`, `docs/codemap.
   bypasses only the current override and executes the guest body through Lightrec. Executable-memory
   writes and module load/unload invalidate affected translated blocks.
 
+## How the product starts
+
+Spider-Man 1 composes psxport's `psx::host::ProductHost` over `Spider1Catalog` (`titles/spiderman1/spider1_catalog.*`,
+identity from `titles/spiderman1/title.json`): zero arguments open the title picker, `pick spiderman1` boots it,
+and `session return` comes back. Boot is the host's generic `TitleSession` sequence; the title's own steps are
+`Spider1Runtime` hooks (`discEnvVar`, `registerOverrides`, `bootInit`) and `Spider1FrameDriver::stepFrame`.
+Enter Electro still starts through `spider::runPort` until it joins the catalog.
+
 ## Spider-Man first discriminator
 
 The first Spider-Man migration checkpoint is the already-recorded `dem1` route. Reach it through

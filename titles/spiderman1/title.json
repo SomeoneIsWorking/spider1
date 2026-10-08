@@ -6,6 +6,15 @@
   "target": "spiderman_port",
   "guestExecutable": "scratch/assets/spiderman1/SLUS_008.75",
   "runtimeModules": true,
+  "hosted": true,
   "fileSize": 749568,
-  "executableSha256": "d2270e35581ba083d9441166e9a45ead4f869ab07e890f9a512ad7ee4cc0b15b"
+  "executableSha256": "d2270e35581ba083d9441166e9a45ead4f869ab07e890f9a512ad7ee4cc0b15b",
+  "header": {
+    "entry": "0x8008739C",
+    "gp": "0x00000000",
+    "textAddress": "0x80010000",
+    "textSize": "0x000B6800",
+    "stackAddress": "0x801FFFF0",
+    "stackOffset": "0x00000000"
+  }
 }

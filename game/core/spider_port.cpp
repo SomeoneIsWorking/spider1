@@ -65,7 +65,6 @@ int runPort(SpiderRuntime &runtime, int argc, char **argv) {
   psxport_install_game(runtime);
 
   auto game = std::make_unique<Game>();
-  game->disc.env_key = runtime.discEnvironment().data();
   Core *core = &game->core;
 
   watchdog_init();
@@ -77,9 +76,7 @@ int runPort(SpiderRuntime &runtime, int argc, char **argv) {
   game->gpu.gpu_native_init();
   game->pad.overridesInit();
   core->runtime->registerOverrides(*game);
-  // Must precede the shell preparing the product or guest widescreen stays inactive.
   render_path_install(core);
-  runtime.prepareBootstrap(*game);
   const GuestProgramImage *program = runtime.guestProgramImage();
   if (!program || !program->crt0Entry) {
     lucent::error("executor", "{} has no authenticated runtime entry", runtime.serial());
@@ -91,32 +88,21 @@ int runPort(SpiderRuntime &runtime, int argc, char **argv) {
   const int frameCap = game->dbg_server.attach(core, cfg_int("PSXPORT_NATIVE_FRAMES", 0));
   store_observe_attach(*core);
   lucent::info("boot",
-               "Spider-Man 1 boot spine owns its frame loop: live endpoint {} (frame cap {})",
+               "{} boot spine owns its frame loop: live endpoint {} (frame cap {})",
+               runtime.serial(),
                frameCap > 0 ? std::to_string(frameCap) : "uncapped",
                frameCap);
 
   const psx::frame::FieldTurn fieldTurn;
   auto result = execution.enter(program->crt0Entry);
-  int completedTurns = 0;
   for (;;) {
     fieldTurn.beginField(*core);
-    if (frameCap > 0 && completedTurns >= frameCap) {
-      lucent::info(
-          "boot", "Spider-Man 1 reached the requested frame cap of {} host turn(s)", frameCap);
+    if (result.reason != psx::cpu::ExecutionExitReason::BudgetExhausted || result.cycles == 0) {
       break;
     }
-    if (result.reason == psx::cpu::ExecutionExitReason::BudgetExhausted && result.cycles != 0) {
-      // The turn limit bounds one call, not the program; resume the saved PC.
-      result = execution.resumeAt(result.guestPc);
-      fieldTurn.endField(*core, static_cast<std::uint32_t>(completedTurns));
-      continue;
-    }
-    if (!runtime.resumeBootstrapBoundary(*core, result)) {
-      break;
-    }
-    ++completedTurns;
-    result = execution.resumeAt(core->pc);
-    fieldTurn.endField(*core, static_cast<std::uint32_t>(completedTurns - 1));
+    // The turn limit bounds one call, not the program; resume the saved PC.
+    result = execution.resumeAt(result.guestPc);
+    fieldTurn.endField(*core, 0);
   }
   return reportExecutionResult(*core, result, runtime.serial()) ? 0 : 3;
 }

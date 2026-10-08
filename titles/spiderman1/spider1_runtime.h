@@ -1,5 +1,6 @@
 #pragma once
 
+#include "execution_exit.h"
 #include "gpu_vk.h"
 #include "spider1_cd_stream.h"
 #include "spider1_widescreen.h"
@@ -26,8 +27,9 @@ public:
   }
   void bootInit(Core &core) override;
   std::unique_ptr<FrameDriver> createFrameDriver(Game &game) override;
-  void prepareBootstrap(Game &game) override;
-  bool resumeBootstrapBoundary(Core &core, const psx::cpu::ExecutionResult &result) override;
+  // Services the guest's stop at a measured boundary as one display field; false means the stop is
+  // not one.
+  bool resumeBootstrapBoundary(Core &core, const psx::cpu::ExecutionResult &result);
   const GuestProgramImage *guestProgramImage() const override;
   const GuestWidescreenProjection *guestWidescreenProjection() const override;
   const PlatformHlePlan *platformHlePlan() const override;
@@ -55,7 +57,7 @@ private:
       .crt0Entry = 0x8008739Cu,
       .residentText = {0x00010000u, 0x000C65D4u},
       .backtraceText = {},
-      .stackBias = {false, 0},
+      .stackBias = {true, -8}, // crt0 0x800873CC addi v0,v0,-8
   };
 };
 

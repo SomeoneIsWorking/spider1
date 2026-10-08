@@ -29,19 +29,23 @@ run.sh -> bootstrap.py -> tools/run.py
                             |
                             +-- title catalog -> authenticated PS-X EXE (no guest body emitted)
                                     |
-                            psxport runtime Lightrec execution (external/psxport)
+game/core/main.cpp -> psx::host::ProductHost over Spider1Catalog (external/psxport/docs/title-host.md)
                                     |
-                            game/core/spider_port.cpp  -> SpiderRuntime (per title)
+              psx::host::TitleSession: generic boot, then one FrameLoopShell step per host frame
                                     |
-                            Spider1Runtime::createFrameDriver -> Spider1FrameDriver
+                            Spider1Runtime::bootInit / createFrameDriver -> Spider1FrameDriver
                                     |
-              Spider1HostSteppedFiber + Spider1ModeDriver (retail outer selector and modes)
+                            Spider1BootstrapTurn: the guest runs to a measured boundary,
+                            Spider1Runtime::resumeBootstrapBoundary services it as one field
 ```
 
-`spider::runPort` is composition: it binds the shared process spine, authenticates the executable,
-and enters crt0. `Spider1Runtime` holds the authenticated image, the platform-HLE plan, the widescreen
-owner and the CD-stream service; `Spider1FrameDriver` owns cadence; `Spider1ModeDriver` owns the
-retail mode state machine and composes the mode functions. Nothing else composes anything.
+Spider-Man 1 is hosted: zero arguments open the in-window picker, one executable argument runs that
+serial-identified executable (`tools/run.py` passes none for a title whose manifest says `hosted`).
+`spider::runPort` is Enter Electro's process spine only (`titles/spiderman2/main.cpp`), until that
+title joins the catalog (EE-02). `Spider1Runtime` holds the authenticated image, the platform-HLE
+plan, the widescreen owner and the CD-stream service; `Spider1FrameDriver` owns cadence and field
+delivery. `Spider1ModeDriver` and the host-stepped fiber are not reached from the product: nothing
+calls `runBootPrefix`, so they wait for the native frame owner that issue 0021 describes.
 
 ## Directory → namespace → class → responsibility
 
@@ -49,9 +53,9 @@ retail mode state machine and composes the mode functions. Nothing else composes
 
 | File | Class / function | Responsibility |
 |---|---|---|
-| `main.cpp` | `main` | names this product's title runtime and hands it to `runPort`. Composition only. |
-| `spider_port.{h,cpp}` | `spider::runPort` | the whole process boot shared by both titles: devices in measured order, render path install, control channel, crt0, and the bootstrap field turns |
-| `spider_runtime.{h,cpp}` | `SpiderRuntime` | the address-free lineage seam: serial, refusal wording, and the bootstrap-boundary contract both titles share. Owns no guest address. |
+| `main.cpp` | `main` | composes `psx::host::ProductHost` over `Spider1Catalog`; `-h`/`--help` and the one-executable override. Composition only. |
+| `spider_port.{h,cpp}` | `spider::runPort` | Enter Electro's process boot (`titles/spiderman2/main.cpp`): devices in measured order, render path install, control channel and crt0, until that title joins the host catalog |
+| `spider_runtime.{h,cpp}` | `SpiderRuntime` | the address-free lineage seam: serial, disc key (`discEnvVar`) and refusal wording both titles share. Owns no guest address. |
 | `executable_identity.{h,cpp}` | `ExecutableIdentity`, `ExecutableIdentityStatus`, `verifyExecutable`, `verifyExecutableFile` | shipping serial, size, magic and SHA-256 authentication of the player's executable |
 | `guest_execution.{h,cpp}` | `GuestExecution`, `reportExecutionResult` | one `Core`'s entry into, resumption at, and scoped original call through psxport's executor |
 | `native_execution.h` | `dispatchGuestOrPropagate`, `callOriginalOrPropagate` | the two leaves a native override uses: dispatch a guest body, or bypass the current override for one call. Header-only, no state. |
@@ -77,6 +81,8 @@ Compiled as `spider_render_contracts`; nothing in the product links these yet (s
 
 | File | Class / function | Responsibility |
 |---|---|---|
+| `spider1_catalog.{h,cpp}` | `Spider1Catalog` | the host catalog: Spider-Man 1's identity, built from `title.json` (id, label, serial, size, SHA-256, PS-X EXE header words). Spider-Man 2 joins when it boots (EE-02). |
+| `spider1_bootstrap_turn.{h,cpp}` | `Spider1BootstrapTurn` | one host step of the retail program: enter main after the host's crt0, service the boundary the guest stopped at, resume to the next; a turn that ended on the cycle budget resumes and presents the picture as it stands |
 | `spider1_runtime.{h,cpp}` | `Spider1Runtime` | the authenticated `SLUS_008.75` image policy: program image, platform-HLE plan, pad and CD callback layouts, render capabilities, widescreen owner, CD-stream service |
 | `spider1_frame_driver.{h,cpp}` | `Spider1FrameDriver` | **the frame turn for this title**: field delivery, the one presentation fence per host step, the boot overrides, and the movie/stream/VSync boundaries. Implements `Spider1ModeHost`. |
 | `spider1_host_stepped_fiber.{h,cpp}` | `Spider1HostSteppedFiber`, `Spider1FiberPhase` | the finite host-stepped fiber the non-returning boot prefix and mode loops run on, its outstanding field wait, and its single handoff from boot to the mode phase |
@@ -124,12 +130,13 @@ Hermetic contract and ownership tests: `spider1_mode_rules`, `spider1_mode_trans
 | Hop | Owner | What it decides |
 | --- | --- | --- |
 | One field, services around the body | `psx::FieldTurn::beginField` / `endField` (`runtime/psx/frame/field_turn.*`) | pause answer, watchdog re-arm, RAM-dump frame, one queued command. The BODY is the title's. |
-| The body | `Spider1FrameDriver::stepFrame` | resets the fence counters, re-latches the projection, then delivers at most one field, resumes or starts one mode step, and commits exactly one fence |
-| A retail mode step | `Spider1ModeDriver::step` → `Spider1MenuMode` / `Spider1AlternateMode` / `Spider1InvalidSelectorInput` / `Spider1TransitionWipe` | the guest calls of that mode, ending in one of `modeWaitUnadvancedField` / `modeDrainDrawFields` / `modeCompleteFrameHandshake` |
-| Presenting a step | `Spider1FrameDriver::commitSubmittedFrame` / `commitRepeatedFieldFrame` / `commitUnpresentedFrame` | submitted, repeated-field or unpresented, all through `claimFrameFence` — one fence per host step, a second is an abort |
-| A fiber blocked at a field boundary | `Spider1HostSteppedFiber::yieldField` / `resume` / `clearFieldWait` | what the next host step does about it; `planFiberResume` / `planFiberYield` are the whole rule |
-| **While a movie or stream poll blocks** | `Spider1FrameDriver::deliverField` and `commitMovieField` | **the frame driver still owns the turn.** `serviceBootstrapMovieVsync` and `serviceBootstrapStreamWait` deliver exactly one field, commit one fence, and continue at the guest's own continuation PC; a mode phase blocked mid-movie owns nothing and is resumed by the next `stepFrame` |
-| Boot, before any mode exists | `Spider1FrameDriver::runBootPrefix` → `beginBoot` → `finishBoot` | the finite prefix's one-time handoff from the boot fiber to the mode driver |
+| The body | `Spider1FrameDriver::stepFrame` → `Spider1BootstrapTurn::step` | services the boundary the guest stopped at (one field, one fence, `Game::run.fieldDelivered()`), then resumes the guest; a non-boundary stop logs the exit, commits an unpresented fence and calls `Game::run.requestEnd()` |
+| A retail mode step (not reached by the product) | `Spider1ModeDriver::step` → `Spider1MenuMode` / `Spider1AlternateMode` / `Spider1InvalidSelectorInput` / `Spider1TransitionWipe` | the guest calls of that mode, ending in one of `modeWaitUnadvancedField` / `modeDrainDrawFields` / `modeCompleteFrameHandshake` |
+| Presenting a step (mode path, not reached) | `Spider1FrameDriver::commitSubmittedFrame` / `commitRepeatedFieldFrame` / `commitUnpresentedFrame` | submitted, repeated-field or unpresented, all through `claimFrameFence` — one fence per host step, a second is an abort |
+| A fiber blocked at a field boundary (not reached) | `Spider1HostSteppedFiber::yieldField` / `resume` / `clearFieldWait` | what the next host step does about it; `planFiberResume` / `planFiberYield` are the whole rule |
+| **While a movie or stream poll blocks** | `Spider1FrameDriver::deliverField` and `commitMovieField` | **the frame driver still owns the turn.** `serviceBootstrapMovieVsync` and `serviceBootstrapStreamWait` deliver exactly one field, commit one fence, and continue at the guest's own continuation PC; the guest resumes at its continuation PC in the same step |
+| Boot | the host's `TitleSession::boot` (`crt0_setup` from `Spider1Runtime::guestProgramImage()`), then `Spider1Runtime::bootInit` → `Spider1BootstrapTurn::begin` | crt0's bss, stack, heap and libc init are the framework's, audited against the guest's own crt0; the title enters retail main at `gameMainEntry` with crt0's return address |
+| Boot prefix → mode driver handoff (not reached) | `Spider1FrameDriver::runBootPrefix` → `beginBoot` → `finishBoot` | the finite prefix's one-time handoff from the boot fiber to the mode driver |
 
 ### Host input → guest pad buffer, movie skip and the control channel
 
@@ -137,18 +144,18 @@ Hermetic contract and ownership tests: `spider1_mode_rules`, `spider1_mode_trans
 | --- | --- | --- |
 | The ONE SDL drain | `psx::input::HostInput::drainEvents` (`runtime/psx/input/host_input.*`) | records key state, feeds the overlay, ends the process on a window close |
 | This turn's mask | `psx::input::HostInput::poll(bool)` → `Pad::pollHostInput` (framework) | force/replay/hold wins over the host mask, so a headless leg keeps its own input |
-| The per-frame pump | `Spider1FrameDriver::stepFrame` → `game_.pad.serviceFrame()` (framework `Pad`, `runtime/psx/input/pad_input.*`) | once per host frame, before guest work and before the fence |
+| The per-frame pump | `serviceBootstrapMovieVsync` / `serviceBootstrapStreamWait` → `game_.pad.serviceFrame()` (framework `Pad`, `runtime/psx/input/pad_input.*`) | once per serviced movie or stream field, before the fence |
 | The guest's field-time packet | framework `Pad::fillBuffer` into the slots `Spider1Runtime::guestPadBufferLayout()` names | the 4-byte digital packet per VBlank |
 | A retail pad read from guest code | `Spider1FrameDriver::serviceBootTail` (override on `padRead`) | super-calls the guest body; during the post-logo boot wait it yields the field the guest is blocked on |
 | **Movie skip** | the same `Pad` mask, sampled by `Spider1FrameDriver::serviceBootstrapMovieVsync` each STR field | the guest keeps its own `VSync(0)` answer; the host only supplies the field and the pad frame that goes with it. There is no second pad drain and no movie-local key rule. |
-| The debug / control channel | framework `DbgServer` (`runtime/psx/debug/dbg_server.*`), attached in `runPort` | pause, step, `guest`, and the guest-call census. The port only runs its own bootstrap turns; `resumeBootstrapBoundary` is what accepts a resume there |
+| The debug / control channel | framework `DbgServer` (`runtime/psx/debug/dbg_server.*`), attached by the host's `TitleSession::boot` | pause, step, `guest`, and the guest-call census. The port only runs its own bootstrap turns; `resumeBootstrapBoundary` is what accepts a resume there |
 
 ### Guest draw → presentation
 
 | Hop | Owner | What it decides |
 | --- | --- | --- |
 | The guest's own draw | translated guest code through psxport's Lightrec runtime | retail OT/GTE output; no title code intercepts it |
-| The projection the frame uses | `Spider1Widescreen::synchronizePresentation` (called first in every `stepFrame`) | re-latches the plan for the live display extent and applies the guest projection/draw-clip widening |
+| The projection the frame uses | `Spider1Widescreen::synchronizePresentation` (mode path only; the bootstrap path does not call it) | re-latches the plan for the live display extent and applies the guest projection/draw-clip widening |
 | Which frame is being committed | `Spider1FrameDriver::commitSubmittedFrame` (`FrameDriver`'s three commit leaves) | the one fence, and whether the interpolation owner's captured queue is presented with it |
 | The present itself | framework `FramePresenter::commit` / `commitUnpresented` (`runtime/psx/frame/frame_presenter.*`) | the real field, the pacer, and the widescreen canvas |
 | Future native producers | `spider::render::FrameEnvelope`, `SceneName` | compiled, not attached; see `docs/project-state.md` S005/S006 |
@@ -175,7 +182,7 @@ Hermetic contract and ownership tests: `spider1_mode_rules`, `spider1_mode_trans
 
 | Hop | Owner | What it decides |
 | --- | --- | --- |
-| The control channel | framework `DbgServer` (`runtime/psx/debug/`), attached by `runPort` | pause/step/`guest`/quit, always on loopback |
+| The control channel | framework `DbgServer` (`runtime/psx/debug/`), attached by the host's `TitleSession::boot` (Enter Electro: `runPort`) | pause/step/`guest`/quit, always on loopback, plus the picker's `picker`, `pick <slug>`, `select` and `session return` |
 | Environment knobs | the framework's configuration owner, read once at boot | `PSXPORT_DEBUG`, the control port, the asset directory. No title file reads the environment. |
 | Title debug knobs | none; the title has no dev-only selector | the guest's own paths are the debug options |
 
@@ -198,7 +205,7 @@ uv run --frozen python ../../shared/re-harness/tools/codemap.py tree game titles
 
 ## Where does X go?
 
-- A title serial, executable hash or target label → `titles/<title>/title.json`.
+- A title serial, executable hash, PS-X EXE header word or target label → `titles/<title>/title.json`; the host catalog and the runtime read it through CMake definitions, never a second copy.
 - A guest address, table offset, mode id or threshold → `titles/<title>/`'s one guest-layout header,
   declared at a name; `kUnattributed…` when the role is unknown.
 - A rule a mode DECIDES by → a `constexpr` function in `spider1_mode_decisions.h` or

@@ -47,7 +47,7 @@ dependency declaration still pins Lightrec, and CMake refuses a dirty or mismatc
 
 `./run.sh` enters the frozen `uv` environment, selects and authenticates the disc, provisions only
 the PS-X EXE, builds the native/Lightrec product without offline guest translation, and launches the
-selected title. The maintained Lightrec backend is linked. A real authenticated run has presented
+selected title. For Spider-Man 1 that is psxport's in-window title picker (one process, one window); `spiderman_port <executable>` runs that executable directly. The maintained Lightrec backend is linked. A real authenticated run has presented
 the first movie field; complete movies, `dem1`, and gameplay remain unverified against the declared
 translation and fallback gates.
 

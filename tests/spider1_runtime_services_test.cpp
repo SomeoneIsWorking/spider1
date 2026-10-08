@@ -6,6 +6,7 @@
 #include "cd_ready_delivery.h"
 #include "cdc_state.h"
 #include "execution_control.h"
+#include "frame_loop_shell.h"
 #include "game.h"
 #include "hw_bind.h"
 #include "native_dispatch.h"
@@ -164,7 +165,7 @@ void test_stock_cd_command_preserves_measured_guest_state_and_pending_result() {
   auto image = core.imageCatalog().activate(
       "Spider-Man resident", runtime.guestProgramImage()->residentText, 1u);
   runtime.registerOverrides(*game);
-  runtime.prepareBootstrap(*game);
+  psx::frame::FrameLoopShell{}.prepareProduct(*game);
   CHECK(game->platform_hle.lookup(spider::spider1::cdCommandAddress) == cd_command_stock_sync);
 
   // Stock command completion has no callback-dispatch owner; instrument the installed callbacks.
@@ -259,7 +260,7 @@ void test_retail_movie_field_exit_resumes_at_each_authenticated_return() {
   auto image = core.imageCatalog().activate(
       "Spider-Man resident", runtime.guestProgramImage()->residentText, 1u);
   runtime.registerOverrides(*game);
-  runtime.prepareBootstrap(*game);
+  psx::frame::FrameLoopShell{}.prepareProduct(*game);
   CHECK(game->platform_hle.lookup(kVsyncCallbackEntry) != nullptr);
   psx::cpu::installNativeOverride(
       core, kSyntheticFieldCallback, "test display field callback", FieldCallbackProbe::invoked);
@@ -326,7 +327,7 @@ void test_direct_stream_wait_preserves_original_result_and_field_ownership() {
   auto image = core.imageCatalog().activate(
       "Spider-Man resident", runtime.guestProgramImage()->residentText, 1u);
   runtime.registerOverrides(*game);
-  runtime.prepareBootstrap(*game);
+  psx::frame::FrameLoopShell{}.prepareProduct(*game);
   CHECK(core.nativeDispatcher().isInstalled({image, spider::spider1::stGetNextAddress}));
   // The guest source-2 handler owns CD data-ready on this executable, so no host stream callback
   // layout is declared; see `Spider1Runtime::guestCdStreamCallbackLayout`.
@@ -551,7 +552,7 @@ void test_nested_cd_ready_vsync_query_returns_without_frame_or_register_loss() {
   auto image = core.imageCatalog().activate(
       "Spider-Man resident", runtime.guestProgramImage()->residentText, 1u);
   runtime.registerOverrides(*game);
-  runtime.prepareBootstrap(*game);
+  psx::frame::FrameLoopShell{}.prepareProduct(*game);
   uint32_t entry = spider::spider1::stGetNextAddress;
   core.mem_w32(entry, 0x26310001u);      // addiu s1, s1, 1: original-body calls
   core.mem_w32(entry + 4u, 0x24020001u); // addiu v0, zero, 1: still dry
@@ -605,7 +606,7 @@ void test_measured_services_use_the_direct_runtime() {
       "Spider-Man resident", runtime.guestProgramImage()->residentText, 1u);
   runtime.registerOverrides(*game);
   CHECK(game->frameDriver != nullptr);
-  runtime.prepareBootstrap(*game);
+  psx::frame::FrameLoopShell{}.prepareProduct(*game);
   CHECK(game->platform_hle.hasNativeFrameLoopContract());
   CHECK(game->platform_hle.lookup(0x80089ECCu) == cd_read_stock_sync);
   CHECK(game->platform_hle.lookup(0x8008A068u) == cd_readsync_stock_sync);
