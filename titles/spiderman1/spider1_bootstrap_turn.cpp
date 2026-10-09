@@ -1,5 +1,6 @@
 #include "spider1_bootstrap_turn.h"
 
+#include "spider1_frame_driver.h"
 #include "spider1_guest_layout.h"
 #include "spider1_runtime.h"
 
@@ -19,11 +20,10 @@ void Spider1BootstrapTurn::begin(Core &core) {
 }
 
 void Spider1BootstrapTurn::step(Core &core) {
-  // The turn limit bounds one call, not the program: resume the saved PC as a step that completes
-  // no display field.
+  // A spent cycle budget is a field of guest time: deliver it, then resume where the driver left off.
   if (result_.reason == psx::cpu::ExecutionExitReason::BudgetExhausted && result_.cycles != 0) {
-    game_.presentation.commit(&core, 0, nullptr);
-    result_ = execution_.resumeAt(result_.guestPc);
+    Spider1FrameDriver::from(core).deliverBootstrapWaitField(core, result_.guestPc);
+    result_ = execution_.resumeAt(core.pc);
     return;
   }
   if (!Spider1Runtime::from(core).resumeBootstrapBoundary(core, result_)) {

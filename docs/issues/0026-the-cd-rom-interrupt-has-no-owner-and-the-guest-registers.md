@@ -7,7 +7,7 @@ symptom: reaches retail STR movie field 1 at 0x8002AC8C and presents it, then sp
 state_items: S004,S013,S018,S019
 tags: cd,bios,openevent,event-class,interrupts,root-cause,frontier,s018
 created: 2026-09-28
-updated: 2026-10-04
+updated: 2026-10-09
 ---
 
 > **§5's conclusion is FALSIFIED BY MEASUREMENT — read §9 before using §5.** §5 says restoring the
@@ -16,6 +16,13 @@ updated: 2026-10-04
 > from `FUN_8008BA00`, and it is the thing standing between field 1 and field 2. §9 names the real
 > cause with the disassembly and the live guest words. §5 is retained for the provenance of the
 > framework-side work it proposed, not as the current diagnosis.
+
+> **Resolved 2026-10-09.** The CD interrupt is delivered to the guest's own handler (`0x8008BA00` ->
+> `0x8008DA24` -> `0x8008C3E0`), which the title's CdInit arms. What stalled the stream was the title's
+> native override of `0x8008C3E0` dropping the controller acknowledge, and the missing DMA callback
+> table base; see issue 0024. The `0x8008DCC8(0x190)` named in the state doc is the SIO pad
+> transmit timeout (`FUN_80087F34`, I_STAT bit 7), not a CD handoff. §5's proposal to add a CD arm to
+> `Hle::deliverEvent` is withdrawn.
 
 ## Answer
 

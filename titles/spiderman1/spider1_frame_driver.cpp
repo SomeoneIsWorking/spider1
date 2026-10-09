@@ -116,8 +116,7 @@ void Spider1FrameDriver::serviceBootstrapMovieVsync(Core &core) {
   }
   completeMovieVsync(core, returnValue);
   commitMovieField(core);
-  // Start the next logic frame only after presenting this one, so its OT attributes survive the
-  // fence.
+  // The next logic frame starts after presenting, so its OT attributes survive the fence.
   ++game_.timing.logicFrame;
   core.rsub.otAttr.beginLogicFrame(game_.timing.logicFrame);
   game_.pad.serviceFrame();
@@ -128,9 +127,7 @@ void Spider1FrameDriver::serviceBootstrapMovieVsync(Core &core) {
 }
 
 void Spider1FrameDriver::serviceBootstrapStreamWait(Core &core) {
-  // StGetNext already returned "not ready"; supply the field that passes while the drive catches
-  // up. Unlike VSync this updates neither the VSync return value nor the horizontal-counter
-  // baseline.
+  // StGetNext returned "not ready": supply the field that passes; VSync state is untouched.
   if (mainFrameInstalled_ || fiber_.active() || core.pc != stGetNextAddress || core.r[2] == 0) {
     lucent::error("str",
                   "Spider-Man 1 refused direct stream wait: main={} fiber={} pc=0x{:08X} v0={}",
@@ -140,12 +137,15 @@ void Spider1FrameDriver::serviceBootstrapStreamWait(Core &core) {
                   core.r[2]);
     std::abort();
   }
-  const uint32_t continuation = core.r[31];
+  deliverBootstrapWaitField(core, core.r[31]);
+}
+
+void Spider1FrameDriver::deliverBootstrapWaitField(Core &core, uint32_t continuation) {
   fieldsSinceCommit_ = 0;
   frameCommitted_ = false;
   deliverField(core);
   if (core.executionControl().pending()) {
-    lucent::error("str", "Spider-Man 1 field callback exited during direct stream wait");
+    lucent::error("frame", "Spider-Man 1 field callback exited during a direct field wait");
     std::abort();
   }
   commitMovieField(core);

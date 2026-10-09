@@ -1,14 +1,33 @@
 ---
 id: 24
 title: The CD channel is armed and never started, so the sector never reaches the STR ring
-status: open
+status: resolved
 symptom: reaches retail STR field 1 at 0x8002AC8C and presents it, then spins; one display field
          per host turn at ~4.5M guest instructions/s and no second field, no ring publication, no
          dem1, no stage, no scene
 tags: cd,dma,str,libstr,frontier,s018
 created: 2026-09-27
-updated: 2026-09-27
+updated: 2026-10-09
 ---
+
+## Resolution, 2026-10-09
+
+The channel was never "armed and never started" by a missing interrupt owner: the guest's own CD
+service ran and a title override of it broke the controller handshake. Two causes, both title-side:
+
+1. `titles/spiderman1/spider1_cd_stream.cpp:CdStreamService::service` replaced guest `0x8008C3E0`
+   without its controller acknowledge (`1803 <- 7`, then the request-register clear for INT1). The
+   first INT1 stayed the head of the controller's response queue, the next sector's INT1 queued
+   behind it and never raised IRQ2, so only sector 1 of 71 arrived. The override is deleted; the
+   guest body runs through Lightrec.
+2. `spider1_platform_facts.h:platformServices` declared no `dmaCallbackTable`. libcd's DMACallback
+   `0x8009152C` keeps the per-channel table at `0x800B4388`, and psxport's `Hle::irqPoll` finds the
+   DMA3 completion callback there. With the base missing the completion of an STR frame's last sector
+   was consumed with callback 0 and libstr's frame-ready callback `0x8008DB44` never ran. The base is
+   declared.
+
+Tests: `cd_interrupt_service_runs_the_guest_body`, `stream_frame_dma_completion_reaches_the_guest_callback`
+in `tests/spider1_runtime_services_test.cpp`. Everything below is the pre-fix investigation.
 
 ## The measured frontier, 2026-09-27, psxport `006eb917`, `build/consumer-verify`
 

@@ -1,3 +1,4 @@
+#include "spider1_frame_driver.h"
 #include "spider1_platform_facts.h"
 #include "spider1_runtime.h"
 #include "spider1_stream_driver.h"
@@ -678,21 +679,18 @@ void test_measured_services_use_the_direct_runtime() {
   CHECK(core.imageCatalog().deactivate(image));
 }
 
-// Stage one controller response with an explicit length against a real `CdcIrqEnt`.
-void publishResponse(Game &game, uint8_t type, uint8_t first, int len) {
-  game.cdc.q_head = 0;
-  game.cdc.q_tail = 1;
-  game.cdc.resp_rd = 0;
-  game.cdc.q[0].type = type;
-  game.cdc.q[0].len = len;
-  for (int i = 0; i < 16; ++i) {
-    game.cdc.q[0].resp[i] = static_cast<uint8_t>(0xA0u + i);
-  }
-  game.cdc.q[0].resp[0] = first;
-}
+struct DmaCallbackProbe {
+  static inline unsigned calls = 0;
 
-void test_recovered_cd_service_owns_the_polled_guest_routine() {
-  namespace cds = spider::spider1::cdstream;
+  static void invoked(Core *) {
+    ++calls;
+  }
+};
+
+// 0x8008C3E0 is the guest's CD interrupt service: it drains the response and acknowledges the
+// controller, so the title must leave it to the guest body.
+void test_cd_interrupt_service_runs_the_guest_body() {
+  constexpr uint32_t kServiceBody = 0x8008C3E0u;
   spider::spider1::Spider1Runtime runtime;
   psxport_install_game(runtime);
   auto game = std::make_unique<Game>();
@@ -700,69 +698,66 @@ void test_recovered_cd_service_owns_the_polled_guest_routine() {
   auto image = core.imageCatalog().activate(
       "Spider-Man resident", runtime.guestProgramImage()->residentText, 1u);
   runtime.registerOverrides(*game);
-  spider::spider1::CdStreamService &service = runtime.cdStream();
+  CHECK(!core.nativeDispatcher().isInstalled({image, kServiceBody}));
 
-  // The override lands on the one recovered body, image-aware.
-  CHECK(core.nativeDispatcher().isInstalled({image, cds::kServiceBody}));
-
-  // The recovered pure rules, with their negatives.
-  CHECK_EQ(service.typeIsDispatchable(0u), 0u);
-  CHECK_EQ(service.typeIsDispatchable(1u), 1u);
-  CHECK_EQ(service.typeIsDispatchable(5u), 1u);
-  CHECK_EQ(service.typeIsDispatchable(6u), 0u);
-  CHECK_EQ(service.resultHasDataReady(cds::kResultDataReady), 1u);
-  CHECK_EQ(service.resultHasDataReady(cds::kResultCommandAcknowledge), 0u);
-  CHECK_EQ(service.resultHasCommandAcknowledge(cds::kResultDataReady), 0u);
-  CHECK_EQ(service.resultHasSectorBufferReady(1u), 1u);
-  CHECK_EQ(service.carry(0xFFu), 0x1Du);
-  CHECK_EQ(service.carry(0x02u), 0u);
-  CHECK_EQ(service.armForResponseType(1u), cds::kArmDataReady);
-  CHECK_EQ(service.armForResponseType(5u), cds::kArmError);
-  CHECK_EQ(service.armForResponseType(0u), cds::kUndispatchedType);
-
-  // The gate word is 0 in the image and no code sets it, so the owner must leave it alone;
-  // writing it would enable three retail-dead poll loops.
-  CHECK_EQ(service.gateObserved(core), 0u);
-  CHECK_EQ(core.mem_r8(cds::kServiceGateAddress), 0u);
-
-  // Response type 1 (data ready): mask bit 2, status byte 0 cleared, byte 1 set, eight bytes at
-  // 0x800C6384.
-  publishResponse(*game, 1u, 0x00u, 8);
-  const uint32_t dataReady = service.service(core);
-  CHECK_EQ(dataReady, cds::kResultDataReady);
-  CHECK_EQ(core.mem_r8(cds::kStatusTripletAddress + 0), 0u);
-  CHECK_EQ(core.mem_r8(cds::kStatusTripletAddress + 1), 1u);
-  for (uint32_t i = 0; i < cds::kResponseBytes; ++i) {
-    // Byte 0 is the fixture-set byte carried into the five arms; bytes 1..7 are the ramp.
-    CHECK_EQ(core.mem_r8(cds::kReadyResponseBuffer + i), i == 0 ? 0x00u : 0xA0u + i);
-  }
-
-  // Response type 5 (error) returns 6 = 4|2, read by the poll loops as data ready and acknowledge.
-  publishResponse(*game, 5u, 0x00u, 8);
-  const uint32_t error = service.service(core);
-  CHECK_EQ(error, cds::kResultDataReady | cds::kResultCommandAcknowledge);
-  CHECK_EQ(service.resultHasDataReady(error), 1u);
-  CHECK_EQ(service.resultHasCommandAcknowledge(error), 1u);
-  CHECK_EQ(core.mem_r8(cds::kStatusTripletAddress + 0), 5u);
-  CHECK_EQ(core.mem_r8(cds::kStatusTripletAddress + 1), 5u);
-
-  // An empty controller queue is response type 0 and returns 0.
-  game->cdc.q_tail = game->cdc.q_head;
-  game->cdc.resp_rd = 0;
-  CHECK_EQ(service.service(core), 0u);
-
-  // Through the native override: the guest `jal` lands on it and the mask returns in v0.
-  publishResponse(*game, 2u, 0x00u, 8);
-  core.r[2] = 0xDEADBEEFu;
-  CHECK(psx::cpu::dispatchGuest(core, cds::kServiceBody, psx::cpu::ExecutionBudget::fromCycles(200))
+  core.mem_w32(kServiceBody, 0x24021234u);      // addiu v0, zero, 0x1234
+  core.mem_w32(kServiceBody + 4u, 0x03E00008u); // jr ra
+  core.mem_w32(kServiceBody + 8u, 0u);
+  core.r[2] = 0;
+  core.r[31] = kCdReturn;
+  CHECK(psx::cpu::dispatchGuest(core, kServiceBody, psx::cpu::ExecutionBudget::fromCycles(100))
             .returned());
-  CHECK_EQ(core.r[2], cds::kResultCommandAcknowledge);
-  CHECK_EQ(core.mem_r8(cds::kStatusTripletAddress + 0), 2u);
+  CHECK_EQ(core.r[2], 0x1234u);
+  CHECK(core.imageCatalog().deactivate(image));
+}
 
-  // The gate stays untouched.
-  CHECK_EQ(core.mem_r8(cds::kServiceGateAddress), 0u);
-  CHECK_EQ(core.mem_r8(cds::kServiceGateAddress + 1), 0u);
+// libstr arms DICR for the last sector of an STR frame only; its completion callback lives in the
+// guest table libcd's DMACallback 0x8009152C writes, and the framework needs that base.
+void test_stream_frame_dma_completion_reaches_the_guest_callback() {
+  constexpr uint32_t kCallback = 0x80012100u;
+  constexpr uint32_t kDicr = 0x1F8010F4u;
+  spider::spider1::Spider1Runtime runtime;
+  psxport_install_game(runtime);
+  auto game = std::make_unique<Game>();
+  Core &core = game->core;
+  auto image = core.imageCatalog().activate(
+      "Spider-Man resident", runtime.guestProgramImage()->residentText, 1u);
+  runtime.registerOverrides(*game);
+  CHECK(core.nativeDispatcher().install(
+      {{image, kCallback}, "dma3-callback", DmaCallbackProbe::invoked}));
+  DmaCallbackProbe::calls = 0;
 
+  constexpr uint32_t kDmaCdromChannel = 3u;
+  core.mem_w32(spider::spider1::guestDmaCallbackTable + 4u * kDmaCdromChannel, kCallback);
+  core.mem_w32(kDicr, 0x00880000u); // channel 3 and master enable, as DMACallback arms them
+  core.mem_w32(0x1F8010B0u, 0x80020000u);
+  core.mem_w32(0x1F8010B4u, 1u);
+  core.mem_w32(0x1F8010B8u, 0x11000000u);
+  game->hle.irqPoll(&core);
+  CHECK_EQ(DmaCallbackProbe::calls, 1u);
+  CHECK(core.imageCatalog().deactivate(image));
+}
+
+// With no VSync or stream boundary in reach, a full turn budget is one display field of guest time:
+// the title delivers it and resumes where the budget ran out, so the post-logo pad wait and the
+// overlay mode loops, which wait on the field callback's counter, advance.
+void test_budget_exhausted_turn_delivers_one_display_field() {
+  constexpr uint32_t kResumePc = 0x8006C304u;
+  spider::spider1::Spider1Runtime runtime;
+  psxport_install_game(runtime);
+  auto game = std::make_unique<Game>();
+  Core &core = game->core;
+  auto image = core.imageCatalog().activate(
+      "Spider-Man resident", runtime.guestProgramImage()->residentText, 1u);
+  runtime.registerOverrides(*game);
+  psx::frame::FrameLoopShell{}.prepareProduct(*game);
+  core.mem_w32(kVblankCount, 100u);
+
+  const uint32_t fenceBefore = game->presentation.fence();
+  spider::spider1::Spider1FrameDriver::from(core).deliverBootstrapWaitField(core, kResumePc);
+  CHECK_EQ(core.mem_r32(kVblankCount), 101u);
+  CHECK_EQ(game->presentation.fence(), fenceBefore + 1u);
+  CHECK_EQ(core.pc, kResumePc);
   CHECK(core.imageCatalog().deactivate(image));
 }
 
@@ -797,7 +792,9 @@ int main() {
   RUN(stock_cd_command_preserves_measured_guest_state_and_pending_result);
   RUN(stock_cd_command_without_measured_work_area_does_not_write_guest_state);
   RUN(measured_services_use_the_direct_runtime);
-  RUN(recovered_cd_service_owns_the_polled_guest_routine);
+  RUN(cd_interrupt_service_runs_the_guest_body);
+  RUN(stream_frame_dma_completion_reaches_the_guest_callback);
+  RUN(budget_exhausted_turn_delivers_one_display_field);
   RUN(pad_service_writes_retail_receive_buffers_only);
   return pt_summary();
 }

@@ -48,6 +48,10 @@ inline constexpr uint32_t cdEventCallbackSlot = 0x800B1C7Cu;
 inline constexpr uint32_t cdEventCallback = 0x8008A288u;
 inline constexpr uint32_t cdEventUnusedSlot = 0x800B1C80u;
 
+// libcd DMACallback 0x8009152C stores channel ch's callback at this base + 4*ch (DICR is
+// 0x1F8010F4).
+inline constexpr uint32_t guestDmaCallbackTable = 0x800B4388u;
+
 // SLUS_008.75 library entry points.
 inline constexpr PlatformHlePlan platformServices{
     .setGeomOffset = 0x8008BF24u,
@@ -56,6 +60,7 @@ inline constexpr PlatformHlePlan platformServices{
     .cdReadSyncAddress = 0x8008A068u,
     .cdCommandAddress = cdCommandAddress,
     .stockCdWorkArea = {cdLastPositionAddress, cdLastModeAddress},
+    .dmaCallbackTable = guestDmaCallbackTable,
     .vsyncAddress = 0x80084BE0u,
     // libetc VSync(-1): 0x80084C44 loads the VBlank count directly.
     .vsyncQueryCounterAddress = libetcVblankCountAddress,

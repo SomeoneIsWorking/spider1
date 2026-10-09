@@ -28,6 +28,8 @@ public:
   void serviceBootstrapVsync(Core &core);
   void serviceBootstrapMovieVsync(Core &core);
   void serviceBootstrapStreamWait(Core &core);
+  // One field for a wait the guest cannot yield itself: StGetNext not ready or a spent turn budget.
+  void deliverBootstrapWaitField(Core &core, uint32_t continuation);
   void runBootPrefix(Core &core);
   void beginGuest(Core &core);
   void stepFrame(Core &core, uint32_t frame) override;

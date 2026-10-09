@@ -44,9 +44,6 @@ void *Spider1Runtime::createContext(Core &core) {
 }
 
 void Spider1Runtime::destroyContext(void *context) {
-  // CD service counts are reported once at the end of the run, where the whole-run denominator
-  // exposes a service that never ran.
-  cdStream_.report();
   delete static_cast<Spider1StreamDriver *>(context);
 }
 
@@ -54,7 +51,6 @@ void Spider1Runtime::registerOverrides(Game &game) {
   game.platform_hle.initBuiltins();
   Spider1FrameDriver::from(game.core).installBootstrapOverrides();
   Spider1StreamDriver::from(game.core).install();
-  cdStream_.install(game.core);
   installSpider1Widescreen(game.core);
 }
 

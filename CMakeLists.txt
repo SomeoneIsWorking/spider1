@@ -41,8 +41,6 @@ set(SPIDER1_FRAME_SOURCES
   titles/spiderman1/spider1_frame_driver.cpp
   # Mode driver and the retail mode functions it composes.
   titles/spiderman1/spider1_cd_initialization.cpp
-  # Polled CD-ROM service 0x8008C3E0; byte evidence in spider1_cd_stream.h.
-  titles/spiderman1/spider1_cd_stream.cpp
   titles/spiderman1/spider1_field_clock.cpp
   titles/spiderman1/spider1_gpu_reset.cpp
   titles/spiderman1/spider1_host_stepped_fiber.cpp

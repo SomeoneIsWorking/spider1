@@ -6,8 +6,13 @@ symptom: The title has a hand-written widescreen owner, a booting product, and n
 state_items: S008,S018,S019
 tags: widescreen,render,evidence,black-frame,cd,dma,proving
 created: 2026-09-28
-updated: 2026-09-28
+updated: 2026-10-09
 ---
+
+> **2026-10-09.** A picture now exists: the three logo movies present (4:3 320x240 13,739/76,800
+> non-black = 17.89%; 16:9 428x240 13,739/102,720 = 13.38%, the same pixels centred between black
+> margins because the movie is 4:3 content). No 3D scene is presented yet, so the widening of 3D
+> geometry is still unproven; the next frame that can prove it is behind issue 0031.
 
 ## Answer
 

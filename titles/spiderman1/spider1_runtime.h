@@ -2,7 +2,6 @@
 
 #include "execution_exit.h"
 #include "gpu_vk.h"
-#include "spider1_cd_stream.h"
 #include "spider1_widescreen.h"
 #include "spider_runtime.h"
 
@@ -22,9 +21,6 @@ public:
   // Owner lookup for native overrides, which carry no owner pointer. Out of line because the
   // `dynamic_cast` needs the key function's typeinfo.
   static Spider1Runtime &from(Core &core);
-  CdStreamService &cdStream() {
-    return cdStream_;
-  }
   void bootInit(Core &core) override;
   std::unique_ptr<FrameDriver> createFrameDriver(Game &game) override;
   // Services the guest's stop at a measured boundary as one display field; false means the stop is
@@ -42,8 +38,6 @@ private:
   static const ExecutableIdentity identity_;
   // Process-lifetime: aspect selection and the shared plan latch; per-frame state lives elsewhere.
   mutable Spider1Widescreen widescreen_{gpu_vk_latch_guest_projection};
-  // Recovered CD-ROM service 0x8008C3E0; process-lifetime because it counts over the whole run.
-  CdStreamService cdStream_;
   const GuestProgramImage image_ = {
       .bss = {0x800B5994u, 0x800C65D4u},
       .stackTopWordAddress = 0x800B3E70u,

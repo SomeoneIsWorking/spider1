@@ -18,9 +18,7 @@ One namespace per directory, and the three never overlap:
 | `spider::spider1` | `titles/spiderman1/` | every `SLUS_008.75` fact, rule, mode and boundary |
 | `spider::enterelectro` | `titles/spiderman2/` | every `SLUS_013.78` fact |
 
-`spider::spider1::cdstream` is the one nested namespace: the recovered constants of guest routine
-`0x8008C3E0`, kept separate from the class that runs it. Nothing in `spider` or `spider::render` may
-name an address from either title.
+Nothing in `spider` or `spider::render` may name an address from either title.
 
 ## Architecture
 
@@ -82,7 +80,7 @@ Compiled as `spider_render_contracts`; nothing in the product links these yet (s
 | File | Class / function | Responsibility |
 |---|---|---|
 | `spider1_catalog.{h,cpp}` | `Spider1Catalog` | the host catalog: Spider-Man 1's identity, built from `title.json` (id, label, serial, size, SHA-256, PS-X EXE header words). Spider-Man 2 joins when it boots (EE-02). |
-| `spider1_bootstrap_turn.{h,cpp}` | `Spider1BootstrapTurn` | one host step of the retail program: enter main after the host's crt0, service the boundary the guest stopped at, resume to the next; a turn that ended on the cycle budget resumes and presents the picture as it stands |
+| `spider1_bootstrap_turn.{h,cpp}` | `Spider1BootstrapTurn` | one host step of the retail program: enter main after the host's crt0, service the boundary the guest stopped at, resume to the next; a turn that ended on the cycle budget delivers the one display field that time covers and resumes |
 | `spider1_runtime.{h,cpp}` | `Spider1Runtime` | the authenticated `SLUS_008.75` image policy: program image, platform-HLE plan, pad and CD callback layouts, render capabilities, widescreen owner, CD-stream service |
 | `spider1_frame_driver.{h,cpp}` | `Spider1FrameDriver` | **the frame turn for this title**: field delivery, the one presentation fence per host step, the boot overrides, and the movie/stream/VSync boundaries. Implements `Spider1ModeHost`. |
 | `spider1_host_stepped_fiber.{h,cpp}` | `Spider1HostSteppedFiber`, `Spider1FiberPhase` | the finite host-stepped fiber the non-returning boot prefix and mode loops run on, its outstanding field wait, and its single handoff from boot to the mode phase |
@@ -102,7 +100,6 @@ Compiled as `spider_render_contracts`; nothing in the product links these yet (s
 | `spider1_platform_facts.h` | constants, `isMovieFieldReturn` | the measured service addresses and the pad/CD callback slots the runtime publishes to the framework |
 | `spider1_gpu_reset.{h,cpp}` | `Spider1GpuReset::reset` | the `ResetGraph` body minus its `VSync(0)`, which the field owner supplies |
 | `spider1_cd_initialization.{h,cpp}` | `Spider1CdInitialization` | the retail `CdInit` body: the four callback slots and the CD interrupt arm |
-| `spider1_cd_stream.{h,cpp}` | `CdStreamService`, `cdstream::*` | the recovered polled service `0x8008C3E0`: stable type read, bounded drain, five-arm dispatch, status triplet, result mask, and the never-written gate |
 | `spider1_stream_driver.{h,cpp}` | `Spider1StreamDriver` | the `StGetNext` boundary: super-call the guest body, pump the controller on a dry poll, yield the field that poll waited through, and report the ring and producer state |
 | `spider1_movie_execution.{h,cpp}` | `Spider1MovieExecution` | resumes the unchanged retail STR player through the runtime executor at its three authenticated field boundaries |
 | `spider1_widescreen.{h,cpp}` | `Spider1Widescreen`, `Spider1ViewportOffset`, `installSpider1Widescreen` | the title's own projection and draw-clip publication: which aspect the player chose, and the measured widening of the guest's horizontal window |
@@ -165,10 +162,11 @@ Hermetic contract and ownership tests: `spider1_mode_rules`, `spider1_mode_trans
 | Hop | Owner | What it decides |
 | --- | --- | --- |
 | Command channel | framework CD override (`runtime/psx/cd/`); `Spider1Runtime::platformHlePlan()` names the title's `CdRead`/`CdReadSync`/`CD_cw` entries | the synchronous read primitive |
-| Initialization | `Spider1CdInitialization::install` (override on `cdInit`) | the four callback slots, and the CD interrupt arm — necessary, not sufficient (`docs/issues/0026`) |
+| Initialization | `Spider1CdInitialization::install` (override on `cdInit`) | the four callback slots and the CD interrupt arm (`docs/issues/0024`) |
 | A dry `StGetNext` poll | `Spider1StreamDriver::poll` (override, super-calls the guest body) | one controller pump, one retry, then the field the poll waited through |
 | The field that poll waited through | `Spider1FrameDriver::streamWaitField` | the fiber's field boundary while a finite fiber runs; a typed cooperative exit in the direct boot |
-| The polled guest service | `CdStreamService::service` (override on `0x8008C3E0`) | the recovered five-arm dispatch; its gate is reported, never written |
+| The CD interrupt service | the guest's own `0x8008C3E0` through Lightrec (no override: it acknowledges the controller) | drain, acknowledge, the sync/ready result mask |
+| The frame-ready DMA callback | framework `Hle::irqPoll` through `platformServices.dmaCallbackTable` (`0x800B4388`) | libstr's `0x8008DB44` once per STR frame |
 | Callback delivery | framework `cd_ready_delivery` (`runtime/psx/cd/`), through the slots `Spider1Runtime::guestCdStreamCallbackLayout()` names | the ready/sync callbacks |
 
 ### Audio

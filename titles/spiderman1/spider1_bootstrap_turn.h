@@ -17,7 +17,8 @@ public:
   // Enter retail main once crt0 is applied; runs to the first boundary.
   void begin(Core &core);
   // Service the pending boundary (one field, one presentation fence), then run to the next.
-  // A turn that ended on the cycle budget instead resumes, presenting the picture as it stands.
+  // A turn that ended on the cycle budget instead delivers the display field that time covered,
+  // then resumes.
   void step(Core &core);
 
 private:
