@@ -11,8 +11,12 @@ updated: 2026-10-09
 
 > **2026-10-09.** A picture now exists: the three logo movies present (4:3 320x240 13,739/76,800
 > non-black = 17.89%; 16:9 428x240 13,739/102,720 = 13.38%, the same pixels centred between black
-> margins because the movie is 4:3 content). No 3D scene is presented yet, so the widening of 3D
-> geometry is still unproven; the next frame that can prove it is behind issue 0031.
+> margins because the movie is 4:3 content). After issue 0031 the run also presents the legal screen,
+> the menu and a 3D attract demo. Non-black coverage of the 3D demo: 4:3 512x240 118,737/122,880 =
+> 96.63% (frame 8000); 16:9 684x240 160,932/164,160 = 98.03% (frame 8400), both from headless runs
+> with `scratch/overlay-image/run.py`. The 16:9 menu is a 512-wide screen between stale margins. The
+> two legs are not frame-aligned to the same demo tick, so this proves a 3D picture at both aspects,
+> not a pixel-for-pixel widening pair; that needs a fixed-frame pair.
 
 ## Answer
 

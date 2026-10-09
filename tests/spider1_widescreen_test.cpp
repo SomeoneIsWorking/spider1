@@ -96,7 +96,6 @@ struct Fixture {
     writeWord(Spider1ViewportOffset::kScreenDistance, kRetailH);
     writeWord(Spider1ViewportOffset::kCentreX, kRetailCentreX);
     writeWord(Spider1ViewportOffset::kCentreY, kRetailCentreY);
-    core->mem_w32(spider::spider1::kViewportRecordCell, kRecordAddress);
     // The guest draw environment as 0x800884C0 wrote it.
     core->mem_w16(kDrawEnvironmentAddress + 0, 0);
     core->mem_w16(kDrawEnvironmentAddress + 2, 256);
@@ -126,7 +125,9 @@ struct Fixture {
   static constexpr std::int32_t kRetailScale = 6574;
 
   static void retailProjection(Core &core) {
-    const std::uint32_t record = core.mem_r32(spider::spider1::kViewportRecordCell);
+    // The body takes the record in $a1 and caches it in the cell (0x80075D0C stores gp+0x1124).
+    const std::uint32_t record = core.r[5];
+    core.mem_w32(spider::spider1::kViewportRecordCell, record);
     const std::int32_t far = core.mem_r16(record + Spider1ViewportOffset::kHorizontalFar);
     const std::int32_t near = core.mem_r16(record + Spider1ViewportOffset::kHorizontalNear);
     const std::int32_t lens = core.mem_r16(record + Spider1ViewportOffset::kLensDivisor);
@@ -167,6 +168,7 @@ struct Fixture {
   }
 
   void publishProjection(Spider1Widescreen &owner) const {
+    core->r[5] = kRecordAddress;
     owner.publishProjection(*core, retailProjection);
   }
 };
@@ -211,6 +213,20 @@ void test_four_three_is_the_identity() {
 }
 
 // The 16:9 plan, pinned against the framework's own pure builder.
+// The cell 0x800B5918 is written by the publication itself, so the first call finds it zero and
+// must take the record from $a1 at either aspect.
+void test_the_first_publication_takes_the_record_from_its_argument() {
+  for (const auto aspect : {ASPECT_4_3, ASPECT_16_9}) {
+    Fixture fixture;
+    fixture.game->mods.aspect = aspect;
+    CHECK_EQ(fixture.core->mem_r32(spider::spider1::kViewportRecordCell), 0u);
+    fixture.publishDraw(*fixture.owner);
+    fixture.publishProjection(*fixture.owner);
+    CHECK_EQ(fixture.core->mem_r32(spider::spider1::kViewportRecordCell), kRecordAddress);
+    CHECK(fixture.owner->published() == (aspect == ASPECT_16_9));
+  }
+}
+
 void test_the_plan_comes_from_the_frameworks_own_rule() {
   Fixture fixture;
   Spider1Widescreen &owner = *fixture.owner;
@@ -427,6 +443,8 @@ void test_the_frame_boundary_repairs_a_plan_latched_at_a_stale_display_extent() 
   fixture.game->mods.aspect = ASPECT_16_9;
   fixture.publishDraw(owner);
   CHECK_EQ(owner.plan().presentationExtent.width, 428);
+  // The guest has run its projection once, so the cell holds the record.
+  fixture.core->mem_w32(spider::spider1::kViewportRecordCell, kRecordAddress);
   // The guest 3D scene display mode, after graphical init.
   fixture.core->game->gpu.s_disp_w = kRetailDrawWidth;
   fixture.core->game->gpu.s_disp_h = kRetailDrawHeight;
@@ -579,6 +597,7 @@ void test_the_leaves_resolve_through_image_scoped_native_overrides() {
 
 int main() {
   RUN(four_three_is_the_identity);
+  RUN(the_first_publication_takes_the_record_from_its_argument);
   RUN(the_plan_comes_from_the_frameworks_own_rule);
   RUN(widening_moves_the_centre_and_leaves_the_focal_length_alone);
   RUN(repeated_publication_is_idempotent);

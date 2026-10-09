@@ -4,6 +4,7 @@
 #include "spider1_stream_driver.h"
 
 #include "game.h"
+#include "guest_code_module.h"
 
 #include <cstdlib>
 #include <lucent/log.h>
@@ -52,6 +53,10 @@ void Spider1Runtime::registerOverrides(Game &game) {
   Spider1FrameDriver::from(game.core).installBootstrapOverrides();
   Spider1StreamDriver::from(game.core).install();
   installSpider1Widescreen(game.core);
+}
+
+void Spider1Runtime::stockCdReadLanded(Core &core, const psx::cd::StockReadLanding &landing) {
+  psx::code_module::publishStockReadLanding(core, landing, overlayHeapArena);
 }
 
 void Spider1Runtime::bootInit(Core &core) {

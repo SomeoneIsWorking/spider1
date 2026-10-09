@@ -13,8 +13,8 @@ namespace spider::spider1 {
 // (0x80076190) read H, OFX and OFY out of the record, so they are outputs.
 inline constexpr std::uint32_t kProjectionPublication = 0x80075D0Cu;
 
-// Passed in, not fixed; cached at gp+0x1124 = 0x800B5918 by 0x80075DB0 and read by eleven other
-// functions.
+// The record is the publication's $a1 argument. The body caches it here (gp+0x1124) and sixteen
+// other functions read it, so the cell is zero until the first publication has run.
 inline constexpr std::uint32_t kViewportRecordCell = 0x800B5918u;
 
 // Guest draw-environment constructor; 0x8008735C builds the display environment. The clip is the
@@ -47,8 +47,9 @@ public:
 
   explicit Spider1Widescreen(Latch latch);
 
-  // Site 1, 0x80075D0C: shifts the record's horizontal window by the plan's margin, then runs the
-  // title's own derivation. H is unchanged, so OFX becoming retail centre + margin widens the FOV.
+  // Site 1, 0x80075D0C, record in $a1: shifts the record's horizontal window by the plan's margin,
+  // then runs the title's own derivation. H is unchanged, so OFX becoming retail centre + margin
+  // widens the FOV.
   void publishProjection(Core &core, const RetailBody &retail);
 
   // Site 2, the guest draw clip 0x800884C0: replaces RECT.w only; the retail body owns the rest.

@@ -16,6 +16,9 @@ namespace {
 // $a0 carries the environment record into the constructor 0x800884C0.
 constexpr int kEnvironmentArgument = 4;
 
+// $a1 carries the viewport record into the projection publication 0x80075D0C.
+constexpr int kRecordArgument = 5;
+
 // The guest stores with `sh`, so its arithmetic wraps at the u16 boundary.
 constexpr std::uint32_t kFieldModulus = 0x10000u;
 
@@ -148,11 +151,12 @@ void Spider1Widescreen::publishProjection(Core &core, const RetailBody &retail) 
     refuse("projection publication ran before the guest published a draw environment");
   }
 
-  const std::uint32_t record = core.mem_r32(kViewportRecordCell);
+  // The record is the call's $a1; the cell only holds it after the body's first run.
+  const std::uint32_t record = core.r[kRecordArgument];
   if (!isGuestRam(record)) {
     lucent::error("spider1-wide",
-                  "SLUS_008.75 published no viewport record at 0x{:08X} (cell holds 0x{:08X})",
-                  kViewportRecordCell,
+                  "SLUS_008.75 projection publication received viewport record 0x{:08X}, which is "
+                  "not guest memory",
                   record);
     std::abort();
   }

@@ -33,6 +33,9 @@ public:
   const GuestPadBufferLayout *guestPadBufferLayout() const override;
   RenderCapabilities renderCapabilities() const override;
   bool guestVramIsPicture(const Game &game) const override;
+  // The overlay loader streams code through the stock CdRead; each read inside its heap is an
+  // image.
+  void stockCdReadLanded(Core &core, const psx::cd::StockReadLanding &landing) override;
 
 private:
   static const ExecutableIdentity identity_;

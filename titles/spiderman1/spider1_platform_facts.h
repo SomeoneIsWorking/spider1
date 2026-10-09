@@ -2,6 +2,7 @@
 
 #include "guest_cd_stream_callback_layout.h"
 #include "guest_pad_buffer_layout.h"
+#include "guest_program_image.h"
 #include "platform_hle.h"
 
 namespace spider::spider1 {
@@ -51,6 +52,12 @@ inline constexpr uint32_t cdEventUnusedSlot = 0x800B1C80u;
 // libcd DMACallback 0x8009152C stores channel ch's callback at this base + 4*ch (DICR is
 // 0x1F8010F4).
 inline constexpr uint32_t guestDmaCallbackTable = 0x800B4388u;
+
+// Heap 1 of the guest allocator FUN_800651C8, set up by FUN_8006BF9C from the descriptor at
+// 0x8009C5B8: heap 0 is [0x800C65D4, 0x800C65E4), heap 1 runs from there to the stack guard
+// 0x801FE000. The overlay loader FUN_8001B990 allocates NAME.bin from it and reads it with CdRead,
+// so a read landing inside is code the title placed (physical addresses).
+inline constexpr GuestAddressRange overlayHeapArena{0x000C65E4u, 0x001FE000u};
 
 // SLUS_008.75 library entry points.
 inline constexpr PlatformHlePlan platformServices{
