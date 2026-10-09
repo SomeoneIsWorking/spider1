@@ -167,8 +167,10 @@ struct Fixture {
     owner.publishDrawEnvironment(*core, retailDrawEnvironment);
   }
 
-  void publishProjection(Spider1Widescreen &owner) const {
+  void publishProjection(Spider1Widescreen &owner,
+                         std::uint32_t caller = spider::spider1::kWorldPublicationReturn) const {
     core->r[5] = kRecordAddress;
+    core->r[31] = caller;
     owner.publishProjection(*core, retailProjection);
   }
 };
@@ -261,9 +263,9 @@ void test_the_plan_comes_from_the_frameworks_own_rule() {
   CHECK_EQ(owner.plan().guestClipRight, 683);
 }
 
-// Widening moves OFX outward and leaves H alone; a zoom leaves OFX at 256 and a lens rescale moves
-// H.
-void test_widening_moves_the_centre_and_leaves_the_focal_length_alone() {
+// Widening grows the window and the lens divisor together, so H keeps its retail value while OFX
+// moves to the wide centre.
+void test_widening_grows_the_window_and_leaves_the_focal_length_alone() {
   Fixture fixture;
   Spider1Widescreen &owner = *fixture.owner;
   fixture.game->mods.aspect = ASPECT_16_9;
@@ -272,26 +274,19 @@ void test_widening_moves_the_centre_and_leaves_the_focal_length_alone() {
 
   CHECK(owner.plan().widescreen());
   CHECK(owner.published());
-  CHECK_EQ(fixture.readWord(Spider1ViewportOffset::kCentreX), owner.plan().projectionCenterX);
-  CHECK(fixture.readWord(Spider1ViewportOffset::kCentreX) > kRetailCentreX);
-  CHECK_EQ(fixture.readWord(Spider1ViewportOffset::kScreenDistance), kRetailH);
-  CHECK_EQ(fixture.readWord(Spider1ViewportOffset::kLensDivisor), kRetailLens);
-  CHECK_EQ(fixture.readWord(Spider1ViewportOffset::kCentreY), kRetailCentreY);
-
-  // The window moved by exactly the plan's margin.
+  const int margin = owner.plan().projectionHorizontalMargin;
+  CHECK_EQ(margin, 86);
+  // The guest reads both bounds unsigned, so near stays and far takes the whole extension.
+  CHECK_EQ(fixture.readWord(Spider1ViewportOffset::kHorizontalNear), kRetailNear);
+  CHECK_EQ(fixture.readWord(Spider1ViewportOffset::kHorizontalFar), kRetailFar + 2 * margin);
   CHECK_EQ(fixture.readWord(Spider1ViewportOffset::kHorizontalFar),
-           owner.retailWindow().horizontalFar + owner.plan().projectionHorizontalMargin);
-  CHECK_EQ(fixture.readWord(Spider1ViewportOffset::kHorizontalNear),
-           owner.retailWindow().horizontalNear + owner.plan().projectionHorizontalMargin);
-  // (far - near) is unchanged, which is why H is unchanged.
-  CHECK_EQ(fixture.readWord(Spider1ViewportOffset::kHorizontalFar) -
-               fixture.readWord(Spider1ViewportOffset::kHorizontalNear),
-           kRetailFar - kRetailNear);
-  // OFX/H grew by the canvas ratio (centre/window-width, H cancels): field of view, not central
-  // scale.
-  CHECK_EQ(static_cast<int>(fixture.readWord(Spider1ViewportOffset::kCentreX)) *
-               (kRetailFar - kRetailNear),
-           static_cast<int>(kRetailCentreX) * owner.plan().projectionExtent.width);
+           owner.plan().projectionExtent.width);
+  CHECK_EQ(fixture.readWord(Spider1ViewportOffset::kCentreX), owner.plan().projectionCenterX);
+  CHECK_EQ(fixture.readWord(Spider1ViewportOffset::kCentreX), 342);
+  CHECK_EQ(fixture.readWord(Spider1ViewportOffset::kCentreY), kRetailCentreY);
+  // 2365 * 684 / 512, rounded.
+  CHECK_EQ(fixture.readWord(Spider1ViewportOffset::kLensDivisor), 3159);
+  CHECK_EQ(fixture.readWord(Spider1ViewportOffset::kScreenDistance), kRetailH);
 }
 
 // Issue 0022: the publication runs every frame, so three publications must match the first.
@@ -313,7 +308,28 @@ void test_repeated_publication_is_idempotent() {
     CHECK_EQ(fixture.readWord(i * 2), first[static_cast<std::size_t>(i)]);
   }
   CHECK_EQ(fixture.readWord(Spider1ViewportOffset::kHorizontalFar),
-           kRetailFar + owner.plan().projectionHorizontalMargin);
+           kRetailFar + 2 * owner.plan().projectionHorizontalMargin);
+}
+
+// The guest rewrites the lens divisor on its own schedule; the next publication takes that value as
+// retail and the window does not compound.
+void test_a_guest_rewritten_lens_does_not_compound_the_window() {
+  Fixture fixture;
+  Spider1Widescreen &owner = *fixture.owner;
+  fixture.game->mods.aspect = ASPECT_16_9;
+  fixture.publishDraw(owner);
+  fixture.publishProjection(owner);
+  const std::uint16_t wideFar = fixture.readWord(Spider1ViewportOffset::kHorizontalFar);
+
+  fixture.writeWord(Spider1ViewportOffset::kLensDivisor, kRetailLens);
+  for (int repeat = 0; repeat < 3; ++repeat) {
+    fixture.publishProjection(owner);
+    fixture.writeWord(Spider1ViewportOffset::kLensDivisor, kRetailLens);
+  }
+  CHECK_EQ(fixture.readWord(Spider1ViewportOffset::kHorizontalFar), wideFar);
+  CHECK_EQ(owner.retailWindow().horizontalFar, kRetailFar);
+  CHECK_EQ(owner.retailWindow().lensDivisor, kRetailLens);
+  CHECK_EQ(fixture.readWord(Spider1ViewportOffset::kScreenDistance), kRetailH);
 }
 
 // An area or view change re-authors the window; the owner widens that window without accumulating.
@@ -329,6 +345,7 @@ void test_a_guest_rewritten_window_is_widened_from_the_new_retail_value() {
   // shorter projection distance at lens 2365 is the title's to derive.
   fixture.writeWord(Spider1ViewportOffset::kHorizontalFar, 640);
   fixture.writeWord(Spider1ViewportOffset::kHorizontalNear, 0);
+  fixture.writeWord(Spider1ViewportOffset::kLensDivisor, kRetailLens);
   fixture.writeWord(Spider1ViewportOffset::kDepthLower, kRetailDepthLower);
   const std::uint16_t distanceForThisViewBefore =
       fixture.readWord(Spider1ViewportOffset::kScreenDistance);
@@ -336,41 +353,33 @@ void test_a_guest_rewritten_window_is_widened_from_the_new_retail_value() {
 
   const int newMargin = owner.plan().projectionHorizontalMargin;
   CHECK(newMargin != margin);
-  CHECK_EQ(fixture.readWord(Spider1ViewportOffset::kHorizontalFar), 640u + newMargin);
-  CHECK_EQ(fixture.readWord(Spider1ViewportOffset::kHorizontalNear), 0u + newMargin);
+  CHECK_EQ(fixture.readWord(Spider1ViewportOffset::kHorizontalFar), 640u + 2 * newMargin);
+  CHECK_EQ(fixture.readWord(Spider1ViewportOffset::kHorizontalNear), 0u);
   CHECK_EQ(fixture.readWord(Spider1ViewportOffset::kCentreX), 320u + newMargin);
   CHECK_EQ(owner.retailWindow().horizontalFar, 640u);
   CHECK_EQ(owner.retailWindow().horizontalNear, 0u);
-  // The window span is still what the guest authored.
-  CHECK_EQ(fixture.readWord(Spider1ViewportOffset::kHorizontalFar) -
-               fixture.readWord(Spider1ViewportOffset::kHorizontalNear),
-           640u);
-  CHECK_EQ(fixture.readWord(Spider1ViewportOffset::kLensDivisor), kRetailLens);
+  CHECK_EQ(owner.retailWindow().lensDivisor, kRetailLens);
   // The title's derivation ran on the new window; no stale distance was restored.
   CHECK(fixture.readWord(Spider1ViewportOffset::kScreenDistance) != distanceForThisViewBefore);
 }
 
-// The horizontal cull window translates with the picture and the depth window does not move.
-// It is in pre-shift guest coordinates (record[0], record[4]; 0x8007C2AC, 0x8007B9CC), so the
-// band is [retail + margin, retail + width + margin), not [0, wide).
-void test_the_horizontal_window_translates_and_the_depth_window_does_not() {
+// The horizontal cull window covers the wide picture and the depth window does not move. It is
+// compared against projected x (record[0], record[4]; 0x8007C2AC, 0x8007B9CC), which now carries
+// the wide OFX, so the band is the whole wide canvas.
+void test_the_horizontal_window_covers_the_wide_picture_and_the_depth_window_does_not() {
   Fixture fixture;
   Spider1Widescreen &owner = *fixture.owner;
   fixture.game->mods.aspect = ASPECT_16_9;
   fixture.publishDraw(owner);
   fixture.publishProjection(owner);
-  const int margin = owner.plan().projectionHorizontalMargin;
 
-  CHECK_EQ(fixture.readWord(Spider1ViewportOffset::kHorizontalNear), kRetailNear + margin);
-  CHECK_EQ(fixture.readWord(Spider1ViewportOffset::kHorizontalFar), kRetailFar + margin);
-  // The window moved; it did not stretch to the frame.
-  CHECK(fixture.readWord(Spider1ViewportOffset::kHorizontalNear) != 0u);
-  CHECK(fixture.readWord(Spider1ViewportOffset::kHorizontalFar) !=
-        owner.plan().projectionExtent.width);
-  // A guest x of 0 is now at +margin and stays inside the window.
-  const std::uint32_t shiftedLeftEdge = static_cast<std::uint32_t>(margin);
-  CHECK(shiftedLeftEdge >= fixture.readWord(Spider1ViewportOffset::kHorizontalNear));
-  CHECK(shiftedLeftEdge < fixture.readWord(Spider1ViewportOffset::kHorizontalFar));
+  CHECK_EQ(fixture.readWord(Spider1ViewportOffset::kHorizontalNear), 0u);
+  CHECK_EQ(fixture.readWord(Spider1ViewportOffset::kHorizontalFar),
+           static_cast<std::uint16_t>(owner.plan().presentationExtent.width));
+  // The retail picture, shifted by the margin to the wide centre, stays inside the window.
+  const int margin = owner.plan().projectionHorizontalMargin;
+  CHECK(kRetailNear + margin >= fixture.readWord(Spider1ViewportOffset::kHorizontalNear));
+  CHECK(kRetailFar + margin <= fixture.readWord(Spider1ViewportOffset::kHorizontalFar));
 
   // The depth window is a different axis: 0x8007C2AC and 0x8007B9CC compare record[8]/record[10]
   // against GTE IR1/SZ (outcode bits 4 and 5), and the publication rewrites both words itself.
@@ -379,6 +388,35 @@ void test_the_horizontal_window_translates_and_the_depth_window_does_not() {
   // The vertical window is likewise a different axis.
   CHECK_EQ(fixture.readWord(Spider1ViewportOffset::kVerticalNear), kRetailVerticalNear);
   CHECK_EQ(fixture.readWord(Spider1ViewportOffset::kVerticalFar), kRetailVerticalFar);
+}
+
+// The menu overlay publishes from its own walk; its 3D model sits in a 2D layout the host centres,
+// so the record keeps the retail projection and the frame's coordinates are not widened.
+void test_a_two_d_screen_keeps_the_retail_projection() {
+  Fixture fixture;
+  Spider1Widescreen &owner = *fixture.owner;
+  fixture.game->mods.aspect = ASPECT_16_9;
+  fixture.publishDraw(owner);
+  fixture.publishProjection(owner, 0x80155A88u);
+
+  CHECK(owner.plan().widescreen());
+  CHECK(!owner.guestCoordinatesWidened(*fixture.core));
+  CHECK_EQ(fixture.readWord(Spider1ViewportOffset::kHorizontalFar), kRetailFar);
+  CHECK_EQ(fixture.readWord(Spider1ViewportOffset::kHorizontalNear), kRetailNear);
+  CHECK_EQ(fixture.readWord(Spider1ViewportOffset::kLensDivisor), kRetailLens);
+  CHECK_EQ(fixture.readWord(Spider1ViewportOffset::kCentreX), kRetailCentreX);
+  CHECK_EQ(fixture.readWord(Spider1ViewportOffset::kScreenDistance), kRetailH);
+
+  // A world frame after it widens, and the frame's end clears the claim.
+  fixture.publishProjection(owner);
+  CHECK(owner.guestCoordinatesWidened(*fixture.core));
+  owner.endFrame();
+  CHECK(!owner.guestCoordinatesWidened(*fixture.core));
+  // And back to a 2D screen restores the record.
+  fixture.publishProjection(owner, 0x80155A88u);
+  CHECK_EQ(fixture.readWord(Spider1ViewportOffset::kHorizontalFar), kRetailFar);
+  CHECK_EQ(fixture.readWord(Spider1ViewportOffset::kCentreX), kRetailCentreX);
+  CHECK(!owner.guestCoordinatesWidened(*fixture.core));
 }
 
 // Only RECT.w is the owner's; x, y, h and the u/v pair are the guest's.
@@ -411,15 +449,16 @@ void test_synchronization_republishes_only_when_the_margin_moved() {
   CHECK_EQ(owner.plan().projectionHorizontalMargin, wideMargin);
   CHECK_EQ(fixture.readWord(Spider1ViewportOffset::kCentreX), owner.plan().projectionCenterX);
   // An unchanged aspect does not republish.
-  CHECK_EQ(fixture.readWord(Spider1ViewportOffset::kHorizontalFar), 512u + wideMargin);
+  CHECK_EQ(fixture.readWord(Spider1ViewportOffset::kHorizontalFar), 512u + 2 * wideMargin);
 
-  // Re-latching only the plan would leave 512+86 beside a 4:3 plan.
+  // Re-latching only the plan would leave 512+172 beside a 4:3 plan.
   fixture.game->mods.aspect = ASPECT_4_3;
   owner.synchronizePresentation(*fixture.core);
   CHECK_EQ(owner.plan().projectionHorizontalMargin, 0);
   CHECK(!owner.plan().widescreen());
   CHECK_EQ(fixture.readWord(Spider1ViewportOffset::kHorizontalFar), kRetailFar);
   CHECK_EQ(fixture.readWord(Spider1ViewportOffset::kHorizontalNear), kRetailNear);
+  CHECK_EQ(fixture.readWord(Spider1ViewportOffset::kLensDivisor), kRetailLens);
   CHECK_EQ(fixture.readWord(Spider1ViewportOffset::kCentreX), kRetailCentreX);
   CHECK_EQ(fixture.readWord(Spider1ViewportOffset::kScreenDistance), kRetailH);
 
@@ -428,7 +467,7 @@ void test_synchronization_republishes_only_when_the_margin_moved() {
   owner.synchronizePresentation(*fixture.core);
   CHECK_EQ(owner.plan().projectionHorizontalMargin, wideMargin);
   CHECK_EQ(fixture.readWord(Spider1ViewportOffset::kCentreX), owner.plan().projectionCenterX);
-  CHECK_EQ(fixture.readWord(Spider1ViewportOffset::kHorizontalFar), 512u + wideMargin);
+  CHECK_EQ(fixture.readWord(Spider1ViewportOffset::kHorizontalFar), 512u + 2 * wideMargin);
 }
 
 // The plan latched while the GP1 display width was still 320 described a 428-wide canvas for a
@@ -553,6 +592,7 @@ void test_the_publication_addresses_are_the_measured_ones() {
   CHECK_EQ(spider::spider1::kProjectionPublication, 0x80075D0Cu);
   CHECK_EQ(spider::spider1::kDrawEnvironmentConstructor, 0x800884C0u);
   CHECK_EQ(spider::spider1::kViewportRecordCell, 0x800B5918u);
+  CHECK_EQ(spider::spider1::kWorldPublicationReturn, 0x8002BE14u);
   CHECK_EQ(static_cast<int>(Spider1ViewportOffset::kHorizontalFar), 0);
   CHECK_EQ(static_cast<int>(Spider1ViewportOffset::kVerticalNear), 2);
   CHECK_EQ(static_cast<int>(Spider1ViewportOffset::kHorizontalNear), 4);
@@ -599,10 +639,12 @@ int main() {
   RUN(four_three_is_the_identity);
   RUN(the_first_publication_takes_the_record_from_its_argument);
   RUN(the_plan_comes_from_the_frameworks_own_rule);
-  RUN(widening_moves_the_centre_and_leaves_the_focal_length_alone);
+  RUN(widening_grows_the_window_and_leaves_the_focal_length_alone);
   RUN(repeated_publication_is_idempotent);
+  RUN(a_guest_rewritten_lens_does_not_compound_the_window);
   RUN(a_guest_rewritten_window_is_widened_from_the_new_retail_value);
-  RUN(the_horizontal_window_translates_and_the_depth_window_does_not);
+  RUN(the_horizontal_window_covers_the_wide_picture_and_the_depth_window_does_not);
+  RUN(a_two_d_screen_keeps_the_retail_projection);
   RUN(the_draw_clip_replaces_the_width_only);
   RUN(synchronization_republishes_only_when_the_margin_moved);
   RUN(the_frame_boundary_repairs_a_plan_latched_at_a_stale_display_extent);

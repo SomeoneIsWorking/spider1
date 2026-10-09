@@ -346,12 +346,12 @@ void Spider1FrameDriver::commitSubmittedFrame(Core &core) {
   game_.presentation.commit(
       &core, static_cast<int>(fieldsSinceCommit_), game_.temporalPresentation.get());
   fieldsSinceCommit_ = 0;
+  Spider1Widescreen::from(core).endFrame();
 }
 
 void Spider1FrameDriver::commitRepeatedFieldFrame(Core &core) {
   claimFrameFence("a second field presentation");
-  // The display rescans the last submitted image; present it without touching the interpolation
-  // history.
+  // The display rescans the last image: present it, leaving the interpolation history alone.
   game_.presentation.commit(&core, static_cast<int>(fieldsSinceCommit_), nullptr);
   fieldsSinceCommit_ = 0;
 }

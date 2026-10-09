@@ -102,7 +102,7 @@ Compiled as `spider_render_contracts`; nothing in the product links these yet (s
 | `spider1_cd_initialization.{h,cpp}` | `Spider1CdInitialization` | the retail `CdInit` body: the four callback slots and the CD interrupt arm |
 | `spider1_stream_driver.{h,cpp}` | `Spider1StreamDriver` | the `StGetNext` boundary: super-call the guest body, pump the controller on a dry poll, yield the field that poll waited through, and report the ring and producer state |
 | `spider1_movie_execution.{h,cpp}` | `Spider1MovieExecution` | resumes the unchanged retail STR player through the runtime executor at its three authenticated field boundaries |
-| `spider1_widescreen.{h,cpp}` | `Spider1Widescreen`, `Spider1ViewportOffset`, `installSpider1Widescreen` | the title's own projection and draw-clip publication: which aspect the player chose, and the measured widening of the guest's horizontal window |
+| `spider1_widescreen.{h,cpp}` | `Spider1Widescreen`, `Spider1ViewportOffset`, `installSpider1Widescreen` | the title's own projection and draw-clip publication: which aspect the player chose, the widening of the guest's horizontal window and lens divisor in world frames (retail projection on 2D screens, told apart by the publication's return address), and the claim, held from a world publication to the submitted frame's commit, that the guest's coordinates are already widened (`guestCoordinatesWidened`, read by the framework's `wide_2d_layout`) |
 | `title.json` | — | serial, executable identity and disc-environment key |
 
 ### `titles/spiderman2/` — namespace `spider::enterelectro`
@@ -152,7 +152,7 @@ Hermetic contract and ownership tests: `spider1_mode_rules`, `spider1_mode_trans
 | Hop | Owner | What it decides |
 | --- | --- | --- |
 | The guest's own draw | translated guest code through psxport's Lightrec runtime | retail OT/GTE output; no title code intercepts it |
-| The projection the frame uses | `Spider1Widescreen::synchronizePresentation` (mode path only; the bootstrap path does not call it) | re-latches the plan for the live display extent and applies the guest projection/draw-clip widening |
+| The projection the frame uses | `Spider1Widescreen::synchronizePresentation` (called from `Spider1BootstrapTurn::step`; `endFrame` from `commitSubmittedFrame`) | re-latches the plan for the live display extent and applies the guest projection/draw-clip widening |
 | Which frame is being committed | `Spider1FrameDriver::commitSubmittedFrame` (`FrameDriver`'s three commit leaves) | the one fence, and whether the interpolation owner's captured queue is presented with it |
 | The present itself | framework `FramePresenter::commit` / `commitUnpresented` (`runtime/psx/frame/frame_presenter.*`) | the real field, the pacer, and the widescreen canvas |
 | Future native producers | `spider::render::FrameEnvelope`, `SceneName` | compiled, not attached; see `docs/project-state.md` S005/S006 |

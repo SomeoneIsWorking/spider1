@@ -13,6 +13,11 @@ namespace spider::spider1 {
 // (0x80076190) read H, OFX and OFY out of the record, so they are outputs.
 inline constexpr std::uint32_t kProjectionPublication = 0x80075D0Cu;
 
+// The publication's caller in the resident render walk FUN_8002BD5C (jal at 0x8002BE0C), which
+// draws the attract demo and level frames. The menu overlay publishes from its own walk, and its 3D
+// model sits inside a 2D layout.
+inline constexpr std::uint32_t kWorldPublicationReturn = 0x8002BE14u;
+
 // The record is the publication's $a1 argument. The body caches it here (gp+0x1124) and sixteen
 // other functions read it, so the cell is zero until the first publication has run.
 inline constexpr std::uint32_t kViewportRecordCell = 0x800B5918u;
@@ -47,9 +52,10 @@ public:
 
   explicit Spider1Widescreen(Latch latch);
 
-  // Site 1, 0x80075D0C, record in $a1: shifts the record's horizontal window by the plan's margin,
-  // then runs the title's own derivation. H is unchanged, so OFX becoming retail centre + margin
-  // widens the FOV.
+  // Site 1, 0x80075D0C, record in $a1: widens the record's horizontal window to the plan's width
+  // (near stays, far grows by twice the margin, as the guest reads both bounds unsigned) and scales
+  // the lens divisor by the same ratio, then runs the title's own derivation. H keeps its retail
+  // value, OFX becomes the wide centre and the cull window covers the whole wide picture.
   void publishProjection(Core &core, const RetailBody &retail);
 
   // Site 2, the guest draw clip 0x800884C0: replaces RECT.w only; the retail body owns the rest.
@@ -73,12 +79,19 @@ public:
   struct RetailWindow {
     std::uint16_t horizontalFar = 0;
     std::uint16_t horizontalNear = 0;
-    std::uint16_t centreX = 0;
+    std::uint16_t lensDivisor = 0;
   };
 
   const RetailWindow &retailWindow() const {
     return retail_;
   }
+
+  // True from a world projection publication until the frame is committed; the frame's ordering
+  // table is walked in between.
+  bool guestCoordinatesWidened(const Core &core) const override;
+
+  // The submitted frame is committed.
+  void endFrame();
 
   bool published() const {
     return published_;
@@ -103,9 +116,13 @@ public:
 
 private:
   GuestProjectionPlan relatch(Core &core, GuestProjectionGeometry geometry);
-  // Remember the guest's own window and centre, from the record as it stands. Called only where
-  // the record is known to hold retail values.
+  // Remember the guest's own window and lens, from the record as it stands. Called only where the
+  // record is known to hold retail values.
   void captureRetail(Core &core, std::uint32_t record);
+  // Writes the window and lens for `margin` (0 restores retail) from the captured retail values.
+  std::uint16_t widenedFar(std::uint32_t margin) const;
+  std::uint16_t widenedLens(std::uint32_t margin) const;
+  void writeWindow(Core &core, std::uint32_t record, std::uint32_t margin) const;
 
   Latch latch_;
   GuestProjectionPlan plan_;
@@ -114,6 +131,8 @@ private:
   int appliedMargin_ = -1;
   bool retailCaptured_ = false;
   bool published_ = false;
+  bool frameWidened_ = false;
+  bool worldScene_ = true;
 };
 
 // Installs the two publication overrides on one Core; PlatformHle does not cover them.

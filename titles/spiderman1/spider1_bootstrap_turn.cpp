@@ -3,6 +3,7 @@
 #include "spider1_frame_driver.h"
 #include "spider1_guest_layout.h"
 #include "spider1_runtime.h"
+#include "spider1_widescreen.h"
 
 #include "core.h"
 #include "game.h"
@@ -20,6 +21,7 @@ void Spider1BootstrapTurn::begin(Core &core) {
 }
 
 void Spider1BootstrapTurn::step(Core &core) {
+  Spider1Widescreen::from(core).synchronizePresentation(core);
   // A spent cycle budget is a field of guest time: deliver it, then resume.
   if (result_.reason == psx::cpu::ExecutionExitReason::BudgetExhausted && result_.cycles != 0) {
     Spider1FrameDriver::from(core).deliverBootstrapWaitField(core, result_.guestPc);

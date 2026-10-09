@@ -1,7 +1,7 @@
 ---
 id: 25
 title: Spider-Man 1's widening owner widens the geometry and the product presents 0.00% non-black, so there is no picture to prove it with
-status: open
+status: resolved
 symptom: The title has a hand-written widescreen owner, a booting product, and no captured 4:3-versus-16:9 pair. Its two legs were run to presented frame 14,000 and both composed frames came back 0.00% non-black.
 state_items: S008,S018,S019
 tags: widescreen,render,evidence,black-frame,cd,dma,proving
@@ -9,15 +9,48 @@ created: 2026-09-28
 updated: 2026-10-09
 ---
 
-> **2026-10-09.** A picture now exists: the three logo movies present (4:3 320x240 13,739/76,800
-> non-black = 17.89%; 16:9 428x240 13,739/102,720 = 13.38%, the same pixels centred between black
-> margins because the movie is 4:3 content). After issue 0031 the run also presents the legal screen,
-> the menu and a 3D attract demo. Non-black coverage of the 3D demo: 4:3 512x240 118,737/122,880 =
-> 96.63% (frame 8000); 16:9 684x240 160,932/164,160 = 98.03% (frame 8400), both from headless runs
-> with `scratch/overlay-image/run.py`. The 16:9 menu is a 512-wide screen between stale margins. The
-> two legs are not frame-aligned to the same demo tick, so this proves a 3D picture at both aspects,
-> not a pixel-for-pixel widening pair; that needs a fixed-frame pair.
-
+> **2026-10-09, resolved.** The product presents a picture and the widening is proven on 2D and 3D
+> frames. The title runs the Gte path (`RenderCapabilities::widescreenOnly`), where the guest draws into
+> a widened frame and the host centres 4:3-authored guest primitives by the margin.
+>
+> **Part 1, stale margins.** Observed: the 16:9 menu (512 wide) sat between a left margin showing the
+> previous demo frame and a right margin of VRAM leftovers. Expected: the 4:3 picture centred with black
+> columns. Cause: `GpuVkState::draw_wide_margin` (`gpu_vk_wide_margin.cpp`) laid its black base only to
+> the right of the native picture, so the left columns the 2D centring leaves undrawn kept the
+> persistent composite's old pixels. Fix: `plan_centred_wide_margins` (`wide_margin_plan.h`) gives one
+> band per side for a frame the host centres, chosen by `wide_2d_centres_guest_frame`. Measured at
+> 16:9 on the menu: the inner 512 columns are pixel-identical to the 4:3 shot (mean abs diff 0.0 at
+> offset 86) and both margins are 0.0% non-black.
+>
+> **Part 2, 3D.** Observed: the 16:9 demo frame was the 4:3 picture shifted by 172 px (twice the 86 px
+> margin) with nothing to the right, and the cull window was not widened. Cause 1,
+> `Spider1Widescreen::publishProjection`: it shifted the window to 86..598 instead of widening it, so
+> culling stayed at the 4:3 extent. The guest compares projected x against both bounds as unsigned
+> halfwords (`FUN_8007C2AC` outcodes), so the left bound cannot go below 0 and the widening is `near` 0,
+> `far` 512 + 2M with the lens divisor scaled by the same ratio (2365 -> 3159) so H stays 276; the
+> frustum planes `FUN_80075D0C` builds from the span widen with it. Cause 2,
+> `wide_2d_layout` (`present/wide_2d_layout.cpp`): every guest primitive is classified 2D on the Gte
+> path, so the host added the margin to coordinates the widened projection had already placed. Fix:
+> `GuestWidescreenProjection::guestCoordinatesWidened` (the title's per-frame claim) makes
+> `wide_2d_guest_space` return `RQ_2D_WIDE_FINAL`. The menu overlay publishes the same record from its
+> own walk (`ra 0x80155A88`) with a 3D model inside a 2D layout, so only publications from the resident
+> render walk (`ra 0x8002BE14`) widen; the claim ends at `commitSubmittedFrame` (a frame number is no key: field presents inside one guest frame advance it).
+> `Spider1BootstrapTurn::step` now calls `synchronizePresentation`, which had no caller.
+>
+> **Pair.** Frame 8052 (16:9) / 8047 (4:3), the same guest tick of `dem3` (the run drifts 5 presented
+> frames between aspects because a widened cull changes instruction counts and with them the CD
+> completion time), `scratch/widescreen/tk4_t60.ppm` 512x240 and `tk16_t60.ppm` 684x240: the 16:9 frame
+> is the 4:3 picture at x+86 (best offset 86) with 86 extra columns of scene on each side (ground and
+> skyline on the left, the building and red tower on the right); no pop-in at either edge. The HUD
+> ("DEMO") is not stretched but stays at its 4:3 x, because its primitives cannot be told from world
+> primitives. Residual: in some frames (`y16x9_8000.ppm`) polygons that retail clips off the right edge
+> draw as black quads in the extension.
+>
+> **The attract demo.** The guest's own disc reads (Setloc LBAs, matched to the `CD.WAD` file table the
+> guest keeps at `0x800BA738`; byte offset = 3-byte field * 256) are `dem1.vab` 8714, `dem1.sfx` 8713,
+> `dem1_t.trg` 8914, `dem1_l.psx` 8907, `dem1_o.psx` 8913, `dem1_g.psx` 8903 for the first demo
+> (frames ~4000-6000), and `dem3.sfx` 9120, `dem3_l.psx` 9346 for the second (frames ~7000-8500).
+>
 ## Answer
 
 **No picture pair exists, and the reason is not the widening owner.** The owner widens — the product

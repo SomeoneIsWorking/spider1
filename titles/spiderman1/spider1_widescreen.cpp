@@ -16,6 +16,8 @@ namespace {
 // $a0 carries the environment record into the constructor 0x800884C0.
 constexpr int kEnvironmentArgument = 4;
 
+constexpr int kReturnAddress = 31;
+
 // $a1 carries the viewport record into the projection publication 0x80075D0C.
 constexpr int kRecordArgument = 5;
 
@@ -163,85 +165,58 @@ void Spider1Widescreen::publishProjection(Core &core, const RetailBody &retail) 
 
   const std::uint16_t far = core.mem_r16(record + Spider1ViewportOffset::kHorizontalFar);
   const std::uint16_t near = core.mem_r16(record + Spider1ViewportOffset::kHorizontalNear);
-  const std::uint16_t centreX = core.mem_r16(record + Spider1ViewportOffset::kCentreX);
-
-  // A uniform shift leaves far - near alone, so H stays; the lens divisor is neither read nor
-  // written.
-  const std::uint16_t span = fieldSpan(far, near);
+  const std::uint16_t lens = core.mem_r16(record + Spider1ViewportOffset::kLensDivisor);
   const std::uint16_t verticalSpan =
       fieldSpan(core.mem_r16(record + Spider1ViewportOffset::kVerticalFar),
                 core.mem_r16(record + Spider1ViewportOffset::kVerticalNear));
+
+  // A record still holding the window this owner wrote is measured by its retail span, or the
+  // plan would widen its own output again.
+  const bool ownWindow = retailCaptured_ && appliedMargin_ > 0 &&
+                         far == widenedFar(appliedMargin_) && near == retail_.horizontalNear;
+  if (!ownWindow) {
+    // Nothing published yet, or the guest re-authored the window: the record holds retail values.
+    captureRetail(core, record);
+  } else if (lens != widenedLens(appliedMargin_)) {
+    // The guest rewrites the lens divisor on its own schedule; a value that is not ours is retail.
+    retail_.lensDivisor = lens;
+  }
+  const std::uint16_t span = fieldSpan(retail_.horizontalFar, retail_.horizontalNear);
   const GuestProjectionPlan latched =
       relatch(core, measuredGeometry(span, verticalSpan, measuredDrawWidth_));
-  appliedMargin_ = latched.projectionHorizontalMargin;
-  if (!latched.widescreen()) {
-    // 4:3 never writes, so it is retail byte for byte; unwidening restores the captured retail
-    // tuple.
-    if (retailCaptured_) {
-      core.mem_w16(record + Spider1ViewportOffset::kHorizontalFar, retail_.horizontalFar);
-      core.mem_w16(record + Spider1ViewportOffset::kHorizontalNear, retail_.horizontalNear);
-      core.mem_w16(record + Spider1ViewportOffset::kCentreX, retail_.centreX);
-    }
+  // A 2D screen is laid out whole by the host, so its 3D model keeps the retail projection.
+  worldScene_ = core.r[kReturnAddress] == kWorldPublicationReturn;
+  if (!latched.widescreen() || !worldScene_) {
+    // 4:3 never widens, so it is retail byte for byte.
+    appliedMargin_ = 0;
+    frameWidened_ = false;
+    writeWindow(core, record, 0);
     retail(core);
     return;
   }
 
-  // Applied only where the record does not already hold the margin, so it never compounds.
+  appliedMargin_ = latched.projectionHorizontalMargin;
   const std::uint32_t margin = static_cast<std::uint32_t>(latched.projectionHorizontalMargin);
-  const auto shifted = [margin](std::uint16_t value) {
-    return wrapField(static_cast<std::uint32_t>(value) + margin);
-  };
-  if (!retailCaptured_ || far != shifted(retail_.horizontalFar) ||
-      near != shifted(retail_.horizontalNear)) {
-    // Nothing published yet, or the guest re-authored the window: the record holds retail values
-    // now.
-    captureRetail(core, record);
-    lucent::info("spider1-wide",
-                 "guest viewport window {}..{} (centre {}) -> {}..{} (margin {}), draw width {}",
-                 far,
-                 near,
-                 centreX,
-                 shifted(far),
-                 shifted(near),
-                 margin,
-                 measuredDrawWidth_);
+  if (!ownWindow) {
+    lucent::info(
+        "spider1-wide",
+        "guest viewport window {}..{} lens {} -> {}..{} lens {} (margin {}), draw width {}",
+        retail_.horizontalNear,
+        retail_.horizontalFar,
+        lens,
+        retail_.horizontalNear,
+        widenedFar(margin),
+        widenedLens(margin),
+        margin,
+        measuredDrawWidth_);
   }
 
-  // Focal-length inputs (span, lens divisor) sampled before the body runs; they must survive
-  // untouched.
-  const std::uint16_t retailCentreX = centreX;
-  const std::uint16_t retailLens = core.mem_r16(record + Spider1ViewportOffset::kLensDivisor);
-  const std::uint16_t distanceBefore =
-      core.mem_r16(record + Spider1ViewportOffset::kScreenDistance);
-
-  // Every write is retail + margin, never the value just read, so republishing is idempotent.
-  // Only the horizontal pair moves; the body re-asserts the depth window.
-  core.mem_w16(record + Spider1ViewportOffset::kHorizontalFar, shifted(retail_.horizontalFar));
-  core.mem_w16(record + Spider1ViewportOffset::kHorizontalNear, shifted(retail_.horizontalNear));
-
+  // Every write derives from the captured retail window, never the value just read, so
+  // republishing is idempotent. The depth and vertical windows are not touched.
+  writeWindow(core, record, margin);
   retail(core);
 
-  // A uniform shift must not change the focal-length inputs.
-  const std::uint16_t publishedSpan =
-      fieldSpan(core.mem_r16(record + Spider1ViewportOffset::kHorizontalFar),
-                core.mem_r16(record + Spider1ViewportOffset::kHorizontalNear));
-  if (publishedSpan != span ||
-      core.mem_r16(record + Spider1ViewportOffset::kLensDivisor) != retailLens) {
-    lucent::error("spider1-wide",
-                  "the widened window spans {} with lens divisor {}; retail spans {} with {}. A "
-                  "horizontal widening must not move the focal length's own inputs",
-                  publishedSpan,
-                  core.mem_r16(record + Spider1ViewportOffset::kLensDivisor),
-                  span,
-                  retailLens);
-    std::abort();
-  }
-
-  // The title derives OFX, OFY and H, so the shifted window stays. FUN_8007C2AC and FUN_8007B9CC
-  // re-assert CR24/CR25 from this record per vertex.
-
-  // The centre is not written here: the title's derivation produces it and the plan's centre must
-  // agree.
+  // OFX is the title's own (near + far) / 2, so the plan's centre must agree.
   const std::uint16_t publishedCentreX = core.mem_r16(record + Spider1ViewportOffset::kCentreX);
   if (publishedCentreX != latched.projectionCenterX) {
     lucent::error(
@@ -252,18 +227,16 @@ void Spider1Widescreen::publishProjection(Core &core, const RetailBody &retail) 
         latched.projectionCenterX);
     std::abort();
   }
-  // H is unchanged when span and lens are.
   published_ = true;
+  frameWidened_ = true;
   lucent::info("spider1-wide",
-               "published guest OFX {} (retail {}), OFY {}, H {} (was {}), span {}, lens {} — the "
-               "frustum grew by OFX at an unchanged focal length",
+               "published guest OFX {}, OFY {}, H {}, span {}, lens {}",
                publishedCentreX,
-               retailCentreX,
                core.mem_r16(record + Spider1ViewportOffset::kCentreY),
                core.mem_r16(record + Spider1ViewportOffset::kScreenDistance),
-               distanceBefore,
-               publishedSpan,
-               retailLens);
+               fieldSpan(core.mem_r16(record + Spider1ViewportOffset::kHorizontalFar),
+                         core.mem_r16(record + Spider1ViewportOffset::kHorizontalNear)),
+               core.mem_r16(record + Spider1ViewportOffset::kLensDivisor));
 }
 
 void Spider1Widescreen::publishDrawEnvironment(Core &core, const RetailBody &retail) {
@@ -317,16 +290,20 @@ void Spider1Widescreen::synchronizePresentation(Core &core) {
     // 0x80075DB0 installs this cell; until then the plan from the draw-environment site stands.
     return;
   }
-  // Span is the same whether the window is retail or widened.
+  // The span is the retail one once captured: the record may hold this owner's wider window.
+  const std::uint16_t span =
+      retailCaptured_ ? fieldSpan(retail_.horizontalFar, retail_.horizontalNear)
+                      : fieldSpan(core.mem_r16(record + Spider1ViewportOffset::kHorizontalFar),
+                                  core.mem_r16(record + Spider1ViewportOffset::kHorizontalNear));
   const GuestProjectionPlan latched = relatch(
       core,
-      measuredGeometry(fieldSpan(core.mem_r16(record + Spider1ViewportOffset::kHorizontalFar),
-                                 core.mem_r16(record + Spider1ViewportOffset::kHorizontalNear)),
+      measuredGeometry(span,
                        fieldSpan(core.mem_r16(record + Spider1ViewportOffset::kVerticalFar),
                                  core.mem_r16(record + Spider1ViewportOffset::kVerticalNear)),
                        measuredDrawWidth_));
-  if (appliedMargin_ == latched.projectionHorizontalMargin) {
-    // The record already matches the plan; the host extent was re-latched above.
+  if (!worldScene_ || appliedMargin_ == latched.projectionHorizontalMargin) {
+    // The record already matches the plan or the screen keeps the retail projection; the host
+    // extent was re-latched above.
     return;
   }
   appliedMargin_ = latched.projectionHorizontalMargin;
@@ -334,43 +311,55 @@ void Spider1Widescreen::synchronizePresentation(Core &core) {
     // No retail baseline yet; the next publication widens the record.
     return;
   }
-  if (latched.widescreen()) {
-    // Widens with no guest call; these are the values the publication's derivation produces.
-    core.mem_w16(record + Spider1ViewportOffset::kHorizontalFar,
-                 wrapField(static_cast<std::uint32_t>(retail_.horizontalFar) +
-                           static_cast<std::uint32_t>(latched.projectionHorizontalMargin)));
-    core.mem_w16(record + Spider1ViewportOffset::kHorizontalNear,
-                 wrapField(static_cast<std::uint32_t>(retail_.horizontalNear) +
-                           static_cast<std::uint32_t>(latched.projectionHorizontalMargin)));
-    core.mem_w16(record + Spider1ViewportOffset::kCentreX,
-                 static_cast<std::uint16_t>(latched.projectionCenterX));
-    published_ = true;
-    lucent::info("spider1-wide",
-                 "aspect changed at the frame boundary: guest OFX {} -> {}, window margin {}, host "
-                 "canvas {} (native {})",
-                 retail_.centreX,
-                 latched.projectionCenterX,
-                 latched.projectionHorizontalMargin,
-                 latched.presentationExtent.width,
-                 latched.nativeExtent.width);
-    return;
-  }
-  // Unwidening. Put the captured retail tuple back, or a 4:3 canvas would keep a wide frustum.
-  core.mem_w16(record + Spider1ViewportOffset::kHorizontalFar, retail_.horizontalFar);
-  core.mem_w16(record + Spider1ViewportOffset::kHorizontalNear, retail_.horizontalNear);
-  core.mem_w16(record + Spider1ViewportOffset::kCentreX, retail_.centreX);
+  // No guest call runs here, so the centre is written as the publication's derivation produces it.
+  const std::uint32_t margin = static_cast<std::uint32_t>(latched.projectionHorizontalMargin);
+  writeWindow(core, record, margin);
+  core.mem_w16(
+      record + Spider1ViewportOffset::kCentreX,
+      wrapField((static_cast<std::uint32_t>(retail_.horizontalNear) + widenedFar(margin)) >> 1));
+  published_ = latched.widescreen();
   lucent::info("spider1-wide",
-               "aspect returned to 4:3 at the frame boundary: guest OFX {} restored from {}, host "
-               "canvas {}",
-               retail_.centreX,
-               latched.projectionCenterX,
-               latched.presentationExtent.width);
+               "aspect changed at the frame boundary: window margin {}, host canvas {} (native {})",
+               margin,
+               latched.presentationExtent.width,
+               latched.nativeExtent.width);
+}
+
+bool Spider1Widescreen::guestCoordinatesWidened(const Core &) const {
+  return frameWidened_;
+}
+
+void Spider1Widescreen::endFrame() {
+  frameWidened_ = false;
+}
+
+std::uint16_t Spider1Widescreen::widenedFar(std::uint32_t margin) const {
+  return wrapField(static_cast<std::uint32_t>(retail_.horizontalFar) + 2 * margin);
+}
+
+// The lens divisor scales with the window span so H = half-span / lens keeps its retail value.
+std::uint16_t Spider1Widescreen::widenedLens(std::uint32_t margin) const {
+  const std::uint32_t span = fieldSpan(retail_.horizontalFar, retail_.horizontalNear);
+  if (span == 0) {
+    return retail_.lensDivisor;
+  }
+  const std::uint64_t scaled =
+      (static_cast<std::uint64_t>(retail_.lensDivisor) * (span + 2 * margin) + span / 2) / span;
+  return wrapField(static_cast<std::uint32_t>(scaled));
+}
+
+void Spider1Widescreen::writeWindow(Core &core, std::uint32_t record, std::uint32_t margin) const {
+  core.mem_w16(record + Spider1ViewportOffset::kHorizontalFar,
+               margin == 0 ? retail_.horizontalFar : widenedFar(margin));
+  core.mem_w16(record + Spider1ViewportOffset::kHorizontalNear, retail_.horizontalNear);
+  core.mem_w16(record + Spider1ViewportOffset::kLensDivisor,
+               margin == 0 ? retail_.lensDivisor : widenedLens(margin));
 }
 
 void Spider1Widescreen::captureRetail(Core &core, std::uint32_t record) {
   retail_.horizontalFar = core.mem_r16(record + Spider1ViewportOffset::kHorizontalFar);
   retail_.horizontalNear = core.mem_r16(record + Spider1ViewportOffset::kHorizontalNear);
-  retail_.centreX = core.mem_r16(record + Spider1ViewportOffset::kCentreX);
+  retail_.lensDivisor = core.mem_r16(record + Spider1ViewportOffset::kLensDivisor);
   retailCaptured_ = true;
 }
 
