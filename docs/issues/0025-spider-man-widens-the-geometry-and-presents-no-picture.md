@@ -44,7 +44,7 @@ updated: 2026-10-09
 > skyline on the left, the building and red tower on the right); no pop-in at either edge. The HUD
 > ("DEMO") is not stretched but stays at its 4:3 x, because its primitives cannot be told from world
 > primitives. Residual: in some frames (`y16x9_8000.ppm`) polygons that retail clips off the right edge
-> draw as black quads in the extension.
+> draw as black quads in the extension (traced in issue 0032: the widened draw area overwrites texture pages).
 >
 > **The attract demo.** The guest's own disc reads (Setloc LBAs, matched to the `CD.WAD` file table the
 > guest keeps at `0x800BA738`; byte offset = 3-byte field * 256) are `dem1.vab` 8714, `dem1.sfx` 8713,
