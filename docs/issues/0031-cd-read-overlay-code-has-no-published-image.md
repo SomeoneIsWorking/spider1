@@ -38,6 +38,6 @@ next blocker after this one and belongs to S008.
 ## Landed alongside the diagnosis
 
 A full turn budget with no VSync or stream boundary now delivers one display field
-(`Spider1FrameDriver::serviceBootstrapBudgetField`); without it the post-logo wait
+(`Spider1FrameDriver::deliverBootstrapWaitField`); without it the post-logo wait
 (`FUN_8006bf9c`, 300 field-callback ticks) and the overlay mode loops never advance the counter at
 `0x800B5468`.
