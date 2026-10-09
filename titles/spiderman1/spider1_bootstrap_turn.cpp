@@ -20,7 +20,7 @@ void Spider1BootstrapTurn::begin(Core &core) {
 }
 
 void Spider1BootstrapTurn::step(Core &core) {
-  // A spent cycle budget is a field of guest time: deliver it, then resume where the driver left off.
+  // A spent cycle budget is a field of guest time: deliver it, then resume.
   if (result_.reason == psx::cpu::ExecutionExitReason::BudgetExhausted && result_.cycles != 0) {
     Spider1FrameDriver::from(core).deliverBootstrapWaitField(core, result_.guestPc);
     result_ = execution_.resumeAt(core.pc);
