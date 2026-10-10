@@ -10,7 +10,6 @@
 #include "executable_identity.h"
 #include "game.h"
 #include "guest_execution.h"
-#include "render_mode.h"
 #include "spider_runtime.h"
 
 #include <lucent/log.h>
@@ -76,7 +75,6 @@ int runPort(SpiderRuntime &runtime, int argc, char **argv) {
   game->gpu.gpu_native_init();
   game->pad.overridesInit();
   core->runtime->registerOverrides(*game);
-  render_path_install(core);
   const GuestProgramImage *program = runtime.guestProgramImage();
   if (!program || !program->crt0Entry) {
     lucent::error("executor", "{} has no authenticated runtime entry", runtime.serial());

@@ -730,6 +730,8 @@ void test_stream_frame_dma_completion_reaches_the_guest_callback() {
   constexpr uint32_t kDmaCdromChannel = 3u;
   core.mem_w32(spider::spider1::guestDmaCallbackTable + 4u * kDmaCdromChannel, kCallback);
   core.mem_w32(kDicr, 0x00880000u); // channel 3 and master enable, as DMACallback arms them
+  core.mem_w32(0x1F801074u,
+               1u << 3); // I_MASK: the DMA line, unmasked as the guest's libapi leaves it
   core.mem_w32(0x1F8010B0u, 0x80020000u);
   core.mem_w32(0x1F8010B4u, 1u);
   core.mem_w32(0x1F8010B8u, 0x11000000u);
